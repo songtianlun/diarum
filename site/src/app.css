@@ -37,21 +37,36 @@
 	}
 
 	.dark {
-		--background: 222.2 84% 4.9%;
-		--foreground: 210 40% 98%;
-		--muted: 217.2 32.6% 17.5%;
-		--muted-foreground: 215 20.2% 65.1%;
-		--primary: 210 40% 98%;
-		--primary-foreground: 222.2 47.4% 11.2%;
-		--secondary: 217.2 32.6% 17.5%;
-		--secondary-foreground: 210 40% 98%;
-		--accent: 217.2 32.6% 17.5%;
-		--accent-foreground: 210 40% 98%;
-		--border: 217.2 32.6% 17.5%;
-		--input: 217.2 32.6% 17.5%;
-		--ring: 212.7 26.8% 83.9%;
-		--card: 222.2 84% 6%;
-		--card-foreground: 210 40% 98%;
+		/* 深棕色背景 */
+		--background: 25 30% 8%;
+		/* 浅米黄色文字 */
+		--foreground: 45 25% 92%;
+		/* 中深棕色静音背景 */
+		--muted: 28 25% 16%;
+		/* 中浅棕色静音文字 */
+		--muted-foreground: 40 20% 65%;
+		/* 浅米黄主色 */
+		--primary: 45 30% 90%;
+		/* 深棕主色前景 */
+		--primary-foreground: 25 35% 12%;
+		/* 中棕次要背景 */
+		--secondary: 30 28% 18%;
+		/* 浅米黄次要前景 */
+		--secondary-foreground: 45 25% 90%;
+		/* 温暖棕色强调背景 */
+		--accent: 35 35% 20%;
+		/* 浅黄强调前景 */
+		--accent-foreground: 42 30% 88%;
+		/* 深棕边框 */
+		--border: 30 25% 22%;
+		/* 输入框边框 */
+		--input: 30 25% 22%;
+		/* 温暖的琥珀棕焦点环 */
+		--ring: 38 40% 70%;
+		/* 深棕卡片 */
+		--card: 26 28% 10%;
+		/* 浅米黄卡片文字 */
+		--card-foreground: 45 25% 90%;
 	}
 
 	* {
@@ -70,11 +85,25 @@
 /* Glass effect utilities */
 @layer utilities {
 	.glass {
-		@apply bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl;
+		/* Light: 温暖米黄色半透明 | Dark: 深棕色半透明 */
+		background-color: hsl(45 30% 97% / 0.75);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+	}
+
+	.dark .glass {
+		background-color: hsl(25 30% 8% / 0.80);
 	}
 
 	.glass-subtle {
-		@apply bg-white/50 dark:bg-gray-900/50 backdrop-blur-md;
+		/* Light: 更轻的米黄色半透明 | Dark: 更轻的深棕色半透明 */
+		background-color: hsl(45 25% 98% / 0.60);
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+	}
+
+	.dark .glass-subtle {
+		background-color: hsl(26 28% 10% / 0.65);
 	}
 }
 
