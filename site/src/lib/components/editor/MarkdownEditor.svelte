@@ -4,13 +4,30 @@
 	import { commonmark } from '@milkdown/preset-commonmark';
 	import { nord } from '@milkdown/theme-nord';
 	import { listener, listenerCtx } from '@milkdown/plugin-listener';
+	import { upload, uploadConfig } from '@milkdown/plugin-upload';
+	import { clipboard } from '@milkdown/plugin-clipboard';
+	import { history } from '@milkdown/plugin-history';
+	import { uploadImage, getMediaUrl } from '$lib/utils/uploadImage';
 
 	export let content = '';
 	export let onChange: (value: string) => void = () => {};
 	export let placeholder = 'Start writing...';
+	export let diaryId: string | undefined = undefined;
 
 	let editorContainer: HTMLDivElement;
 	let editor: Editor | null = null;
+
+	// Handle image upload
+	async function handleImageUpload(file: File): Promise<string> {
+		try {
+			const media = await uploadImage(file, { diaryId });
+			const imageUrl = getMediaUrl(media);
+			return imageUrl;
+		} catch (error) {
+			console.error('Image upload failed:', error);
+			throw error;
+		}
+	}
 
 	onMount(async () => {
 		try {
@@ -21,10 +38,33 @@
 					ctx.get(listenerCtx).markdownUpdated((ctx, markdown) => {
 						onChange(markdown);
 					});
+
+					// Configure upload plugin for drag & drop and paste
+					ctx.set(uploadConfig.key, {
+						uploader: async (files: File[]) => {
+							const file = files[0];
+							if (!file) return;
+
+							try {
+								const url = await handleImageUpload(file);
+								return {
+									url,
+									alt: file.name
+								};
+							} catch (error) {
+								console.error('Upload failed:', error);
+								return null;
+							}
+						},
+						enableHtmlFileUploader: true
+					});
 				})
 				.use(nord)
 				.use(commonmark)
 				.use(listener)
+				.use(history)
+				.use(clipboard)
+				.use(upload)
 				.create();
 		} catch (error) {
 			console.error('Failed to initialize editor:', error);
@@ -202,5 +242,24 @@
 
 	:global(.milkdown em) {
 		font-style: italic;
+	}
+
+	:global(.milkdown img) {
+		max-width: 100%;
+		height: auto;
+		border-radius: 8px;
+		margin: 1em 0;
+		box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+	}
+
+	:global(.milkdown .image-container) {
+		position: relative;
+		display: inline-block;
+		max-width: 100%;
+	}
+
+	:global(.milkdown .ProseMirror-selectednode img) {
+		outline: 2px solid hsl(221.2 83.2% 53.3%);
+		outline-offset: 2px;
 	}
 </style>

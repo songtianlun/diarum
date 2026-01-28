@@ -33,3 +33,20 @@ export interface Diary {
 	created?: string;
 	updated?: string;
 }
+
+export interface Media {
+	id?: string;
+	file: string;
+	name?: string;
+	alt?: string;
+	diary?: string;
+	owner: string;
+	created?: string;
+	updated?: string;
+}
+
+export interface UploadProgress {
+	loaded: number;
+	total: number;
+	percentage: number;
+}
