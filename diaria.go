@@ -1,8 +1,8 @@
 package main
 
-const (
-	// Version is the current version of Diaria
-	Version = "0.1.0"
+var (
+	// Version is the current version of Diaria, injected at build time
+	Version = "dev"
 	// Name is the application name
 	Name = "diaria"
 )

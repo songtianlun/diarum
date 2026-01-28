@@ -1,4 +1,8 @@
-.PHONY: help build dev run clean test frontend backend docker
+.PHONY: help build dev run clean test frontend backend docker version
+
+# Get version from git
+VERSION ?= $(shell git describe --dirty --always --tags --abbrev=7 2>/dev/null || echo "dev")
+LDFLAGS := -X main.Version=$(VERSION)
 
 # Default target
 help:
@@ -11,6 +15,11 @@ help:
 	@echo "  make clean      - Clean build artifacts"
 	@echo "  make test       - Run tests"
 	@echo "  make docker     - Build Docker image"
+	@echo "  make version    - Show current version"
+
+# Show version
+version:
+	@echo "Version: $(VERSION)"
 
 # Build everything
 build: frontend backend
@@ -22,8 +31,8 @@ frontend:
 
 # Build backend
 backend:
-	@echo "Building backend..."
-	go build -o diaria .
+	@echo "Building backend with version $(VERSION)..."
+	go build -ldflags "$(LDFLAGS)" -o diaria .
 
 # Development mode (requires running frontend and backend separately)
 dev:
