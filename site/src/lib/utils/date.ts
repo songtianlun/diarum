@@ -53,6 +53,17 @@ export function formatDisplayDate(dateStr: string): string {
 }
 
 /**
+ * Format short date for mobile display (e.g., "Jan 28")
+ */
+export function formatShortDate(dateStr: string): string {
+	const date = parseDate(dateStr);
+	return date.toLocaleDateString('en-US', {
+		month: 'short',
+		day: 'numeric'
+	});
+}
+
+/**
  * Get day of week (e.g., "Mon")
  */
 export function getDayOfWeek(dateStr: string): string {

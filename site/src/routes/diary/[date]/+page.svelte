@@ -9,6 +9,7 @@
 	import { isAuthenticated } from '$lib/api/client';
 	import {
 		formatDisplayDate,
+		formatShortDate,
 		getDayOfWeek,
 		getPreviousDay,
 		getNextDay,
@@ -154,8 +155,9 @@
 					</button>
 
 					<div class="text-sm text-foreground">
-						{formatDisplayDate(date)}
-						<span class="text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
+						<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
+						<span class="sm:hidden">{formatShortDate(date)}</span>
+						<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
 						{#if isToday(date)}
 							<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">Today</span>
 						{/if}
