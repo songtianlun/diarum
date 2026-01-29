@@ -8,6 +8,14 @@ export interface CommandItem {
 	command: (props: { editor: Editor; range: Range }) => void;
 }
 
+export type ImageUploadTrigger = () => void;
+
+let imageUploadTrigger: ImageUploadTrigger | null = null;
+
+export function setImageUploadTrigger(trigger: ImageUploadTrigger | null) {
+	imageUploadTrigger = trigger;
+}
+
 export const getSuggestionItems = (query: string): CommandItem[] => {
 	const items: CommandItem[] = [
 		{
@@ -107,8 +115,9 @@ export const getSuggestionItems = (query: string): CommandItem[] => {
 			group: 'INSERT',
 			command: ({ editor, range }) => {
 				editor.chain().focus().deleteRange(range).run();
-				const event = new CustomEvent('slash-command-image');
-				document.dispatchEvent(event);
+				if (imageUploadTrigger) {
+					imageUploadTrigger();
+				}
 			},
 		},
 	];

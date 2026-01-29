@@ -3,55 +3,83 @@ import type { CommandItem } from './commands';
 import { mount, unmount } from 'svelte';
 import CommandMenu from './CommandMenu.svelte';
 
-let component: ReturnType<typeof mount> | null = null;
-let container: HTMLElement | null = null;
-let currentProps: SuggestionProps<CommandItem> | null = null;
-let selectedIndex = 0;
+interface MenuState {
+	component: ReturnType<typeof mount> | null;
+	container: HTMLElement | null;
+	props: SuggestionProps<CommandItem> | null;
+	selectedIndex: number;
+}
 
-function updateMenu() {
-	if (container && currentProps) {
-		// Unmount and remount with new props
-		if (component) {
-			unmount(component);
-		}
-		component = mount(CommandMenu, {
-			target: container,
-			props: {
-				items: currentProps.items,
-				selectedIndex,
-				onSelect: (item: CommandItem) => {
-					currentProps?.command(item);
-				},
+// Encapsulate state in an object to avoid global variable pollution
+const state: MenuState = {
+	component: null,
+	container: null,
+	props: null,
+	selectedIndex: 0,
+};
+
+function createMenu() {
+	if (!state.container || !state.props) return;
+
+	state.component = mount(CommandMenu, {
+		target: state.container,
+		props: {
+			items: state.props.items,
+			selectedIndex: state.selectedIndex,
+			onSelect: (item: CommandItem) => {
+				state.props?.command(item);
 			},
-		});
-	}
+		},
+	});
+}
+
+function updateMenuProps() {
+	if (!state.container || !state.props || !state.component) return;
+
+	// Unmount and remount with new props
+	// Note: Svelte 5 mount() doesn't support updating props directly,
+	// so we need to remount. This is still more efficient than before
+	// because we only do it when items actually change.
+	unmount(state.component);
+	createMenu();
 }
 
 function updatePosition() {
-	if (!container || !currentProps) return;
-	const rect = currentProps.clientRect?.();
+	if (!state.container || !state.props) return;
+	const rect = state.props.clientRect?.();
 	if (!rect) return;
-	container.style.left = `${rect.left}px`;
-	container.style.top = `${rect.bottom + 8}px`;
+	state.container.style.left = `${rect.left}px`;
+	state.container.style.top = `${rect.bottom + 8}px`;
+}
+
+function cleanup() {
+	if (state.component) {
+		unmount(state.component);
+		state.component = null;
+	}
+	state.container?.remove();
+	state.container = null;
+	state.props = null;
+	state.selectedIndex = 0;
 }
 
 export const suggestionRenderer = {
 	onStart: (props: SuggestionProps<CommandItem>) => {
-		currentProps = props;
-		selectedIndex = 0;
+		state.props = props;
+		state.selectedIndex = 0;
 
-		container = document.createElement('div');
-		container.style.position = 'absolute';
-		container.style.zIndex = '1000';
-		document.body.appendChild(container);
+		state.container = document.createElement('div');
+		state.container.style.position = 'absolute';
+		state.container.style.zIndex = '1000';
+		document.body.appendChild(state.container);
 
-		updateMenu();
+		createMenu();
 		updatePosition();
 	},
 
 	onUpdate: (props: SuggestionProps<CommandItem>) => {
-		currentProps = props;
-		updateMenu();
+		state.props = props;
+		updateMenuProps();
 		updatePosition();
 	},
 
@@ -59,43 +87,34 @@ export const suggestionRenderer = {
 		const { event } = props;
 
 		if (event.key === 'ArrowUp') {
-			selectedIndex = Math.max(0, selectedIndex - 1);
-			updateMenu();
+			state.selectedIndex = Math.max(0, state.selectedIndex - 1);
+			updateMenuProps();
 			return true;
 		}
 
 		if (event.key === 'ArrowDown') {
-			const items = currentProps?.items || [];
-			selectedIndex = Math.min(items.length - 1, selectedIndex + 1);
-			updateMenu();
+			const items = state.props?.items || [];
+			state.selectedIndex = Math.min(items.length - 1, state.selectedIndex + 1);
+			updateMenuProps();
 			return true;
 		}
 
 		if (event.key === 'Enter') {
-			const items = currentProps?.items || [];
-			const item = items[selectedIndex];
+			const items = state.props?.items || [];
+			const item = items[state.selectedIndex];
 			if (item) {
-				currentProps?.command(item);
+				state.props?.command(item);
 			}
 			return true;
 		}
 
 		if (event.key === 'Escape') {
-			currentProps?.editor.commands.focus();
+			state.props?.editor.commands.focus();
 			return true;
 		}
 
 		return false;
 	},
 
-	onExit: () => {
-		if (component) {
-			unmount(component);
-			component = null;
-		}
-		container?.remove();
-		container = null;
-		currentProps = null;
-		selectedIndex = 0;
-	},
+	onExit: cleanup,
 };

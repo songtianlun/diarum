@@ -15,7 +15,7 @@
 	import { common, createLowlight } from 'lowlight';
 	import { uploadImage, getMediaUrl } from '$lib/utils/uploadImage';
 	import { SlashCommands } from './SlashCommands';
-	import { getSuggestionItems } from './commands';
+	import { getSuggestionItems, setImageUploadTrigger } from './commands';
 	import { suggestionRenderer } from './suggestionRenderer';
 
 	export let content = '';
@@ -27,18 +27,49 @@
 	let editor: Editor | null = null;
 	let fileInput: HTMLInputElement;
 	let isUploading = false;
+	let uploadError = '';
 
 	const lowlight = createLowlight(common);
+
+	// Image upload config
+	const IMAGE_CONFIG = {
+		maxSize: 50 * 1024 * 1024, // 50MB
+		allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+	};
+
+	// Validate image file
+	function validateImageFile(file: File): string | null {
+		if (!IMAGE_CONFIG.allowedTypes.includes(file.type)) {
+			return `Unsupported image format. Please use JPG, PNG, GIF or WebP`;
+		}
+		if (file.size > IMAGE_CONFIG.maxSize) {
+			const maxMB = IMAGE_CONFIG.maxSize / 1024 / 1024;
+			return `Image size cannot exceed ${maxMB}MB`;
+		}
+		return null;
+	}
 
 	// Handle image upload
 	async function handleImageUpload(file: File): Promise<string | null> {
 		if (isUploading) return null;
+
+		// Validate file
+		const validationError = validateImageFile(file);
+		if (validationError) {
+			uploadError = validationError;
+			setTimeout(() => (uploadError = ''), 3000);
+			return null;
+		}
+
 		isUploading = true;
+		uploadError = '';
 		try {
 			const media = await uploadImage(file, { diaryId });
 			return getMediaUrl(media);
 		} catch (error) {
 			console.error('Image upload failed:', error);
+			uploadError = 'Image upload failed, please try again';
+			setTimeout(() => (uploadError = ''), 3000);
 			return null;
 		} finally {
 			isUploading = false;
@@ -104,7 +135,8 @@
 	}
 
 	onMount(() => {
-		document.addEventListener('slash-command-image', handleSlashImage);
+		// Register image upload trigger for slash commands
+		setImageUploadTrigger(handleSlashImage);
 
 		editor = new Editor({
 			element: editorElement,
@@ -153,17 +185,25 @@
 			onUpdate: ({ editor }) => {
 				onChange(editor.getHTML());
 			},
+			onTransaction: () => {
+				// Force re-render so `editor.isActive` works as expected
+				editor = editor;
+			},
 		});
 	});
 
 	onDestroy(() => {
-		document.removeEventListener('slash-command-image', handleSlashImage);
+		// Cleanup image upload trigger
+		setImageUploadTrigger(null);
 		editor?.destroy();
 	});
 
 	// Watch for external content changes
-	$: if (editor && content !== editor.getHTML()) {
-		editor.commands.setContent(content, false);
+	$: if (editor) {
+		const isSame = editor.getHTML() === content;
+		if (!isSame) {
+			editor.commands.setContent(content, false);
+		}
 	}
 </script>
 
@@ -176,6 +216,12 @@
 		on:change={handleFileSelect}
 		style="display: none;"
 	/>
+	{#if uploadError}
+		<div class="upload-error">{uploadError}</div>
+	{/if}
+	{#if isUploading}
+		<div class="upload-loading">Uploading...</div>
+	{/if}
 </div>
 
 <style>
@@ -187,5 +233,41 @@
 
 	.editor-container {
 		min-height: 500px;
+	}
+
+	.upload-error {
+		position: fixed;
+		bottom: 20px;
+		right: 20px;
+		background: hsl(0 84% 60%);
+		color: white;
+		padding: 12px 16px;
+		border-radius: 8px;
+		font-size: 14px;
+		z-index: 1000;
+		animation: slideIn 0.2s ease;
+	}
+
+	.upload-loading {
+		position: fixed;
+		bottom: 20px;
+		right: 20px;
+		background: hsl(var(--primary, 220 14% 20%));
+		color: white;
+		padding: 12px 16px;
+		border-radius: 8px;
+		font-size: 14px;
+		z-index: 1000;
+	}
+
+	@keyframes slideIn {
+		from {
+			transform: translateX(100%);
+			opacity: 0;
+		}
+		to {
+			transform: translateX(0);
+			opacity: 1;
+		}
 	}
 </style>
