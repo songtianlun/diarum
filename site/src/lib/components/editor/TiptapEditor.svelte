@@ -17,7 +17,7 @@
 	import { uploadImage, getMediaUrl } from '$lib/utils/uploadImage';
 	import { SlashCommands } from './SlashCommands';
 	import { getSuggestionItems, setImageUploadTrigger } from './commands';
-	import { suggestionRenderer } from './suggestionRenderer';
+	import { suggestionRenderer, showCommandMenu } from './suggestionRenderer';
 
 	export let content = '';
 	export let onChange: (value: string) => void = () => {};
@@ -30,10 +30,9 @@
 	let isUploading = false;
 	let uploadError = '';
 
-	// Mobile add button state
-	let isTouchDevice = false;
+	// Add button state
 	let showAddButton = false;
-	let addButtonPosition = { top: 0, left: 0 };
+	let addButtonTop = 0;
 
 	const lowlight = createLowlight(common);
 
@@ -140,9 +139,9 @@
 		}
 	}
 
-	// Check if current line is empty and update add button position
-	function updateAddButtonState() {
-		if (!editor || !isTouchDevice) {
+	// Update add button position based on cursor
+	function updateAddButton() {
+		if (!editor || !editorElement) {
 			showAddButton = false;
 			return;
 		}
@@ -151,32 +150,26 @@
 		const { $from } = selection;
 		const node = $from.parent;
 
-		// Check if current node is an empty paragraph
+		// Show only on empty paragraph
 		if (node.type.name === 'paragraph' && node.content.size === 0) {
-			// Get cursor position
 			const coords = editor.view.coordsAtPos($from.pos);
 			const editorRect = editorElement.getBoundingClientRect();
-
-			addButtonPosition = {
-				top: coords.top - editorRect.top - 2,
-				left: -32,
-			};
+			addButtonTop = coords.top - editorRect.top;
 			showAddButton = true;
 		} else {
 			showAddButton = false;
 		}
 	}
 
-	// Handle add button click - insert slash to trigger menu
-	function handleAddButtonClick() {
-		if (!editor) return;
-		editor.chain().focus().insertContent('/').run();
+	// Handle add button click
+	let addButtonEl: HTMLButtonElement;
+	function handleAddClick() {
+		if (!editor || !addButtonEl) return;
+		editor.commands.focus();
+		showCommandMenu(editor, addButtonEl);
 	}
 
 	onMount(() => {
-		// Detect touch device
-		isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-
 		// Register image upload trigger for slash commands
 		setImageUploadTrigger(handleSlashImage);
 
@@ -238,10 +231,8 @@
 				onChange(editor.getHTML());
 			},
 			onTransaction: () => {
-				// Force re-render so `editor.isActive` works as expected
 				editor = editor;
-				// Update add button state for mobile
-				updateAddButtonState();
+				updateAddButton();
 			},
 		});
 	});
@@ -265,11 +256,11 @@
 	<div bind:this={editorElement} class="editor-container"></div>
 	{#if showAddButton}
 		<button
+			bind:this={addButtonEl}
 			type="button"
-			class="mobile-add-button"
-			style="top: {addButtonPosition.top}px; left: {addButtonPosition.left}px;"
-			on:click={handleAddButtonClick}
-			aria-label="Insert content"
+			class="add-button"
+			style="top: {addButtonTop}px;"
+			on:click={handleAddClick}
 		>
 			+
 		</button>
@@ -300,9 +291,9 @@
 		min-height: 500px;
 	}
 
-	/* Mobile add button */
-	.mobile-add-button {
+	.add-button {
 		position: absolute;
+		left: 0;
 		width: 24px;
 		height: 24px;
 		display: flex;
@@ -311,18 +302,16 @@
 		background: transparent;
 		border: none;
 		color: hsl(var(--muted-foreground));
-		font-size: 20px;
+		font-size: 18px;
 		font-weight: 300;
 		cursor: pointer;
 		opacity: 0.4;
 		transition: opacity 0.15s ease;
 		padding: 0;
-		line-height: 1;
 	}
 
-	.mobile-add-button:hover,
-	.mobile-add-button:active {
-		opacity: 0.7;
+	.add-button:hover {
+		opacity: 0.8;
 	}
 
 	.upload-error {

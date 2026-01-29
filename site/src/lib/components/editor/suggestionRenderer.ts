@@ -1,7 +1,9 @@
 import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion';
+import type { Editor } from '@tiptap/core';
 import type { CommandItem } from './commands';
 import { mount, unmount } from 'svelte';
 import CommandMenu from './CommandMenu.svelte';
+import { getSuggestionItems } from './commands';
 
 interface MenuState {
 	component: ReturnType<typeof mount> | null;
@@ -159,3 +161,48 @@ export const suggestionRenderer = {
 
 	onExit: cleanup,
 };
+
+// Manual trigger for add button - shows menu without inserting /
+export function showCommandMenu(editor: Editor, buttonElement: HTMLElement) {
+	// Clean up any existing menu
+	cleanup();
+
+	const items = getSuggestionItems('');
+	const rect = buttonElement.getBoundingClientRect();
+
+	state.selectedIndex = 0;
+	state.container = document.createElement('div');
+	state.container.style.position = 'fixed';
+	state.container.style.zIndex = '1000';
+	document.body.appendChild(state.container);
+
+	// Create a fake range at current cursor position
+	const { from } = editor.state.selection;
+	const range = { from, to: from };
+
+	state.props = {
+		editor,
+		items,
+		range,
+		query: '',
+		text: '',
+		clientRect: () => rect,
+		command: (item: CommandItem) => {
+			item.command({ editor, range });
+			cleanup();
+		},
+		decorationNode: null,
+	} as unknown as SuggestionProps<CommandItem>;
+
+	createMenu();
+	updatePosition();
+
+	// Close menu when clicking outside
+	const handleClickOutside = (e: MouseEvent) => {
+		if (state.container && !state.container.contains(e.target as Node)) {
+			cleanup();
+			document.removeEventListener('click', handleClickOutside);
+		}
+	};
+	setTimeout(() => document.addEventListener('click', handleClickOutside), 0);
+}
