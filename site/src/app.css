@@ -196,3 +196,208 @@
 ::-webkit-scrollbar-thumb:hover {
 	@apply bg-gray-400 dark:bg-gray-500;
 }
+
+/* TipTap Editor Styles */
+.tiptap-editor-content {
+	padding: 1.25rem 1.5rem;
+	min-height: 400px;
+	outline: none;
+	font-size: 16px;
+	line-height: 1.8;
+	color: hsl(var(--foreground));
+}
+
+.tiptap-editor-content:focus {
+	outline: none;
+}
+
+/* Placeholder - show on current empty paragraph */
+.tiptap-editor-content p.is-empty.has-focus::before {
+	content: attr(data-placeholder);
+	float: left;
+	color: hsl(var(--muted-foreground));
+	pointer-events: none;
+	height: 0;
+	opacity: 0.5;
+}
+
+/* Paragraphs */
+.tiptap-editor-content p {
+	margin-bottom: 1em;
+}
+
+/* Headings */
+.tiptap-editor-content h1 {
+	font-size: 1.875em;
+	font-weight: 700;
+	margin-top: 1.5em;
+	margin-bottom: 0.5em;
+	letter-spacing: -0.025em;
+	color: hsl(var(--foreground));
+}
+
+.tiptap-editor-content h2 {
+	font-size: 1.5em;
+	font-weight: 600;
+	margin-top: 1.25em;
+	margin-bottom: 0.5em;
+	color: hsl(var(--foreground));
+}
+
+.tiptap-editor-content h3 {
+	font-size: 1.25em;
+	font-weight: 600;
+	margin-top: 1em;
+	margin-bottom: 0.5em;
+	color: hsl(var(--foreground));
+}
+
+/* Lists */
+.tiptap-editor-content ul,
+.tiptap-editor-content ol {
+	margin-left: 1.5em;
+	margin-bottom: 1em;
+	padding-left: 0.5em;
+}
+
+.tiptap-editor-content ul {
+	list-style-type: disc;
+}
+
+.tiptap-editor-content ol {
+	list-style-type: decimal;
+}
+
+.tiptap-editor-content li {
+	margin-bottom: 0.35em;
+}
+
+.tiptap-editor-content li p {
+	margin-bottom: 0.25em;
+}
+
+/* Task List */
+.tiptap-editor-content ul[data-type="taskList"] {
+	list-style: none;
+	margin-left: 0;
+	padding-left: 0;
+}
+
+.tiptap-editor-content ul[data-type="taskList"] li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.5em;
+}
+
+.tiptap-editor-content ul[data-type="taskList"] li > label {
+	flex-shrink: 0;
+	margin-top: 0.25em;
+}
+
+.tiptap-editor-content ul[data-type="taskList"] li > label input[type="checkbox"] {
+	width: 16px;
+	height: 16px;
+	accent-color: hsl(var(--primary));
+	cursor: pointer;
+}
+
+.tiptap-editor-content ul[data-type="taskList"] li > div {
+	flex: 1;
+}
+
+/* Inline Code */
+.tiptap-editor-content code {
+	background-color: hsl(var(--muted));
+	color: hsl(var(--foreground));
+	padding: 0.2em 0.4em;
+	border-radius: 4px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 0.9em;
+}
+
+/* Code Block */
+.tiptap-editor-content pre {
+	background-color: hsl(222.2 84% 6%);
+	color: hsl(210 40% 98%);
+	padding: 1em 1.25em;
+	border-radius: 8px;
+	overflow-x: auto;
+	margin: 1em 0;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 0.9em;
+	line-height: 1.6;
+}
+
+.dark .tiptap-editor-content pre {
+	background-color: hsl(217.2 32.6% 12%);
+}
+
+.tiptap-editor-content pre code {
+	background-color: transparent;
+	padding: 0;
+	color: inherit;
+	font-size: inherit;
+}
+
+/* Blockquote */
+.tiptap-editor-content blockquote {
+	border-left: 3px solid hsl(var(--primary) / 0.5);
+	padding-left: 1em;
+	margin: 1em 0;
+	color: hsl(var(--muted-foreground));
+	font-style: italic;
+}
+
+/* Links */
+.tiptap-editor-content a,
+.tiptap-editor-content .editor-link {
+	color: hsl(221.2 83.2% 53.3%);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	cursor: pointer;
+}
+
+.tiptap-editor-content a:hover {
+	opacity: 0.8;
+}
+
+/* Images */
+.tiptap-editor-content img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 8px;
+	margin: 1em 0;
+	box-shadow: 0 2px 8px hsl(var(--foreground) / 0.1);
+}
+
+.tiptap-editor-content img.ProseMirror-selectednode {
+	outline: 2px solid hsl(var(--primary));
+	outline-offset: 2px;
+}
+
+/* Horizontal Rule */
+.tiptap-editor-content hr {
+	border: none;
+	border-top: 1px solid hsl(var(--border));
+	margin: 1.5em 0;
+}
+
+/* Highlight */
+.tiptap-editor-content mark {
+	background-color: hsl(48 96% 76%);
+	padding: 0.1em 0.2em;
+	border-radius: 2px;
+}
+
+.dark .tiptap-editor-content mark {
+	background-color: hsl(48 70% 35%);
+}
+
+/* Strong and Emphasis */
+.tiptap-editor-content strong {
+	font-weight: 600;
+}
+
+.tiptap-editor-content em {
+	font-style: italic;
+}

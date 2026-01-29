@@ -2,7 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import MarkdownEditor from '$lib/components/editor/MarkdownEditor.svelte';
+	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
 	import TableOfContents from '$lib/components/ui/TableOfContents.svelte';
 	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
 	import { getDiaryByDate } from '$lib/api/diaries';
@@ -242,7 +242,7 @@
 					</div>
 				{:else}
 					<div class="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden animate-fade-in">
-						<MarkdownEditor
+						<TiptapEditor
 							{content}
 							onChange={handleContentChange}
 							placeholder="What's on your mind today?"

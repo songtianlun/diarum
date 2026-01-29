@@ -10,21 +10,20 @@
 
 	$: headings = extractHeadings(content);
 
-	function extractHeadings(markdown: string): TocItem[] {
-		if (!markdown) return [];
+	function extractHeadings(html: string): TocItem[] {
+		if (!html) return [];
 
-		const lines = markdown.split('\n');
 		const items: TocItem[] = [];
+		// 匹配 HTML 标题标签
+		const regex = /<h([1-3])[^>]*>([^<]+)<\/h[1-3]>/gi;
+		let match;
 		let index = 0;
 
-		for (const line of lines) {
-			const match = line.match(/^(#{1,3})\s+(.+)$/);
-			if (match) {
-				const level = match[1].length;
-				const text = match[2].trim();
-				const id = `heading-${index++}`;
-				items.push({ id, text, level });
-			}
+		while ((match = regex.exec(html)) !== null) {
+			const level = parseInt(match[1]);
+			const text = match[2].trim();
+			const id = `heading-${index++}`;
+			items.push({ id, text, level });
 		}
 
 		return items;
@@ -32,7 +31,7 @@
 
 	function scrollToHeading(id: string) {
 		const headingIndex = parseInt(id.replace('heading-', ''));
-		const editorEl = document.querySelector('.milkdown');
+		const editorEl = document.querySelector('.tiptap-editor-content');
 		if (!editorEl) return;
 
 		const headingEls = editorEl.querySelectorAll('h1, h2, h3');
