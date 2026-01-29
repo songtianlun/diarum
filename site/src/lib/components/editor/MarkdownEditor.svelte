@@ -4,9 +4,9 @@
 	import { commonmark } from '@milkdown/preset-commonmark';
 	import { nord } from '@milkdown/theme-nord';
 	import { listener, listenerCtx } from '@milkdown/plugin-listener';
-	import { upload, uploadConfig } from '@milkdown/plugin-upload';
 	import { clipboard } from '@milkdown/plugin-clipboard';
 	import { history } from '@milkdown/plugin-history';
+	import { replaceAll } from '@milkdown/utils';
 	import { uploadImage, getMediaUrl } from '$lib/utils/uploadImage';
 
 	export let content = '';
@@ -16,16 +16,69 @@
 
 	let editorContainer: HTMLDivElement;
 	let editor: Editor | null = null;
+	let isUploading = false;
 
 	// Handle image upload
 	async function handleImageUpload(file: File): Promise<string> {
 		try {
+			isUploading = true;
 			const media = await uploadImage(file, { diaryId });
 			const imageUrl = getMediaUrl(media);
 			return imageUrl;
 		} catch (error) {
 			console.error('Image upload failed:', error);
 			throw error;
+		} finally {
+			isUploading = false;
+		}
+	}
+
+	// Handle paste event for images
+	async function handlePaste(event: ClipboardEvent) {
+		const items = event.clipboardData?.items;
+		if (!items) return;
+
+		for (const item of items) {
+			if (item.type.startsWith('image/')) {
+				event.preventDefault();
+				const file = item.getAsFile();
+				if (file) {
+					try {
+						const url = await handleImageUpload(file);
+						// Insert markdown image at cursor position
+						if (editor) {
+							editor.action(replaceAll(`${content}\n\n![${file.name}](${url})\n`));
+						}
+					} catch (error) {
+						console.error('Failed to upload pasted image:', error);
+						alert('图片上传失败，请重试');
+					}
+				}
+				return;
+			}
+		}
+	}
+
+	// Handle drop event for images
+	async function handleDrop(event: DragEvent) {
+		const files = event.dataTransfer?.files;
+		if (!files || files.length === 0) return;
+
+		for (const file of files) {
+			if (file.type.startsWith('image/')) {
+				event.preventDefault();
+				try {
+					const url = await handleImageUpload(file);
+					// Append markdown image
+					if (editor) {
+						editor.action(replaceAll(`${content}\n\n![${file.name}](${url})\n`));
+					}
+				} catch (error) {
+					console.error('Failed to upload dropped image:', error);
+					alert('图片上传失败，请重试');
+				}
+				return;
+			}
 		}
 	}
 
@@ -38,33 +91,12 @@
 					ctx.get(listenerCtx).markdownUpdated((ctx, markdown) => {
 						onChange(markdown);
 					});
-
-					// Configure upload plugin for drag & drop and paste
-					ctx.set(uploadConfig.key, {
-						uploader: async (files: File[]) => {
-							const file = files[0];
-							if (!file) return;
-
-							try {
-								const url = await handleImageUpload(file);
-								return {
-									url,
-									alt: file.name
-								};
-							} catch (error) {
-								console.error('Upload failed:', error);
-								return null;
-							}
-						},
-						enableHtmlFileUploader: true
-					});
 				})
 				.use(nord)
 				.use(commonmark)
 				.use(listener)
 				.use(history)
 				.use(clipboard)
-				.use(upload)
 				.create();
 		} catch (error) {
 			console.error('Failed to initialize editor:', error);
@@ -96,11 +128,16 @@
 	}
 </script>
 
-<div class="markdown-editor">
+<div class="markdown-editor" on:paste={handlePaste} on:drop={handleDrop} on:dragover={(e) => e.preventDefault()}>
 	<div bind:this={editorContainer} class="editor-container"></div>
 	{#if !content}
 		<div class="editor-placeholder">
 			{placeholder}
+		</div>
+	{/if}
+	{#if isUploading}
+		<div class="upload-indicator">
+			Uploading...
 		</div>
 	{/if}
 </div>
@@ -128,6 +165,23 @@
 		pointer-events: none;
 		font-size: 16px;
 		opacity: 0.6;
+	}
+
+	.upload-indicator {
+		position: absolute;
+		bottom: 16px;
+		right: 16px;
+		padding: 8px 16px;
+		background: hsl(var(--primary));
+		color: hsl(var(--primary-foreground));
+		border-radius: 8px;
+		font-size: 14px;
+		animation: pulse 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.6; }
 	}
 
 	:global(.milkdown) {
