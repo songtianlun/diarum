@@ -4,6 +4,7 @@
 	export let items: CommandItem[] = [];
 	export let selectedIndex = 0;
 	export let onSelect: (item: CommandItem) => void;
+	export let isAbove = false;
 
 	let container: HTMLDivElement;
 
@@ -46,7 +47,7 @@
 	};
 </script>
 
-<div class="command-menu" bind:this={container}>
+<div class="command-menu" class:is-above={isAbove} bind:this={container}>
 	{#if items.length === 0}
 		<div class="no-results">No results</div>
 	{:else}
@@ -83,14 +84,30 @@
 		min-width: 200px;
 		max-height: 340px;
 		overflow-y: auto;
-		animation: menuEnter 0.15s ease-out;
+		animation: menuEnterDown 0.15s ease-out;
 		transform-origin: top left;
 	}
 
-	@keyframes menuEnter {
+	.command-menu.is-above {
+		animation: menuEnterUp 0.15s ease-out;
+		transform-origin: bottom left;
+	}
+
+	@keyframes menuEnterDown {
 		from {
 			opacity: 0;
 			transform: scale(0.95) translateY(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1) translateY(0);
+		}
+	}
+
+	@keyframes menuEnterUp {
+		from {
+			opacity: 0;
+			transform: scale(0.95) translateY(4px);
 		}
 		to {
 			opacity: 1;

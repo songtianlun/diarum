@@ -8,6 +8,7 @@ interface MenuState {
 	container: HTMLElement | null;
 	props: SuggestionProps<CommandItem> | null;
 	selectedIndex: number;
+	isAbove: boolean;
 }
 
 // Encapsulate state in an object to avoid global variable pollution
@@ -16,6 +17,7 @@ const state: MenuState = {
 	container: null,
 	props: null,
 	selectedIndex: 0,
+	isAbove: false,
 };
 
 function createMenu() {
@@ -26,6 +28,7 @@ function createMenu() {
 		props: {
 			items: state.props.items,
 			selectedIndex: state.selectedIndex,
+			isAbove: state.isAbove,
 			onSelect: (item: CommandItem) => {
 				state.props?.command(item);
 			},
@@ -48,8 +51,29 @@ function updatePosition() {
 	if (!state.container || !state.props) return;
 	const rect = state.props.clientRect?.();
 	if (!rect) return;
+
+	const menuHeight = 340; // max-height of command-menu
+	const gap = 8;
+	const viewportHeight = window.innerHeight;
+
+	// Check if there's enough space below
+	const spaceBelow = viewportHeight - rect.bottom;
+	const spaceAbove = rect.top;
+
+	// If cursor is in the lower half of the screen or not enough space below, show above
+	state.isAbove = spaceBelow < menuHeight + gap && spaceAbove > spaceBelow;
+
 	state.container.style.left = `${rect.left}px`;
-	state.container.style.top = `${rect.bottom + 8}px`;
+
+	if (state.isAbove) {
+		// Position above the cursor
+		state.container.style.top = 'auto';
+		state.container.style.bottom = `${viewportHeight - rect.top + gap}px`;
+	} else {
+		// Position below the cursor
+		state.container.style.top = `${rect.bottom + gap}px`;
+		state.container.style.bottom = 'auto';
+	}
 }
 
 function cleanup() {
@@ -67,6 +91,7 @@ function cleanup() {
 			state.container = null;
 			state.props = null;
 			state.selectedIndex = 0;
+			state.isAbove = false;
 		}, 100); // Match the menuExit animation duration
 	} else {
 		if (state.component) {
@@ -75,6 +100,7 @@ function cleanup() {
 		}
 		state.props = null;
 		state.selectedIndex = 0;
+		state.isAbove = false;
 	}
 }
 
