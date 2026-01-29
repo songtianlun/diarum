@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Calendar from '$lib/components/calendar/Calendar.svelte';
-	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
+	import Footer from '$lib/components/ui/Footer.svelte';
 	import { getDatesWithDiaries } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getMonthRange } from '$lib/utils/date';
@@ -109,14 +109,5 @@
 	</main>
 
 	<!-- Footer -->
-	<footer class="border-t border-border/50 mt-8">
-		<div class="max-w-6xl mx-auto px-4 py-3">
-			<div class="flex items-center justify-between">
-				<div class="text-xs text-muted-foreground">
-					Your personal diary
-				</div>
-				<ThemeToggle />
-			</div>
-		</div>
-	</footer>
+	<Footer maxWidth="6xl" tagline="Your personal diary" />
 </div>

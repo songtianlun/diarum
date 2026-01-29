@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
 	import TableOfContents from '$lib/components/ui/TableOfContents.svelte';
-	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
+	import Footer from '$lib/components/ui/Footer.svelte';
 	import { getDiaryByDate } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import {
@@ -265,19 +265,7 @@
 	</div>
 
 	<!-- Footer -->
-	<footer class="border-t border-border/50 mt-8">
-		<div class="max-w-6xl mx-auto px-4 py-3">
-			<div class="flex items-center justify-between">
-				<div class="text-xs text-muted-foreground">
-					<kbd class="px-1.5 py-0.5 bg-muted rounded text-[10px]">Ctrl+S</kbd>
-					<span class="mx-1">or</span>
-					<kbd class="px-1.5 py-0.5 bg-muted rounded text-[10px]">⌘S</kbd>
-					<span class="ml-1">to save</span>
-				</div>
-				<ThemeToggle />
-			</div>
-		</div>
-	</footer>
+	<Footer maxWidth="6xl" tagline="Ctrl+S or ⌘S to save" />
 </div>
 
 <style>
