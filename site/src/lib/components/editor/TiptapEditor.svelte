@@ -14,7 +14,9 @@
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 	import { common, createLowlight } from 'lowlight';
 	import { uploadImage, getMediaUrl } from '$lib/utils/uploadImage';
-	import EditorToolbar from './EditorToolbar.svelte';
+	import { SlashCommands } from './SlashCommands';
+	import { getSuggestionItems } from './commands';
+	import { suggestionRenderer } from './suggestionRenderer';
 
 	export let content = '';
 	export let onChange: (value: string) => void = () => {};
@@ -23,6 +25,7 @@
 
 	let editorElement: HTMLDivElement;
 	let editor: Editor | null = null;
+	let fileInput: HTMLInputElement;
 	let isUploading = false;
 
 	const lowlight = createLowlight(common);
@@ -82,7 +85,27 @@
 		return false;
 	}
 
+	// Handle slash command image trigger
+	function handleSlashImage() {
+		fileInput?.click();
+	}
+
+	function handleFileSelect(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (file) {
+			handleImageUpload(file).then((url) => {
+				if (url && editor) {
+					editor.chain().focus().setImage({ src: url }).run();
+				}
+			});
+			input.value = '';
+		}
+	}
+
 	onMount(() => {
+		document.addEventListener('slash-command-image', handleSlashImage);
+
 		editor = new Editor({
 			element: editorElement,
 			extensions: [
@@ -98,9 +121,6 @@
 				}),
 				Link.configure({
 					openOnClick: false,
-					HTMLAttributes: {
-						class: 'editor-link',
-					},
 				}),
 				Underline,
 				Highlight.configure({
@@ -114,6 +134,12 @@
 				Typography,
 				CodeBlockLowlight.configure({
 					lowlight,
+				}),
+				SlashCommands.configure({
+					suggestion: {
+						items: ({ query }: { query: string }) => getSuggestionItems(query),
+						render: () => suggestionRenderer,
+					},
 				}),
 			],
 			content,
@@ -131,72 +157,35 @@
 	});
 
 	onDestroy(() => {
-		if (editor) {
-			editor.destroy();
-		}
+		document.removeEventListener('slash-command-image', handleSlashImage);
+		editor?.destroy();
 	});
 
 	// Watch for external content changes
 	$: if (editor && content !== editor.getHTML()) {
 		editor.commands.setContent(content, false);
 	}
-
-	// Insert image (for toolbar)
-	export function insertImage(url: string) {
-		if (editor) {
-			editor.chain().focus().setImage({ src: url }).run();
-		}
-	}
-
-	// Upload and insert image
-	export async function uploadAndInsertImage(file: File) {
-		const url = await handleImageUpload(file);
-		if (url) {
-			insertImage(url);
-		}
-	}
 </script>
 
 <div class="tiptap-editor">
-	{#if editor}
-		<EditorToolbar {editor} onUploadImage={uploadAndInsertImage} {isUploading} />
-	{/if}
 	<div bind:this={editorElement} class="editor-container"></div>
-	{#if editor}
-		<div class="editor-footer">
-			<span class="char-count">
-				{editor.storage.characterCount.characters()} 字符
-			</span>
-		</div>
-	{/if}
+	<input
+		type="file"
+		accept="image/*"
+		bind:this={fileInput}
+		on:change={handleFileSelect}
+		style="display: none;"
+	/>
 </div>
 
 <style>
 	.tiptap-editor {
 		position: relative;
 		width: 100%;
-		border: 1px solid hsl(var(--border));
-		border-radius: 12px;
-		background: hsl(var(--background));
-		overflow: hidden;
+		min-height: 500px;
 	}
 
 	.editor-container {
-		min-height: 400px;
-		max-height: 70vh;
-		overflow-y: auto;
-	}
-
-	.editor-footer {
-		display: flex;
-		justify-content: flex-end;
-		padding: 8px 16px;
-		border-top: 1px solid hsl(var(--border));
-		background: hsl(var(--muted) / 0.3);
-	}
-
-	.char-count {
-		font-size: 12px;
-		color: hsl(var(--muted-foreground));
+		min-height: 500px;
 	}
 </style>
