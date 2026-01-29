@@ -143,6 +143,8 @@ func main() {
 
 		// Register API routes
 		api.RegisterDiaryRoutes(app, e)
+		api.RegisterSettingsRoutes(app, e)
+		api.RegisterPublicRoutes(app, e)
 
 		// Serve embedded frontend static files with SPA fallback
 		staticFS, err := static.GetFS()
