@@ -12,6 +12,8 @@
 	let datesWithDiaries: string[] = [];
 	let recentDiaries: Array<{ date: string; content: string }> = [];
 	let loading = true;
+	let calendarHeight: number | null = null;
+	let calendarContainer: HTMLElement;
 
 	async function loadDatesWithDiaries() {
 		loading = true;
@@ -33,6 +35,14 @@
 		return text.length > 80 ? text.slice(0, 80) + '...' : text;
 	}
 
+	function syncHeight() {
+		if (calendarContainer && window.innerWidth >= 1024) {
+			calendarHeight = calendarContainer.offsetHeight;
+		} else {
+			calendarHeight = null;
+		}
+	}
+
 	onMount(() => {
 		if (!$isAuthenticated) {
 			goto('/login');
@@ -40,6 +50,11 @@
 		}
 		loadDatesWithDiaries();
 		loadRecentDiaries();
+
+		// Sync height after content loads
+		setTimeout(syncHeight, 100);
+		window.addEventListener('resize', syncHeight);
+		return () => window.removeEventListener('resize', syncHeight);
 	});
 
 	// Only run in browser, not during SSR
@@ -47,6 +62,11 @@
 		if (currentYear && currentMonth && typeof window !== 'undefined') {
 			loadDatesWithDiaries();
 		}
+	}
+
+	// Sync height when loading state changes
+	$: if (!loading && typeof window !== 'undefined') {
+		setTimeout(syncHeight, 50);
 	}
 </script>
 
@@ -99,9 +119,9 @@
 
 	<!-- Calendar -->
 	<main class="max-w-6xl mx-auto px-4 py-6">
-		<div class="flex flex-col lg:flex-row gap-6">
+		<div class="flex flex-col lg:flex-row lg:items-start gap-6">
 			<!-- Left: Calendar -->
-			<div class="lg:w-[55%] xl:w-[50%]">
+			<div class="lg:w-[55%] xl:w-[50%]" bind:this={calendarContainer}>
 				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in">
 					{#if loading}
 						<div class="flex flex-col items-center justify-center py-20 gap-3">
@@ -118,7 +138,7 @@
 			</div>
 
 			<!-- Right: Stats and Recent Entries -->
-			<div class="lg:w-[45%] xl:w-[50%] flex flex-col gap-4">
+			<div class="lg:w-[45%] xl:w-[50%] flex flex-col gap-4" style={calendarHeight ? `max-height: ${calendarHeight}px` : ''}>
 				<!-- Stats -->
 				<div class="grid grid-cols-3 gap-4">
 					<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 animate-fade-in" style="animation-delay: 100ms">
@@ -140,10 +160,10 @@
 				</div>
 
 				<!-- Recent Entries -->
-				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 animate-fade-in flex-1" style="animation-delay: 250ms">
+				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 animate-fade-in flex-1 overflow-hidden flex flex-col" style="animation-delay: 250ms">
 					<h3 class="text-sm font-medium text-foreground mb-3">Recent Entries</h3>
 					{#if recentDiaries.length > 0}
-						<div class="space-y-2">
+						<div class="space-y-2 overflow-y-auto flex-1">
 							{#each recentDiaries as diary}
 								<a
 									href="/diary/{diary.date}"
