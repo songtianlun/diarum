@@ -76,8 +76,8 @@ jobs:
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
-      - name: Notify Keel (tag v* only)
-        if: ${{ github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v') }}
+      - name: Notify Keel
+        if: ${{ github.event_name != 'pull_request' }}
         uses: fjogeleit/http-request-action@master
         with:
           url: 'https://keel.skybyte.me/v1/webhooks/native'

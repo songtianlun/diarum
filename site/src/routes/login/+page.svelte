@@ -3,7 +3,7 @@
 	import { login, register, type LoginCredentials, type RegisterData } from '$lib/api/auth';
 	import { onMount } from 'svelte';
 	import { isAuthenticated } from '$lib/api/client';
-	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
+	import Footer from '$lib/components/ui/Footer.svelte';
 
 	let activeTab: 'login' | 'register' = 'login';
 	let loading = false;
@@ -223,12 +223,5 @@
 	</div>
 
 	<!-- Footer -->
-	<footer class="border-t border-border/50">
-		<div class="max-w-md mx-auto px-4 py-3">
-			<div class="flex items-center justify-between">
-				<p class="text-xs text-muted-foreground">A simple, private diary</p>
-				<ThemeToggle />
-			</div>
-		</div>
-	</footer>
+	<Footer maxWidth="md" tagline="A simple, private diary" />
 </div>

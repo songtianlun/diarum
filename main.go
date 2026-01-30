@@ -29,7 +29,7 @@ func getDataDir() string {
 		return dataDir
 	}
 	// Default value
-	return "./pb_data"
+	return "./diaria_data"
 }
 
 // serveSPA serves the SPA with fallback to index.html for client-side routing
@@ -145,6 +145,7 @@ func main() {
 		api.RegisterDiaryRoutes(app, e)
 		api.RegisterSettingsRoutes(app, e)
 		api.RegisterPublicRoutes(app, e)
+		api.RegisterVersionRoutes(e, Version, Name)
 
 		// Serve embedded frontend static files with SPA fallback
 		staticFS, err := static.GetFS()

@@ -15,6 +15,7 @@ go.work
 
 # PocketBase data
 pb_data/
+diaria_data/
 !pb_data/.gitkeep
 
 # Build artifacts

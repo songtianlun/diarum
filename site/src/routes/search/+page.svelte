@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import ThemeToggle from '$lib/components/ui/ThemeToggle.svelte';
+	import Footer from '$lib/components/ui/Footer.svelte';
 	import { searchDiaries } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import { formatDisplayDate, formatShortDate, getDayOfWeek } from '$lib/utils/date';
@@ -251,16 +251,7 @@
 	</main>
 
 	<!-- Footer -->
-	<footer class="border-t border-border/50 mt-8">
-		<div class="max-w-3xl mx-auto px-4 py-3">
-			<div class="flex items-center justify-between">
-				<div class="text-xs text-muted-foreground">
-					Search through your memories
-				</div>
-				<ThemeToggle />
-			</div>
-		</div>
-	</footer>
+	<Footer maxWidth="3xl" tagline="Search through your memories" />
 </div>
 
 <style>
