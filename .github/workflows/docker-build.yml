@@ -37,17 +37,21 @@ jobs:
         id: docker_tags
         run: |
           TAGS=""
+          KEEL_TAG=""
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             # For version tags (v*), push both the version and latest
             TAG_VERSION=${GITHUB_REF#refs/tags/}
             TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG_VERSION},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            KEEL_TAG="${TAG_VERSION}"
             echo "Building release: $TAG_VERSION"
           else
             # For branches (main, release/*, devel/*, dev/*), push as devel
             TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel"
+            KEEL_TAG="devel"
             echo "Building development version"
           fi
           echo "TAGS=$TAGS" >> $GITHUB_OUTPUT
+          echo "KEEL_TAG=$KEEL_TAG" >> $GITHUB_OUTPUT
           echo "Docker tags: $TAGS"
 
       - name: Login to Docker Hub
@@ -83,4 +87,4 @@ jobs:
           url: 'https://keel.skybyte.me/v1/webhooks/native'
           method: 'POST'
           contentType: 'application/json'
-          data: '{"name": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}", "tag": "devel"}'
+          data: '{"name": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}", "tag": "${{ steps.docker_tags.outputs.KEEL_TAG }}"}'
