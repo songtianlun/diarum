@@ -22,7 +22,7 @@
 	export let content = '';
 	export let onChange: (value: string) => void = () => {};
 	export let placeholder = 'Start writing...';
-	export let diaryId: string | undefined = undefined;
+	export let diaryDate: string | undefined = undefined;
 
 	let editorElement: HTMLDivElement;
 	let editor: Editor | null = null;
@@ -69,7 +69,7 @@
 		isUploading = true;
 		uploadError = '';
 		try {
-			const media = await uploadImage(file, { diaryId });
+			const media = await uploadImage(file, { diaryDate });
 			return getMediaUrl(media);
 		} catch (error) {
 			console.error('Image upload failed:', error);

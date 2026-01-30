@@ -255,6 +255,7 @@
 							{content}
 							onChange={handleContentChange}
 							placeholder="What's on your mind today?"
+							diaryDate={date}
 						/>
 					</div>
 				{/if}

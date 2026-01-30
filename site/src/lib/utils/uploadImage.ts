@@ -1,8 +1,45 @@
 import { pb } from '$lib/api/client';
 import type { Media, UploadProgress } from '$lib/api/client';
 
+/**
+ * Get or create diary ID for a given date
+ */
+async function getOrCreateDiaryId(date: string): Promise<string | undefined> {
+	try {
+		// Try to find existing diary
+		const response = await fetch(`/api/diaries/by-date/${date}`, {
+			headers: {
+				'Authorization': `Bearer ${pb.authStore.token}`
+			}
+		});
+
+		if (response.ok) {
+			const data = await response.json();
+			if (data.exists && data.id) {
+				return data.id;
+			}
+		}
+
+		// Create new diary if not exists
+		const userId = pb.authStore.model?.id;
+		if (!userId) return undefined;
+
+		const newDiary = await pb.collection('diaries').create({
+			date: date + ' 00:00:00.000Z',
+			content: '',
+			owner: userId
+		});
+
+		return newDiary.id;
+	} catch (error) {
+		console.error('Failed to get/create diary:', error);
+		return undefined;
+	}
+}
+
 export interface UploadOptions {
 	diaryId?: string;
+	diaryDate?: string; // Date string (YYYY-MM-DD) to auto-link diary
 	alt?: string;
 	onProgress?: (progress: UploadProgress) => void;
 }
@@ -14,7 +51,7 @@ export interface UploadOptions {
  * @returns The created media record with file URL
  */
 export async function uploadImage(file: File, options: UploadOptions = {}): Promise<Media> {
-	const { diaryId, alt, onProgress } = options;
+	const { diaryId, diaryDate, alt, onProgress } = options;
 
 	// Validate file type
 	const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
@@ -22,10 +59,16 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		throw new Error(`Invalid file type: ${file.type}. Allowed types: ${allowedTypes.join(', ')}`);
 	}
 
-	// Validate file size (5MB max)
-	const maxSize = 5 * 1024 * 1024;
+	// Validate file size (50MB max - must match PocketBase media collection setting)
+	const maxSize = 50 * 1024 * 1024;
 	if (file.size > maxSize) {
-		throw new Error(`File size exceeds 5MB limit. File size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+		throw new Error(`File size exceeds 50MB limit. File size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+	}
+
+	// Resolve diary ID from date if provided
+	let resolvedDiaryId = diaryId;
+	if (!resolvedDiaryId && diaryDate) {
+		resolvedDiaryId = await getOrCreateDiaryId(diaryDate);
 	}
 
 	// Create FormData
@@ -38,8 +81,8 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		formData.append('alt', alt);
 	}
 
-	if (diaryId) {
-		formData.append('diary', diaryId);
+	if (resolvedDiaryId) {
+		formData.append('diary', resolvedDiaryId);
 	}
 
 	try {
@@ -49,8 +92,9 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		});
 
 		return record;
-	} catch (error) {
+	} catch (error: any) {
 		console.error('Upload failed:', error);
+		console.error('Error data:', JSON.stringify(error?.data, null, 2));
 		throw new Error('Failed to upload image. Please try again.');
 	}
 }
