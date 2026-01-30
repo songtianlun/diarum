@@ -15,6 +15,9 @@
 	let loading = true;
 	let recentLoading = true;
 	let statsLoading = true;
+	let mounted = false;
+	let prevYear = currentYear;
+	let prevMonth = currentMonth;
 
 	async function loadDatesWithDiaries() {
 		loading = true;
@@ -52,10 +55,13 @@
 		loadDatesWithDiaries();
 		loadRecentDiaries();
 		loadStats();
+		mounted = true;
 	});
 
 	$: {
-		if (currentYear && currentMonth && typeof window !== 'undefined') {
+		if (mounted && (currentYear !== prevYear || currentMonth !== prevMonth)) {
+			prevYear = currentYear;
+			prevMonth = currentMonth;
 			loadDatesWithDiaries();
 		}
 	}
@@ -109,13 +115,13 @@
 	</header>
 
 	<!-- Calendar -->
-	<main class="max-w-6xl mx-auto px-4 py-6">
-		<div class="flex flex-col lg:flex-row lg:items-stretch gap-6">
+	<main class="max-w-5xl mx-auto px-4 py-6">
+		<div class="flex flex-col lg:flex-row gap-6 lg:h-[540px]">
 			<!-- Left: Calendar -->
-			<div class="lg:w-[55%] xl:w-[50%]">
-				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in h-full">
+			<div class="lg:flex-1 lg:min-w-0">
+				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-5 h-full relative overflow-hidden">
 					{#if loading}
-						<div class="flex flex-col items-center justify-center py-20 gap-3">
+						<div class="absolute inset-0 flex flex-col items-center justify-center gap-3">
 							<svg class="w-6 h-6 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
 								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -123,54 +129,56 @@
 							<div class="text-muted-foreground text-sm">Loading...</div>
 						</div>
 					{:else}
-						<Calendar bind:currentYear bind:currentMonth {datesWithDiaries} />
+						<div class="animate-fade-in-only">
+							<Calendar bind:currentYear bind:currentMonth {datesWithDiaries} />
+						</div>
 					{/if}
 				</div>
 			</div>
 
 			<!-- Right: Stats and Recent Entries -->
-			<div class="lg:w-[45%] xl:w-[50%] flex flex-col gap-4">
+			<div class="lg:w-[340px] xl:w-[380px] flex flex-col gap-4 flex-shrink-0">
 				<!-- Stats -->
 				<div class="grid grid-cols-3 gap-4">
-					<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 animate-fade-in" style="animation-delay: 100ms">
+					<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4">
 						<div class="text-xs text-muted-foreground">This month</div>
-						<div class="text-xl font-bold text-foreground mt-1">
+						<div class="text-xl font-bold text-foreground mt-1 h-7 flex items-center">
 							{#if loading}
 								<span class="inline-block w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></span>
 							{:else}
-								{datesWithDiaries.length}
+								<span class="animate-fade-in-only">{datesWithDiaries.length}</span>
 							{/if}
 						</div>
 					</div>
 
-					<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 animate-fade-in" style="animation-delay: 150ms">
+					<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4">
 						<div class="text-xs text-muted-foreground">Streak</div>
-						<div class="text-xl font-bold text-foreground mt-1">
+						<div class="text-xl font-bold text-foreground mt-1 h-7 flex items-center">
 							{#if statsLoading}
 								<span class="inline-block w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></span>
 							{:else}
-								{stats?.streak ?? 0}
+								<span class="animate-fade-in-only">{stats?.streak ?? 0}</span>
 							{/if}
 						</div>
 					</div>
 
-					<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 animate-fade-in" style="animation-delay: 200ms">
+					<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4">
 						<div class="text-xs text-muted-foreground">Total</div>
-						<div class="text-xl font-bold text-foreground mt-1">
+						<div class="text-xl font-bold text-foreground mt-1 h-7 flex items-center">
 							{#if statsLoading}
 								<span class="inline-block w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></span>
 							{:else}
-								{stats?.total ?? 0}
+								<span class="animate-fade-in-only">{stats?.total ?? 0}</span>
 							{/if}
 						</div>
 					</div>
 				</div>
 
 				<!-- Recent Entries -->
-				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 animate-fade-in flex-1 min-h-0 overflow-hidden flex flex-col" style="animation-delay: 250ms">
+				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 flex-1 min-h-0 flex flex-col overflow-hidden">
 					<h3 class="text-sm font-medium text-foreground mb-3">Recent Entries</h3>
 					{#if recentLoading}
-						<div class="flex flex-col items-center justify-center flex-1 gap-3">
+						<div class="flex-1 flex flex-col items-center justify-center gap-3">
 							<svg class="w-6 h-6 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
 								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -178,11 +186,11 @@
 							<div class="text-muted-foreground text-sm">Loading...</div>
 						</div>
 					{:else if recentDiaries.length > 0}
-						<div class="space-y-2 overflow-y-auto flex-1">
+						<div class="space-y-2 overflow-y-auto flex-1 animate-fade-in-only">
 							{#each recentDiaries as diary}
 								<a
 									href="/diary/{diary.date}"
-									class="block p-3 rounded-lg hover:bg-muted/50 transition-all duration-200 border border-border/30"
+									class="block p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/30"
 								>
 									<div class="text-xs text-muted-foreground mb-1">
 										{formatDisplayDate(diary.date)}
@@ -194,7 +202,7 @@
 							{/each}
 						</div>
 					{:else}
-						<div class="flex-1 flex items-center justify-center">
+						<div class="flex-1 flex items-center justify-center animate-fade-in-only">
 							<div class="text-sm text-muted-foreground text-center">
 								No entries yet. Start writing today!
 							</div>

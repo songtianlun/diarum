@@ -75,6 +75,7 @@
 
 	html {
 		scroll-behavior: smooth;
+		overflow-y: scroll;
 	}
 
 	body {
@@ -130,6 +131,15 @@
 	}
 }
 
+@keyframes fade-in-only {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
 @keyframes slide-in-right {
 	from {
 		opacity: 0;
@@ -164,6 +174,10 @@
 @layer utilities {
 	.animate-fade-in {
 		animation: fade-in 0.3s ease-out forwards;
+	}
+
+	.animate-fade-in-only {
+		animation: fade-in-only 0.3s ease-out forwards;
 	}
 
 	.animate-slide-in-right {
