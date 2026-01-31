@@ -444,10 +444,33 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		// Create stream writer
 		writer := &sseWriter{w: c.Response()}
 
-		// Stream chat response
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 		defer cancel()
 
+		// Generate title first for new conversations (before streaming response)
+		var newTitle string
+		if isFirstMessage && currentTitle == "" {
+			logger.Info("[POST /api/ai/chat] generating title for conversation=%s (before streaming)", body.ConversationID)
+			title, err := chatService.GenerateTitleFromUserMessage(ctx, authRecord.Id, body.Content)
+			if err != nil {
+				logger.Error("[POST /api/ai/chat] failed to generate title: %v", err)
+			} else {
+				newTitle = title
+				logger.Info("[POST /api/ai/chat] generated title: %s", title)
+				if err := chatService.UpdateConversationTitle(body.ConversationID, title); err != nil {
+					logger.Error("[POST /api/ai/chat] failed to update title: %v", err)
+				} else {
+					// Send title event immediately
+					titleData, _ := json.Marshal(map[string]any{
+						"title": newTitle,
+					})
+					writer.Write([]byte("data: " + string(titleData) + "\n\n"))
+					writer.Flush()
+				}
+			}
+		}
+
+		// Stream chat response
 		fullResponse, referencedDiaries, err := chatService.StreamChat(ctx, authRecord.Id, body.ConversationID, body.Content, writer)
 		if err != nil {
 			logger.Error("[POST /api/ai/chat] stream chat error: %v", err)
@@ -463,22 +486,6 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 			logger.Error("[POST /api/ai/chat] failed to save assistant message: %v", err)
 		} else {
 			logger.Info("[POST /api/ai/chat] saved assistant message: %s", assistantMsg.Id)
-		}
-
-		// Generate title for first message
-		var newTitle string
-		if isFirstMessage && currentTitle == "" {
-			logger.Info("[POST /api/ai/chat] generating title for conversation=%s", body.ConversationID)
-			title, err := chatService.GenerateTitle(ctx, authRecord.Id, body.Content, fullResponse)
-			if err != nil {
-				logger.Error("[POST /api/ai/chat] failed to generate title: %v", err)
-			} else {
-				newTitle = title
-				logger.Info("[POST /api/ai/chat] generated title: %s", title)
-				if err := chatService.UpdateConversationTitle(body.ConversationID, title); err != nil {
-					logger.Error("[POST /api/ai/chat] failed to update title: %v", err)
-				}
-			}
 		}
 
 		// Send done event

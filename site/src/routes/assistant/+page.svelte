@@ -130,6 +130,14 @@
 					console.error('Stream error:', chunk.error);
 					break;
 				}
+				// Handle title event (can come before or with done)
+				if (chunk.title && convId) {
+					conversations = conversations.map(c =>
+						c.id === convId
+							? { ...c, title: chunk.title! }
+							: c
+					);
+				}
 				if (chunk.content) {
 					streamingContent += chunk.content;
 					scrollToBottom();
@@ -145,15 +153,6 @@
 					};
 					messages = [...messages, assistantMsg];
 					streamingContent = '';
-
-					// Update conversation title if returned
-					if (chunk.title && convId) {
-						conversations = conversations.map(c =>
-							c.id === convId
-								? { ...c, title: chunk.title! }
-								: c
-						);
-					}
 				}
 			}
 		} catch (e) {

@@ -657,6 +657,74 @@ func (s *ChatService) formatDiariesForContext(diaries []embedding.DiarySearchRes
 	return sb.String()
 }
 
+// GenerateTitleFromUserMessage generates a title based only on the user's message
+// Uses simple text extraction instead of AI to ensure compatibility with all models
+func (s *ChatService) GenerateTitleFromUserMessage(ctx context.Context, userID, userMessage string) (string, error) {
+	// Simple approach: extract title from user message directly
+	title := extractTitleFromMessage(userMessage)
+	if title == "" {
+		return "", fmt.Errorf("could not extract title from message")
+	}
+	return title, nil
+}
+
+// extractTitleFromMessage extracts a short title from the user's message
+func extractTitleFromMessage(message string) string {
+	// Remove HTML tags if any
+	message = stripHTMLTags(message)
+
+	// Replace newlines with spaces
+	message = strings.ReplaceAll(message, "\n", " ")
+	message = strings.ReplaceAll(message, "\r", " ")
+
+	// Collapse multiple spaces
+	for strings.Contains(message, "  ") {
+		message = strings.ReplaceAll(message, "  ", " ")
+	}
+
+	// Trim whitespace
+	message = strings.TrimSpace(message)
+
+	if message == "" {
+		return ""
+	}
+
+	// Limit to 50 characters
+	maxLen := 50
+	if len(message) <= maxLen {
+		return message
+	}
+
+	// Try to cut at word boundary
+	title := message[:maxLen]
+	lastSpace := strings.LastIndex(title, " ")
+	if lastSpace > maxLen/2 {
+		title = title[:lastSpace]
+	}
+
+	return strings.TrimSpace(title) + "..."
+}
+
+// stripHTMLTags removes HTML tags from a string
+func stripHTMLTags(s string) string {
+	var result strings.Builder
+	inTag := false
+	for _, r := range s {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
 // GenerateTitle generates a title for a conversation based on the first message
 func (s *ChatService) GenerateTitle(ctx context.Context, userID, userMessage, assistantResponse string) (string, error) {
 	// Get AI configuration
