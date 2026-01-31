@@ -194,7 +194,7 @@ func (s *EmbeddingService) BuildAllVectors(ctx context.Context, userID string) (
 
 	// Process all diaries
 	for _, diary := range diaries {
-		if err := s.processDiary(ctx, collection, diary); err != nil {
+		if err := s.processDiary(ctx, collection, diary, embeddingFunc); err != nil {
 			result.Failed++
 			dateStr := extractDate(diary.GetString("date"))
 			errMsg := fmt.Sprintf("Diary %s: %v", dateStr, err)
@@ -266,7 +266,7 @@ func (s *EmbeddingService) BuildIncrementalVectors(ctx context.Context, userID s
 			continue
 		}
 
-		if err := s.processDiary(ctx, collection, diary); err != nil {
+		if err := s.processDiary(ctx, collection, diary, embeddingFunc); err != nil {
 			result.Failed++
 			dateStr := extractDate(diary.GetString("date"))
 			errMsg := fmt.Sprintf("Diary %s: %v", dateStr, err)
@@ -285,7 +285,7 @@ func (s *EmbeddingService) BuildIncrementalVectors(ctx context.Context, userID s
 }
 
 // processDiary processes a single diary entry
-func (s *EmbeddingService) processDiary(ctx context.Context, collection *chromem.Collection, diary *models.Record) error {
+func (s *EmbeddingService) processDiary(ctx context.Context, collection *chromem.Collection, diary *models.Record, embeddingFunc chromem.EmbeddingFunc) error {
 	content := diary.GetString("content")
 	if content == "" {
 		return nil // Skip empty diaries
@@ -297,10 +297,17 @@ func (s *EmbeddingService) processDiary(ctx context.Context, collection *chromem
 	weather := diary.GetString("weather")
 	builtAt := time.Now().UTC().Format(time.RFC3339)
 
-	// Create document with metadata including build time
+	// Generate embedding directly to avoid issues with collection's embeddingFunc
+	embedding, err := embeddingFunc(ctx, content)
+	if err != nil {
+		return fmt.Errorf("failed to generate embedding: %w", err)
+	}
+
+	// Create document with metadata and pre-generated embedding
 	doc := chromem.Document{
-		ID:      diaryID,
-		Content: content,
+		ID:        diaryID,
+		Content:   content,
+		Embedding: embedding,
 		Metadata: map[string]string{
 			"date":     dateStr,
 			"mood":     mood,
@@ -309,7 +316,7 @@ func (s *EmbeddingService) processDiary(ctx context.Context, collection *chromem
 		},
 	}
 
-	// Add document to collection (this will generate the embedding)
+	// Add document to collection
 	if err := collection.AddDocument(ctx, doc); err != nil {
 		return fmt.Errorf("failed to add document: %w", err)
 	}
