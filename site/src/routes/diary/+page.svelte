@@ -93,8 +93,19 @@
 					</a>
 					<a href="/assistant" class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200" title="AI Assistant">
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-								d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+							<!-- 机器人头部 -->
+							<rect x="4" y="6" width="16" height="12" rx="2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+							<!-- 天线 -->
+							<line x1="12" y1="6" x2="12" y2="2" stroke-width="2" stroke-linecap="round"/>
+							<circle cx="12" cy="2" r="1" fill="currentColor"/>
+							<!-- 眼睛 -->
+							<circle cx="9" cy="11" r="1.5" fill="currentColor"/>
+							<circle cx="15" cy="11" r="1.5" fill="currentColor"/>
+							<!-- 嘴巴 -->
+							<path d="M9 15h6" stroke-width="2" stroke-linecap="round"/>
+							<!-- 耳朵/侧边 -->
+							<rect x="1" y="10" width="2" height="4" rx="1" fill="currentColor"/>
+							<rect x="21" y="10" width="2" height="4" rx="1" fill="currentColor"/>
 						</svg>
 					</a>
 					<a href="/settings" class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200" title="Settings">
