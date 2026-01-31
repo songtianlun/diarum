@@ -353,7 +353,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							placeholder="sk-..."
 							class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
 						/>
-						<p class="text-xs text-muted-foreground mt-1">Your API key for the AI service</p>
+						<p class="text-xs text-muted-foreground mt-1">Your API key for the AI service. OpenAI keys start with sk-, e.g. sk-xxx...</p>
 					</div>
 
 					<!-- Base URL -->
@@ -365,7 +365,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							placeholder="https://api.openai.com"
 							class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
 						/>
-						<p class="text-xs text-muted-foreground mt-1">Base URL for the OpenAI-compatible API</p>
+						<p class="text-xs text-muted-foreground mt-1">Base URL for the OpenAI-compatible API, e.g. https://api.openai.com</p>
 					</div>
 
 					{#if modelsError}
@@ -398,7 +398,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								</svg>
 							</button>
 						</div>
-						<p class="text-xs text-muted-foreground mt-1">Model for AI conversations</p>
+						<p class="text-xs text-muted-foreground mt-1">Model for AI conversations, e.g. gpt-4o, deepseek-chat</p>
 					</div>
 
 					<!-- Embedding Model -->
@@ -425,7 +425,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								</svg>
 							</button>
 						</div>
-						<p class="text-xs text-muted-foreground mt-1">Model for text vectorization</p>
+						<p class="text-xs text-muted-foreground mt-1">Model for text vectorization, e.g. text-embedding-3-small</p>
 					</div>
 
 					<!-- Enable AI Toggle -->

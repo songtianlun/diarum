@@ -32,7 +32,7 @@ RUN if [ -z "$VERSION" ]; then \
     go build -ldflags "-X main.Version=$VERSION" -o journitalia .
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.23.3
 WORKDIR /app
 
 # Install ca-certificates for HTTPS
