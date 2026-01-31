@@ -125,106 +125,103 @@
 	<div class="sticky top-0 z-20">
 		<!-- Compact Glass Header -->
 		<header class="glass border-b border-border/50">
-		<div class="max-w-6xl mx-auto px-4 h-11">
-			<div class="flex items-center justify-between h-full">
-				<!-- Left: Brand -->
-				<a href="/" class="text-lg font-semibold text-foreground hover:text-primary transition-colors">Journitalia</a>
+			<div class="max-w-6xl mx-auto px-4 h-11">
+				<div class="flex items-center justify-between h-full">
+					<!-- Left: Brand -->
+					<a href="/" class="text-lg font-semibold text-foreground hover:text-primary transition-colors">Journitalia</a>
 
-				<!-- Center: Date and Navigation -->
-				<div class="flex items-center gap-2">
-					<button
-						on:click={goToPreviousDay}
-						disabled={loading}
-						class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
-						title="Previous day"
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-						</svg>
-					</button>
+					<!-- Center: Date and Navigation -->
+					<div class="flex items-center gap-2">
+						<button
+							on:click={goToPreviousDay}
+							disabled={loading}
+							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
+							title="Previous day"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+							</svg>
+						</button>
 
-					<button
-						on:click={goToCalendar}
-						disabled={loading}
-						class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
-						title="Calendar"
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-								d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-						</svg>
-					</button>
+						<button
+							on:click={goToCalendar}
+							disabled={loading}
+							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
+							title="Calendar"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+									d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+							</svg>
+						</button>
 
-					<div class="text-sm text-foreground">
-						<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
-						<span class="sm:hidden">{formatShortDate(date)}</span>
-						<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
-						{#if isToday(date)}
-							<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">Today</span>
-						{/if}
+						<div class="text-sm text-foreground">
+							<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
+							<span class="sm:hidden">{formatShortDate(date)}</span>
+							<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
+							{#if isToday(date)}
+								<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">Today</span>
+							{/if}
+						</div>
+
+						<button
+							on:click={goToNextDay}
+							disabled={loading || !canGoNext}
+							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
+							title={canGoNext ? "Next day" : "Cannot go beyond today"}
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+							</svg>
+						</button>
 					</div>
 
-					<button
-						on:click={goToNextDay}
-						disabled={loading || !canGoNext}
-						class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
-						title={canGoNext ? "Next day" : "Cannot go beyond today"}
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-						</svg>
-					</button>
-				</div>
-
-				<!-- Right: Actions -->
-				<div class="flex items-center gap-2">
-					<!-- Today Button -->
-					{#if !isToday(date)}
-						<button
-							on:click={goToToday}
-							class="px-2 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all duration-200"
-						>
-							Today
-						</button>
-					{/if}
-
-					<!-- TOC Toggle -->
-					<button
-						on:click={() => {
-							if (window.innerWidth >= 1024) {
-								showDesktopToc = !showDesktopToc;
-							} else {
-								showMobileToc = !showMobileToc;
-							}
-						}}
-						class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 {(showDesktopToc || showMobileToc) ? 'bg-muted/50' : ''}"
-						title="Table of contents"
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" />
-						</svg>
-					</button>
-
-					<!-- Sync Status -->
-					<div class="flex items-center" title={isAnySyncing ? 'Syncing...' : currentDateIsDirty ? 'Unsaved' : 'Synced'}>
-						{#if isAnySyncing}
-							<svg class="w-4 h-4 text-yellow-500 animate-spin" fill="none" viewBox="0 0 24 24">
-								<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 20" stroke-linecap="round"></circle>
-							</svg>
-						{:else if currentDateIsDirty}
-							<svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-							</svg>
-						{:else}
-							<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-							</svg>
+					<!-- Right: Actions -->
+					<div class="flex items-center gap-2">
+						{#if !isToday(date)}
+							<button
+								on:click={goToToday}
+								class="px-2 py-1 text-xs bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all duration-200"
+							>
+								Today
+							</button>
 						{/if}
+
+						<button
+							on:click={() => {
+								if (window.innerWidth >= 1024) {
+									showDesktopToc = !showDesktopToc;
+								} else {
+									showMobileToc = !showMobileToc;
+								}
+							}}
+							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 {(showDesktopToc || showMobileToc) ? 'bg-muted/50' : ''}"
+							title="Table of contents"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" />
+							</svg>
+						</button>
+
+						<div class="flex items-center" title={isAnySyncing ? 'Syncing...' : currentDateIsDirty ? 'Unsaved' : 'Synced'}>
+							{#if isAnySyncing}
+								<svg class="w-4 h-4 text-yellow-500 animate-spin" fill="none" viewBox="0 0 24 24">
+									<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 20" stroke-linecap="round"></circle>
+								</svg>
+							{:else if currentDateIsDirty}
+								<svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+								</svg>
+							{:else}
+								<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+								</svg>
+							{/if}
+						</div>
 					</div>
 				</div>
 			</div>
-		</div>
-	</header>
+		</header>
 
 		<!-- Mobile TOC - Inside sticky container -->
 		{#if showMobileToc}

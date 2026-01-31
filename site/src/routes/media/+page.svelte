@@ -103,7 +103,11 @@
 </svelte:head>
 
 <div class="min-h-screen bg-background">
-	<PageHeader title="Media Library" subtitle={!loading ? `(${totalItems})` : ''} />
+	<PageHeader title="Media Library">
+		<span slot="subtitle" class="text-sm text-muted-foreground">
+			{#if !loading}({totalItems}){/if}
+		</span>
+	</PageHeader>
 
 	<!-- Main Content -->
 	<main class="max-w-4xl mx-auto px-4 py-6">
