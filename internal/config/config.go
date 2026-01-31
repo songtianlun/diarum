@@ -1,7 +1,9 @@
 package config
 
 import (
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/daos"
@@ -10,6 +12,9 @@ import (
 
 	"github.com/songtianlun/diaria/internal/logger"
 )
+
+// ErrAPIDisabled is returned when the API is disabled for a user
+var ErrAPIDisabled = errors.New("API is disabled for this user")
 
 // ConfigService provides methods to manage user settings
 type ConfigService struct {
@@ -210,9 +215,17 @@ func (s *ConfigService) Delete(userId, key string) error {
 	return s.app.Dao().DeleteRecord(record)
 }
 
+// maskToken returns a masked version of the token for safe logging
+func maskToken(token string) string {
+	if len(token) <= 8 {
+		return "***"
+	}
+	return token[:4] + "***" + token[len(token)-4:]
+}
+
 // ValidateTokenAndGetUser validates an API token and returns the user ID
 func (s *ConfigService) ValidateTokenAndGetUser(token string) (string, error) {
-	logger.Debug("[ValidateTokenAndGetUser] input token=%s", token)
+	logger.Debug("[ValidateTokenAndGetUser] validating token: %s", maskToken(token))
 
 	// Find the record with matching token
 	records, err := s.app.Dao().FindRecordsByFilter(
@@ -234,15 +247,21 @@ func (s *ConfigService) ValidateTokenAndGetUser(token string) (string, error) {
 		// Parse token directly from record value to avoid extra DB query
 		storedToken := s.parseStringValue(record.Get("value"))
 		userId := record.GetString("user")
-		logger.Debug("[ValidateTokenAndGetUser] userId=%s, storedToken=%s", userId, storedToken)
 
-		if storedToken == token {
+		// Use constant-time comparison to prevent timing attacks
+		if len(storedToken) == len(token) &&
+			subtle.ConstantTimeCompare([]byte(storedToken), []byte(token)) == 1 {
 			// Check if API is enabled for this user
 			enabled, err := s.GetBool(userId, "api.enabled")
-			if err != nil || !enabled {
-				logger.Debug("[ValidateTokenAndGetUser] API not enabled")
+			if err != nil {
+				logger.Debug("[ValidateTokenAndGetUser] error checking API enabled: %v", err)
 				return "", err
 			}
+			if !enabled {
+				logger.Debug("[ValidateTokenAndGetUser] API disabled for user: %s", userId)
+				return "", ErrAPIDisabled
+			}
+			logger.Debug("[ValidateTokenAndGetUser] token validated for user: %s", userId)
 			return userId, nil
 		}
 	}
