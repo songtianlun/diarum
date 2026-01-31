@@ -1,22 +1,32 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getAISettings } from '$lib/api/ai';
 	import {
 		getConversations,
 		createConversation,
+		getConversation,
 		deleteConversation,
-		type Conversation
+		streamChat,
+		type Conversation,
+		type Message
 	} from '$lib/api/chat';
+	import ChatMessage from '$lib/components/chat/ChatMessage.svelte';
 	import ChatInput from '$lib/components/chat/ChatInput.svelte';
 	import ConversationList from '$lib/components/chat/ConversationList.svelte';
 
 	let conversations: Conversation[] = [];
-	let isCreating = false;
+	let selectedConversationId: string | null = null;
+	let messages: Message[] = [];
+	let streamingContent = '';
+	let isStreaming = false;
 	let loading = true;
+	let messagesLoading = false;
 	let aiEnabled = false;
 	let sidebarOpen = false;
+	let messagesContainer: HTMLDivElement;
 
 	function closeSidebarOnMobile() {
 		if (window.innerWidth < 1024) {
@@ -32,35 +42,102 @@
 		}
 	}
 
+	async function loadMessages(convId: string) {
+		messagesLoading = true;
+		try {
+			const detail = await getConversation(convId);
+			messages = detail.messages;
+			scrollToBottom();
+		} catch (e) {
+			console.error('Failed to load messages:', e);
+			// If conversation not found, redirect to assistant main page
+			goto('/assistant');
+		}
+		messagesLoading = false;
+	}
+
+	function scrollToBottom() {
+		setTimeout(() => {
+			if (messagesContainer) {
+				messagesContainer.scrollTop = messagesContainer.scrollHeight;
+			}
+		}, 50);
+	}
+
 	function handleStartNewChat() {
-		closeSidebarOnMobile();
+		goto('/assistant');
 	}
 
 	async function handleSelectConversation(convId: string) {
-		goto(`/assistant/${convId}`);
+		if (convId !== selectedConversationId) {
+			goto(`/assistant/${convId}`);
+		}
+		closeSidebarOnMobile();
 	}
 
 	async function handleDeleteConversation(convId: string) {
 		try {
 			await deleteConversation(convId);
 			conversations = conversations.filter(c => c.id !== convId);
+			if (selectedConversationId === convId) {
+				goto('/assistant');
+			}
 		} catch (e) {
 			console.error('Failed to delete conversation:', e);
 		}
 	}
 
 	async function handleSendMessage(content: string) {
-		if (isCreating) return;
+		if (isStreaming || !selectedConversationId) return;
 
-		isCreating = true;
+		const convId = selectedConversationId;
+
+		// Add user message
+		const userMsg: Message = {
+			id: 'temp-user',
+			role: 'user',
+			content,
+			created: new Date().toISOString()
+		};
+		messages = [...messages, userMsg];
+		scrollToBottom();
+
+		isStreaming = true;
+		streamingContent = '';
+
 		try {
-			const conv = await createConversation();
-			conversations = [conv, ...conversations];
-			goto(`/assistant/${conv.id}?message=${encodeURIComponent(content)}`);
+			for await (const chunk of streamChat(convId, content)) {
+				if (chunk.error) {
+					console.error('Stream error:', chunk.error);
+					break;
+				}
+				if (chunk.title && convId) {
+					conversations = conversations.map(c =>
+						c.id === convId ? { ...c, title: chunk.title! } : c
+					);
+				}
+				if (chunk.content) {
+					streamingContent += chunk.content;
+					scrollToBottom();
+				}
+				if (chunk.done) {
+					const assistantMsg: Message = {
+						id: 'temp-assistant',
+						role: 'assistant',
+						content: streamingContent,
+						referenced_diaries: chunk.referenced_diaries,
+						created: new Date().toISOString()
+					};
+					messages = [...messages, assistantMsg];
+					streamingContent = '';
+				}
+			}
 		} catch (e) {
-			console.error('Failed to create conversation:', e);
+			console.error('Failed to send message:', e);
 		}
-		isCreating = false;
+
+		isStreaming = false;
+		await loadConversations();
 	}
 
 	onMount(async () => {
@@ -78,7 +155,24 @@
 		}
 
 		await loadConversations();
+
+		// Get conversation ID from URL
+		const convId = $page.params.id;
+		if (convId) {
+			selectedConversationId = convId;
+			await loadMessages(convId);
+		}
+
 		loading = false;
+
+		// Check for message query parameter (from new chat redirect)
+		const messageParam = $page.url.searchParams.get('message');
+		if (messageParam && convId) {
+			// Clear the URL parameter without triggering navigation
+			window.history.replaceState({}, '', `/assistant/${convId}`);
+			// Send the message
+			await handleSendMessage(messageParam);
+		}
 	});
 </script>
 
@@ -103,7 +197,7 @@
 					</button>
 					<a href="/diary" class="text-lg font-semibold text-foreground hover:text-primary transition-colors">Journitalia</a>
 					<span class="text-muted-foreground/50">/</span>
-					<span class="text-sm font-medium text-muted-foreground">AI Assistant</span>
+					<a href="/assistant" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">AI Assistant</a>
 				</div>
 				<a href="/diary" class="p-2 hover:bg-muted/50 rounded-lg transition-all duration-200" title="Back to Diary">
 					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -157,7 +251,7 @@
 				top-14 lg:top-0 h-[calc(100vh-3.5rem)] lg:h-full overflow-hidden">
 				<ConversationList
 					{conversations}
-					selectedId={null}
+					selectedId={selectedConversationId}
 					{loading}
 					on:select={(e) => handleSelectConversation(e.detail)}
 					on:create={handleStartNewChat}
@@ -165,28 +259,52 @@
 				/>
 			</aside>
 
-			<!-- Chat Area - New Chat Mode -->
+			<!-- Chat Area -->
 			<main class="flex-1 flex flex-col min-w-0 lg:bg-card/50 lg:border lg:border-border lg:rounded-2xl overflow-hidden">
-				<!-- Empty state with prompt -->
-				<div class="flex-1 overflow-y-auto p-4 lg:p-6">
-					<div class="flex flex-col items-center justify-center h-full text-center py-12">
-						<div class="w-16 h-16 mb-4 rounded-xl bg-muted/50 flex items-center justify-center">
-							<svg class="w-8 h-8 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-									d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-							</svg>
+				<!-- Messages -->
+				<div bind:this={messagesContainer} class="flex-1 overflow-y-auto p-4 lg:p-6">
+					{#if messagesLoading}
+						<div class="flex justify-center py-12">
+							<div class="flex flex-col items-center gap-3">
+								<svg class="w-8 h-8 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+								</svg>
+								<span class="text-sm text-muted-foreground">Loading messages...</span>
+							</div>
 						</div>
-						<p class="text-muted-foreground text-sm">
-							Start the conversation by sending a message below.
-						</p>
-					</div>
+					{:else if messages.length === 0 && !streamingContent}
+						<div class="flex flex-col items-center justify-center h-full text-center py-12">
+							<div class="w-16 h-16 mb-4 rounded-xl bg-muted/50 flex items-center justify-center">
+								<svg class="w-8 h-8 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+										d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+								</svg>
+							</div>
+							<p class="text-muted-foreground text-sm">
+								Start the conversation by sending a message below.
+							</p>
+						</div>
+					{:else}
+						<div class="max-w-3xl mx-auto space-y-4">
+							{#each messages as message (message.id)}
+								<ChatMessage {message} />
+							{/each}
+							{#if streamingContent}
+								<ChatMessage
+									message={{ id: 'streaming', role: 'assistant', content: streamingContent, created: '' }}
+									isStreaming={true}
+								/>
+							{/if}
+						</div>
+					{/if}
 				</div>
 
 				<!-- Input -->
 				<div class="border-t border-border/50 p-4 lg:p-5 bg-card/50 backdrop-blur-sm flex-shrink-0">
 					<div class="max-w-3xl mx-auto">
 						<ChatInput
-							disabled={isCreating}
+							disabled={isStreaming}
 							placeholder="Ask about your diary..."
 							on:send={(e) => handleSendMessage(e.detail)}
 						/>

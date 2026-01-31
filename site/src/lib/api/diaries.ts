@@ -1,6 +1,55 @@
 import { pb, type Diary } from './client';
 
 /**
+ * Get diary by ID
+ */
+export async function getDiaryById(id: string): Promise<Diary | null> {
+	try {
+		const record = await pb.collection('diaries').getOne(id);
+		return {
+			id: record.id,
+			date: record.date.split(' ')[0],
+			content: record.content || '',
+			mood: record.mood,
+			weather: record.weather,
+			owner: record.owner,
+			created: record.created,
+			updated: record.updated
+		};
+	} catch (error) {
+		console.error('Error fetching diary by ID:', error);
+		return null;
+	}
+}
+
+/**
+ * Get multiple diaries by IDs
+ */
+export async function getDiariesByIds(ids: string[]): Promise<Diary[]> {
+	try {
+		if (ids.length === 0) return [];
+		const filter = ids.map(id => `id="${id}"`).join(' || ');
+		const records = await pb.collection('diaries').getFullList({
+			filter,
+			sort: '-date'
+		});
+		return records.map((record: any) => ({
+			id: record.id,
+			date: record.date.split(' ')[0],
+			content: record.content || '',
+			mood: record.mood,
+			weather: record.weather,
+			owner: record.owner,
+			created: record.created,
+			updated: record.updated
+		}));
+	} catch (error) {
+		console.error('Error fetching diaries by IDs:', error);
+		return [];
+	}
+}
+
+/**
  * Get diary by date
  */
 export async function getDiaryByDate(date: string): Promise<Diary | null> {

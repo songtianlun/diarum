@@ -5,6 +5,7 @@ export interface Conversation {
 	title: string;
 	created: string;
 	updated: string;
+	message_count?: number;
 }
 
 export interface Message {
@@ -115,6 +116,7 @@ export interface StreamChunk {
 	done?: boolean;
 	referenced_diaries?: string[];
 	error?: string;
+	title?: string;
 }
 
 /**

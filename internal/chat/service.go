@@ -656,3 +656,204 @@ func (s *ChatService) formatDiariesForContext(diaries []embedding.DiarySearchRes
 
 	return sb.String()
 }
+
+// GenerateTitleFromUserMessage generates a title based only on the user's message
+// Uses simple text extraction instead of AI to ensure compatibility with all models
+func (s *ChatService) GenerateTitleFromUserMessage(ctx context.Context, userID, userMessage string) (string, error) {
+	// Simple approach: extract title from user message directly
+	title := extractTitleFromMessage(userMessage)
+	if title == "" {
+		return "", fmt.Errorf("could not extract title from message")
+	}
+	return title, nil
+}
+
+// extractTitleFromMessage extracts a short title from the user's message
+func extractTitleFromMessage(message string) string {
+	// Remove HTML tags if any
+	message = stripHTMLTags(message)
+
+	// Replace newlines with spaces
+	message = strings.ReplaceAll(message, "\n", " ")
+	message = strings.ReplaceAll(message, "\r", " ")
+
+	// Collapse multiple spaces
+	for strings.Contains(message, "  ") {
+		message = strings.ReplaceAll(message, "  ", " ")
+	}
+
+	// Trim whitespace
+	message = strings.TrimSpace(message)
+
+	if message == "" {
+		return ""
+	}
+
+	// Limit to 50 characters
+	maxLen := 50
+	if len(message) <= maxLen {
+		return message
+	}
+
+	// Try to cut at word boundary
+	title := message[:maxLen]
+	lastSpace := strings.LastIndex(title, " ")
+	if lastSpace > maxLen/2 {
+		title = title[:lastSpace]
+	}
+
+	return strings.TrimSpace(title) + "..."
+}
+
+// stripHTMLTags removes HTML tags from a string
+func stripHTMLTags(s string) string {
+	var result strings.Builder
+	inTag := false
+	for _, r := range s {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// GenerateTitle generates a title for a conversation based on the first message
+func (s *ChatService) GenerateTitle(ctx context.Context, userID, userMessage, assistantResponse string) (string, error) {
+	// Get AI configuration
+	apiKey, err := s.configService.GetString(userID, "ai.api_key")
+	if err != nil || apiKey == "" {
+		return "", fmt.Errorf("AI API key not configured")
+	}
+
+	baseURL, err := s.configService.GetString(userID, "ai.base_url")
+	if err != nil || baseURL == "" {
+		return "", fmt.Errorf("AI base URL not configured")
+	}
+
+	chatModel, err := s.configService.GetString(userID, "ai.chat_model")
+	if err != nil || chatModel == "" {
+		return "", fmt.Errorf("chat model not configured")
+	}
+
+	// Build messages for title generation
+	messages := []ChatMessage{
+		{
+			Role: "system",
+			Content: `Generate a short, concise title (max 50 characters) for this conversation based on the user's message and assistant's response.
+The title should capture the main topic or intent of the conversation.
+Respond with ONLY the title, no quotes, no explanation, no punctuation at the end.
+Use the same language as the user's message.`,
+		},
+		{
+			Role:    "user",
+			Content: fmt.Sprintf("User message: %s\n\nAssistant response: %s", userMessage, truncateString(assistantResponse, 500)),
+		},
+	}
+
+	// Call API without streaming
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	url := baseURL + "/v1/chat/completions"
+
+	reqBody := map[string]interface{}{
+		"model":      chatModel,
+		"messages":   messages,
+		"max_tokens": 60,
+		"stream":     false,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("no response from API")
+	}
+
+	title := strings.TrimSpace(result.Choices[0].Message.Content)
+	// Ensure title is not too long
+	if len(title) > 100 {
+		title = title[:100]
+	}
+
+	return title, nil
+}
+
+// truncateString truncates a string to the specified length
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// GetConversationMessageCount returns the number of messages in a conversation
+func (s *ChatService) GetConversationMessageCount(conversationID string) (int, error) {
+	messages, err := s.app.Dao().FindRecordsByFilter(
+		"ai_messages",
+		"conversation = {:conv}",
+		"",
+		0,
+		0,
+		map[string]any{"conv": conversationID},
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count messages: %w", err)
+	}
+	return len(messages), nil
+}
+
+// UpdateConversationTitle updates the title of a conversation
+func (s *ChatService) UpdateConversationTitle(conversationID, title string) error {
+	conv, err := s.app.Dao().FindRecordById("ai_conversations", conversationID)
+	if err != nil {
+		return fmt.Errorf("failed to find conversation: %w", err)
+	}
+
+	conv.Set("title", title)
+	if err := s.app.Dao().SaveRecord(conv); err != nil {
+		return fmt.Errorf("failed to update conversation: %w", err)
+	}
+
+	return nil
+}
