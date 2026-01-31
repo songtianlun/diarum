@@ -2,11 +2,12 @@ package config
 
 import (
 	"encoding/json"
-	"log"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/tools/types"
+
+	"github.com/songtianlun/diaria/internal/logger"
 )
 
 // ConfigService provides methods to manage user settings
@@ -21,7 +22,7 @@ func NewConfigService(app *pocketbase.PocketBase) *ConfigService {
 
 // Get retrieves a single configuration value for a user
 func (s *ConfigService) Get(userId, key string) (any, error) {
-	log.Printf("[ConfigService.Get] userId=%s, key=%s", userId, key)
+	logger.Debug("[ConfigService.Get] userId=%s, key=%s", userId, key)
 
 	record, err := s.app.Dao().FindFirstRecordByFilter(
 		"user_settings",
@@ -33,13 +34,13 @@ func (s *ConfigService) Get(userId, key string) (any, error) {
 	)
 
 	if err != nil {
-		log.Printf("[ConfigService.Get] Error finding record: %v", err)
+		logger.Debug("[ConfigService.Get] Error finding record: %v", err)
 		// Return default value if not found
 		return GetDefault(key), nil
 	}
 
 	value := record.Get("value")
-	log.Printf("[ConfigService.Get] Found value: %v (type: %T)", value, value)
+	logger.Debug("[ConfigService.Get] Found value: %v (type: %T)", value, value)
 	return value, nil
 }
 

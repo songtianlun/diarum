@@ -52,7 +52,7 @@ dev-backend:
 	@echo "Installing backend dependencies..."
 	@go mod download
 	@echo "Starting backend server..."
-	go run . serve
+	LOG_LEVEL=DEBUG go run . serve
 
 # Run the built application
 run:
