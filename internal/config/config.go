@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/tools/types"
 
@@ -154,14 +155,41 @@ func (s *ConfigService) GetBatch(userId string) (map[string]any, error) {
 	return result, nil
 }
 
-// SetBatch stores multiple configuration values for a user
+// SetBatch stores multiple configuration values for a user atomically
 func (s *ConfigService) SetBatch(userId string, settings map[string]any) error {
-	for key, value := range settings {
-		if err := s.Set(userId, key, value); err != nil {
-			return err
+	return s.app.Dao().RunInTransaction(func(txDao *daos.Dao) error {
+		for key, value := range settings {
+			// Find existing record
+			record, err := txDao.FindFirstRecordByFilter(
+				"user_settings",
+				"user = {:user} && key = {:key}",
+				map[string]any{
+					"user": userId,
+					"key":  key,
+				},
+			)
+
+			if err != nil {
+				// Create new record
+				collection, err := txDao.FindCollectionByNameOrId("user_settings")
+				if err != nil {
+					return err
+				}
+
+				record = models.NewRecord(collection)
+				record.Set("user", userId)
+				record.Set("key", key)
+			}
+
+			record.Set("value", value)
+			record.Set("encrypted", IsEncrypted(key))
+
+			if err := txDao.SaveRecord(record); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // Delete removes a configuration value for a user
@@ -203,12 +231,9 @@ func (s *ConfigService) ValidateTokenAndGetUser(token string) (string, error) {
 	logger.Debug("[ValidateTokenAndGetUser] found %d api.token records", len(records))
 
 	for _, record := range records {
-		storedValue := record.Get("value")
-		logger.Debug("[ValidateTokenAndGetUser] stored value=%v (type: %T)", storedValue, storedValue)
-
-		// Get the string value properly
+		// Parse token directly from record value to avoid extra DB query
+		storedToken := s.parseStringValue(record.Get("value"))
 		userId := record.GetString("user")
-		storedToken, _ := s.GetString(userId, "api.token")
 		logger.Debug("[ValidateTokenAndGetUser] userId=%s, storedToken=%s", userId, storedToken)
 
 		if storedToken == token {
@@ -224,4 +249,25 @@ func (s *ConfigService) ValidateTokenAndGetUser(token string) (string, error) {
 
 	logger.Debug("[ValidateTokenAndGetUser] no matching token found")
 	return "", nil
+}
+
+// parseStringValue extracts a string from various value types
+func (s *ConfigService) parseStringValue(value any) string {
+	if value == nil {
+		return ""
+	}
+
+	// Handle types.JsonRaw
+	if raw, ok := value.(types.JsonRaw); ok {
+		var str string
+		if err := json.Unmarshal(raw, &str); err != nil {
+			return ""
+		}
+		return str
+	}
+
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return ""
 }

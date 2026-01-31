@@ -24,7 +24,7 @@ func RegisterPublicRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 
 		// Validate token and get owner using ConfigService
 		userId, err := configService.ValidateTokenAndGetUser(token)
-		if err != nil {
+		if err != nil || userId == "" {
 			return apis.NewUnauthorizedError("Invalid or disabled API token", nil)
 		}
 
