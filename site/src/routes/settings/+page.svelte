@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getApiToken, toggleApiToken, resetApiToken, type ApiTokenStatus } from '$lib/api/settings';
-	import { getAISettings, saveAISettings, fetchModels, buildVectors, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
+	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
 
 	let loading = true;
 	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '' };
@@ -130,7 +130,7 @@
 		aiSaving = false;
 	}
 
-	async function handleBuildVectors() {
+	async function handleBuildVectors(incremental: boolean = false) {
 		if (!aiSettings.enabled) {
 			buildError = 'Please enable AI features first';
 			return;
@@ -141,7 +141,11 @@
 		buildResult = null;
 
 		try {
-			buildResult = await buildVectors();
+			if (incremental) {
+				buildResult = await buildVectorsIncremental();
+			} else {
+				buildResult = await buildVectors();
+			}
 			// Refresh stats after building
 			await loadVectorStats();
 		} catch (e) {
@@ -437,27 +441,40 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								<div>
 									<div class="font-medium text-foreground">Build Vector Index</div>
 									<div class="text-sm text-muted-foreground">
-										Generate embeddings for all diary entries
+										Generate embeddings for diary entries
 									</div>
 								</div>
-								<button
-									on:click={handleBuildVectors}
-									disabled={buildingVectors}
-									class="px-4 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200 disabled:opacity-50 flex items-center gap-2"
-								>
-									{#if buildingVectors}
-										<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								<div class="flex items-center gap-2">
+									<button
+										on:click={() => handleBuildVectors(true)}
+										disabled={buildingVectors}
+										class="px-3 py-1.5 text-sm bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors duration-200 disabled:opacity-50 flex items-center gap-1.5"
+										title="Only build new and outdated entries"
+									>
+										{#if buildingVectors}
+											<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+												<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+												<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+											</svg>
+										{:else}
+											<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+											</svg>
+										{/if}
+										Update
+									</button>
+									<button
+										on:click={() => handleBuildVectors(false)}
+										disabled={buildingVectors}
+										class="px-3 py-1.5 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200 disabled:opacity-50 flex items-center gap-1.5"
+										title="Rebuild all entries from scratch"
+									>
+										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
 										</svg>
-										Building...
-									{:else}
-										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-										</svg>
-										Build All
-									{/if}
-								</button>
+										Rebuild All
+									</button>
+								</div>
 							</div>
 
 							{#if buildError}
@@ -502,26 +519,69 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									Loading...
 								</div>
 							{:else if vectorStats}
-								<div class="space-y-2">
-									<div class="flex items-center justify-between text-sm">
-										<span class="text-muted-foreground">Indexed vectors</span>
-										<span class="font-medium text-foreground">{vectorStats.vector_count} / {vectorStats.diary_count}</span>
-									</div>
-									<div class="w-full bg-muted rounded-full h-2">
-										<div
-											class="h-2 rounded-full transition-all duration-300 {vectorStats.vector_count === vectorStats.diary_count ? 'bg-green-500' : 'bg-primary'}"
-											style="width: {vectorStats.diary_count > 0 ? (vectorStats.vector_count / vectorStats.diary_count * 100) : 0}%"
-										></div>
-									</div>
-									{#if vectorStats.needs_build}
-										<div class="text-xs text-amber-600">
-											{vectorStats.diary_count - vectorStats.vector_count} diaries need indexing
+								<div class="space-y-3">
+									<!-- Segmented Progress Bar -->
+									<div class="space-y-2">
+										<div class="flex items-center justify-between text-sm">
+											<span class="text-muted-foreground">Total diaries</span>
+											<span class="font-medium text-foreground">{vectorStats.diary_count}</span>
 										</div>
-									{:else if vectorStats.vector_count > 0}
-										<div class="text-xs text-green-600">
-											All diaries indexed
+										<div class="w-full bg-muted rounded-full h-2 flex overflow-hidden">
+											{#if vectorStats.diary_count > 0}
+												{#if vectorStats.indexed_count > 0}
+													<div
+														class="h-2 bg-green-500 transition-all duration-300"
+														style="width: {(vectorStats.indexed_count / vectorStats.diary_count * 100)}%"
+													></div>
+												{/if}
+												{#if vectorStats.outdated_count > 0}
+													<div
+														class="h-2 bg-amber-500 transition-all duration-300"
+														style="width: {(vectorStats.outdated_count / vectorStats.diary_count * 100)}%"
+													></div>
+												{/if}
+												{#if vectorStats.pending_count > 0}
+													<div
+														class="h-2 bg-gray-400 transition-all duration-300"
+														style="width: {(vectorStats.pending_count / vectorStats.diary_count * 100)}%"
+													></div>
+												{/if}
+											{/if}
 										</div>
-									{:else}
+									</div>
+
+									<!-- Stats Legend -->
+									<div class="flex flex-wrap gap-4 text-xs">
+										<div class="flex items-center gap-1.5">
+											<div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+											<span class="text-muted-foreground">Indexed: <span class="font-medium text-foreground">{vectorStats.indexed_count}</span></span>
+										</div>
+										<div class="flex items-center gap-1.5">
+											<div class="w-2.5 h-2.5 rounded-full bg-amber-500"></div>
+											<span class="text-muted-foreground">Outdated: <span class="font-medium text-foreground">{vectorStats.outdated_count}</span></span>
+										</div>
+										<div class="flex items-center gap-1.5">
+											<div class="w-2.5 h-2.5 rounded-full bg-gray-400"></div>
+											<span class="text-muted-foreground">Pending: <span class="font-medium text-foreground">{vectorStats.pending_count}</span></span>
+										</div>
+									</div>
+
+									<!-- Status Message -->
+									{#if vectorStats.indexed_count === vectorStats.diary_count && vectorStats.diary_count > 0}
+										<div class="text-xs text-green-600 flex items-center gap-1">
+											<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+											</svg>
+											All diaries indexed and up to date
+										</div>
+									{:else if vectorStats.outdated_count > 0 || vectorStats.pending_count > 0}
+										<div class="text-xs text-amber-600 flex items-center gap-1">
+											<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+											</svg>
+											{vectorStats.outdated_count + vectorStats.pending_count} diaries need indexing
+										</div>
+									{:else if vectorStats.diary_count === 0}
 										<div class="text-xs text-muted-foreground">
 											No diaries to index
 										</div>

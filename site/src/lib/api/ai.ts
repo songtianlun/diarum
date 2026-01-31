@@ -24,10 +24,10 @@ export interface BuildVectorsResult {
 }
 
 export interface VectorStats {
-	vector_count: number;
 	diary_count: number;
-	is_indexed: boolean;
-	needs_build: boolean;
+	indexed_count: number;
+	outdated_count: number;
+	pending_count: number;
 }
 
 /**
@@ -105,10 +105,30 @@ export async function fetchModels(apiKey: string, baseUrl: string): Promise<Mode
 }
 
 /**
- * Build vectors for all diaries
+ * Build vectors for all diaries (full rebuild)
  */
 export async function buildVectors(): Promise<BuildVectorsResult> {
 	const response = await fetch('/api/ai/vectors/build', {
+		method: 'POST',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			'Content-Type': 'application/json'
+		}
+	});
+
+	if (!response.ok) {
+		const data = await response.json();
+		throw new Error(data.message || 'Failed to build vectors');
+	}
+
+	return await response.json();
+}
+
+/**
+ * Build vectors incrementally (only new and outdated)
+ */
+export async function buildVectorsIncremental(): Promise<BuildVectorsResult> {
+	const response = await fetch('/api/ai/vectors/build-incremental', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,

@@ -35,10 +35,10 @@ type BuildResult struct {
 
 // VectorStats represents statistics about the vector index
 type VectorStats struct {
-	VectorCount int  `json:"vector_count"`
-	DiaryCount  int  `json:"diary_count"`
-	IsIndexed   bool `json:"is_indexed"`
-	NeedsBuild  bool `json:"needs_build"`
+	DiaryCount   int `json:"diary_count"`
+	IndexedCount int `json:"indexed_count"`
+	OutdatedCount int `json:"outdated_count"`
+	PendingCount int `json:"pending_count"`
 }
 
 // EmbeddingRequest represents a request to the embedding API
@@ -142,9 +142,9 @@ func (s *EmbeddingService) generateEmbedding(ctx context.Context, baseURL, apiKe
 	return embResp.Data[0].Embedding, nil
 }
 
-// BuildAllVectors builds vectors for all diaries of a user
+// BuildAllVectors rebuilds vectors for ALL diaries (full rebuild)
 func (s *EmbeddingService) BuildAllVectors(ctx context.Context, userID string) (*BuildResult, error) {
-	logger.Info("[EmbeddingService] starting full vector build for user: %s", userID)
+	logger.Info("[EmbeddingService] starting full vector rebuild for user: %s", userID)
 
 	// Check if AI is enabled
 	enabled, _ := s.configService.GetBool(userID, "ai.enabled")
@@ -173,7 +173,7 @@ func (s *EmbeddingService) BuildAllVectors(ctx context.Context, userID string) (
 		"diaries",
 		"owner = {:owner}",
 		"-date",
-		-1, // No limit
+		-1,
 		0,
 		map[string]any{"owner": userID},
 	)
@@ -192,7 +192,7 @@ func (s *EmbeddingService) BuildAllVectors(ctx context.Context, userID string) (
 		return result, nil
 	}
 
-	// Process each diary
+	// Process all diaries
 	for _, diary := range diaries {
 		if err := s.processDiary(ctx, collection, diary); err != nil {
 			result.Failed++
@@ -206,8 +206,80 @@ func (s *EmbeddingService) BuildAllVectors(ctx context.Context, userID string) (
 		}
 	}
 
-	logger.Info("[EmbeddingService] vector build completed for user %s: %d success, %d failed",
+	logger.Info("[EmbeddingService] full rebuild completed for user %s: %d success, %d failed",
 		userID, result.Success, result.Failed)
+
+	return result, nil
+}
+
+// BuildIncrementalVectors builds vectors only for new and outdated diaries
+func (s *EmbeddingService) BuildIncrementalVectors(ctx context.Context, userID string) (*BuildResult, error) {
+	logger.Info("[EmbeddingService] starting incremental vector build for user: %s", userID)
+
+	// Check if AI is enabled
+	enabled, _ := s.configService.GetBool(userID, "ai.enabled")
+	if !enabled {
+		return nil, fmt.Errorf("AI features are not enabled")
+	}
+
+	// Create embedding function
+	embeddingFunc, err := s.createEmbeddingFunc(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create embedding function: %w", err)
+	}
+
+	// Get or create collection (keep existing)
+	collection, err := s.vectorDB.GetOrCreateCollection(ctx, userID, embeddingFunc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create collection: %w", err)
+	}
+
+	// Get all diaries for the user
+	diaries, err := s.app.Dao().FindRecordsByFilter(
+		"diaries",
+		"owner = {:owner}",
+		"-date",
+		-1,
+		0,
+		map[string]any{"owner": userID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch diaries: %w", err)
+	}
+
+	result := &BuildResult{
+		Total:        len(diaries),
+		Errors:       make([]string, 0),
+		ErrorDetails: make([]string, 0),
+	}
+
+	if len(diaries) == 0 {
+		logger.Info("[EmbeddingService] no diaries found for user: %s", userID)
+		return result, nil
+	}
+
+	// Process only new and outdated diaries
+	skipped := 0
+	for _, diary := range diaries {
+		if !s.needsBuildVector(ctx, collection, diary) {
+			skipped++
+			continue
+		}
+
+		if err := s.processDiary(ctx, collection, diary); err != nil {
+			result.Failed++
+			dateStr := extractDate(diary.GetString("date"))
+			errMsg := fmt.Sprintf("Diary %s: %v", dateStr, err)
+			result.Errors = append(result.Errors, dateStr)
+			result.ErrorDetails = append(result.ErrorDetails, errMsg)
+			logger.Error("[EmbeddingService] %s", errMsg)
+		} else {
+			result.Success++
+		}
+	}
+
+	logger.Info("[EmbeddingService] incremental build completed for user %s: %d built, %d skipped, %d failed",
+		userID, result.Success, skipped, result.Failed)
 
 	return result, nil
 }
@@ -223,15 +295,17 @@ func (s *EmbeddingService) processDiary(ctx context.Context, collection *chromem
 	dateStr := extractDate(diary.GetString("date"))
 	mood := diary.GetString("mood")
 	weather := diary.GetString("weather")
+	builtAt := time.Now().UTC().Format(time.RFC3339)
 
-	// Create document with metadata
+	// Create document with metadata including build time
 	doc := chromem.Document{
 		ID:      diaryID,
 		Content: content,
 		Metadata: map[string]string{
-			"date":    dateStr,
-			"mood":    mood,
-			"weather": weather,
+			"date":     dateStr,
+			"mood":     mood,
+			"weather":  weather,
+			"built_at": builtAt,
 		},
 	}
 
@@ -251,15 +325,42 @@ func extractDate(dateTime string) string {
 	return dateTime
 }
 
+// needsBuildVector checks if a diary needs its vector rebuilt
+func (s *EmbeddingService) needsBuildVector(ctx context.Context, collection *chromem.Collection, diary *models.Record) bool {
+	if collection == nil {
+		return true
+	}
+
+	diaryID := diary.GetId()
+	diaryUpdated := diary.Updated.Time()
+
+	doc, err := collection.GetByID(ctx, diaryID)
+	if err != nil {
+		return true // Not found, needs build
+	}
+
+	builtAtStr, ok := doc.Metadata["built_at"]
+	if !ok || builtAtStr == "" {
+		return true
+	}
+
+	builtAt, err := time.Parse(time.RFC3339, builtAtStr)
+	if err != nil {
+		return true
+	}
+
+	return diaryUpdated.After(builtAt)
+}
+
 // GetVectorStats returns statistics about the vector index for a user
 func (s *EmbeddingService) GetVectorStats(ctx context.Context, userID string) (*VectorStats, error) {
 	stats := &VectorStats{}
 
-	// Get diary count
+	// Get all diaries for the user
 	diaries, err := s.app.Dao().FindRecordsByFilter(
 		"diaries",
 		"owner = {:owner}",
-		"",
+		"-updated",
 		-1,
 		0,
 		map[string]any{"owner": userID},
@@ -269,15 +370,48 @@ func (s *EmbeddingService) GetVectorStats(ctx context.Context, userID string) (*
 	}
 	stats.DiaryCount = len(diaries)
 
-	// Get vector count from collection
+	// Get collection
 	collection := s.vectorDB.GetCollection(userID)
-	if collection != nil {
-		stats.VectorCount = collection.Count()
-		stats.IsIndexed = true
-	}
 
-	// Determine if rebuild is needed
-	stats.NeedsBuild = stats.DiaryCount > 0 && stats.VectorCount != stats.DiaryCount
+	// Compare each diary with its vector
+	for _, diary := range diaries {
+		diaryID := diary.GetId()
+		diaryUpdated := diary.Updated.Time()
+
+		// Try to get the vector document
+		if collection == nil {
+			stats.PendingCount++
+			continue
+		}
+
+		doc, err := collection.GetByID(ctx, diaryID)
+		if err != nil {
+			// Document not found - pending
+			stats.PendingCount++
+			continue
+		}
+
+		// Check build time from metadata
+		builtAtStr, ok := doc.Metadata["built_at"]
+		if !ok || builtAtStr == "" {
+			// No build time - treat as outdated
+			stats.OutdatedCount++
+			continue
+		}
+
+		builtAt, err := time.Parse(time.RFC3339, builtAtStr)
+		if err != nil {
+			stats.OutdatedCount++
+			continue
+		}
+
+		// Compare times
+		if diaryUpdated.After(builtAt) {
+			stats.OutdatedCount++
+		} else {
+			stats.IndexedCount++
+		}
+	}
 
 	return stats, nil
 }

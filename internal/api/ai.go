@@ -162,6 +162,31 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		return c.JSON(http.StatusOK, result)
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
+	// Incremental build vectors (only new and outdated)
+	e.Router.POST("/api/ai/vectors/build-incremental", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		if embeddingService == nil {
+			return apis.NewBadRequestError("Embedding service not initialized", nil)
+		}
+
+		userId := authRecord.Id
+
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Minute)
+		defer cancel()
+
+		result, err := embeddingService.BuildIncrementalVectors(ctx, userId)
+		if err != nil {
+			logger.Error("[POST /api/ai/vectors/build-incremental] error: %v", err)
+			return apis.NewBadRequestError("Failed to build vectors: "+err.Error(), nil)
+		}
+
+		return c.JSON(http.StatusOK, result)
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
 	// Get vector stats for user's diaries
 	e.Router.GET("/api/ai/vectors/stats", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
