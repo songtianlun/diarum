@@ -277,7 +277,7 @@
 							{#each messages as message (message.id)}
 								<ChatMessage {message} />
 							{/each}
-							{#if streamingContent}
+							{#if isStreaming}
 								<ChatMessage
 									message={{ id: 'streaming', role: 'assistant', content: streamingContent, created: '' }}
 									isStreaming={true}
