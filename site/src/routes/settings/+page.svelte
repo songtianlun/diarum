@@ -436,8 +436,10 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								<div class="text-sm text-muted-foreground">
 									{#if !canEnableAI}
 										Fill all fields above to enable
+									{:else if aiSettings.enabled}
+										AI assistant is active. Vector data is automatically built when you save diary entries.
 									{:else}
-										AI assistant is ready to use
+										Enable to use AI assistant. Vector data will be automatically built in the background when you save diary entries.
 									{/if}
 								</div>
 							</div>

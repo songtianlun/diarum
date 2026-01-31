@@ -303,7 +303,7 @@ func (s *EmbeddingService) processDiary(ctx context.Context, collection *chromem
 	dateStr := extractDate(diary.GetString("date"))
 	mood := diary.GetString("mood")
 	weather := diary.GetString("weather")
-	builtAt := time.Now().UTC().Format(time.RFC3339)
+	builtAt := time.Now().UTC().Format(time.RFC3339Nano)
 
 	// Generate embedding directly to avoid issues with collection's embeddingFunc
 	embedding, err := embeddingFunc(ctx, content)
@@ -359,9 +359,13 @@ func (s *EmbeddingService) needsBuildVector(ctx context.Context, collection *chr
 		return true
 	}
 
-	builtAt, err := time.Parse(time.RFC3339, builtAtStr)
+	builtAt, err := time.Parse(time.RFC3339Nano, builtAtStr)
 	if err != nil {
-		return true
+		// Fallback to RFC3339 for backward compatibility
+		builtAt, err = time.Parse(time.RFC3339, builtAtStr)
+		if err != nil {
+			return true
+		}
 	}
 
 	return diaryUpdated.After(builtAt)
@@ -481,10 +485,14 @@ func (s *EmbeddingService) GetVectorStats(ctx context.Context, userID string) (*
 			continue
 		}
 
-		builtAt, err := time.Parse(time.RFC3339, builtAtStr)
+		builtAt, err := time.Parse(time.RFC3339Nano, builtAtStr)
 		if err != nil {
-			stats.OutdatedCount++
-			continue
+			// Fallback to RFC3339 for backward compatibility
+			builtAt, err = time.Parse(time.RFC3339, builtAtStr)
+			if err != nil {
+				stats.OutdatedCount++
+				continue
+			}
 		}
 
 		// Compare times
