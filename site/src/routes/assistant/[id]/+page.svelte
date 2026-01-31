@@ -93,9 +93,9 @@
 
 		const convId = selectedConversationId;
 
-		// Add user message
+		// Add user message with unique ID
 		const userMsg: Message = {
-			id: 'temp-user',
+			id: `temp-user-${Date.now()}`,
 			role: 'user',
 			content,
 			created: new Date().toISOString()
@@ -123,7 +123,7 @@
 				}
 				if (chunk.done) {
 					const assistantMsg: Message = {
-						id: 'temp-assistant',
+						id: `temp-assistant-${Date.now()}`,
 						role: 'assistant',
 						content: streamingContent,
 						referenced_diaries: chunk.referenced_diaries,
