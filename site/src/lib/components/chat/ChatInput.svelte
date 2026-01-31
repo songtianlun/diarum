@@ -22,7 +22,7 @@
 	}
 </script>
 
-<form on:submit|preventDefault={handleSubmit} class="flex gap-2 items-end">
+<form on:submit|preventDefault={handleSubmit} class="flex gap-3 items-end">
 	<div class="flex-1 relative">
 		<textarea
 			bind:value={content}
@@ -30,10 +30,10 @@
 			{placeholder}
 			{disabled}
 			rows="1"
-			class="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm
+			class="w-full resize-none rounded-2xl border border-border bg-background px-4 py-3 text-sm
 				focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
 				disabled:opacity-50 disabled:cursor-not-allowed
-				min-h-[48px] max-h-[200px]"
+				min-h-[48px] max-h-[200px] shadow-sm"
 			style="field-sizing: content;"
 		></textarea>
 	</div>
@@ -42,10 +42,10 @@
 		type="submit"
 		disabled={disabled || !content.trim()}
 		title="Send message"
-		class="p-3 rounded-xl bg-primary text-primary-foreground
-			hover:opacity-90 transition-opacity
-			disabled:opacity-50 disabled:cursor-not-allowed
-			flex-shrink-0"
+		class="h-[48px] w-[48px] rounded-2xl bg-primary text-primary-foreground
+			hover:bg-primary/90 active:scale-95 transition-all duration-150
+			disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100
+			flex-shrink-0 flex items-center justify-center shadow-sm"
 	>
 		<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

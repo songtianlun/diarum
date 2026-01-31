@@ -170,13 +170,16 @@
 				</div>
 
 				<!-- Input -->
-				<div class="border-t border-border/50 p-4 lg:p-5 bg-card/50 backdrop-blur-sm flex-shrink-0">
+				<div class="border-t border-border/50 p-4 lg:p-6 bg-gradient-to-t from-card/80 to-card/50 backdrop-blur-sm flex-shrink-0">
 					<div class="max-w-3xl mx-auto">
 						<ChatInput
 							disabled={isCreating}
 							placeholder="Ask about your diary..."
 							on:send={(e) => handleSendMessage(e.detail)}
 						/>
+						<p class="text-xs text-muted-foreground/60 text-center mt-3">
+							Press Enter to send, Shift+Enter for new line
+						</p>
 					</div>
 				</div>
 			</main>
