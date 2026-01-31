@@ -71,6 +71,15 @@
 	// AI Settings functions
 	async function loadAISettings() {
 		aiSettings = await getAISettings();
+		// Initialize models array with configured models so they display before refresh
+		const initialModels: ModelInfo[] = [];
+		if (aiSettings.chat_model) {
+			initialModels.push({ id: aiSettings.chat_model, object: 'model' });
+		}
+		if (aiSettings.embedding_model && aiSettings.embedding_model !== aiSettings.chat_model) {
+			initialModels.push({ id: aiSettings.embedding_model, object: 'model' });
+		}
+		models = initialModels;
 	}
 
 	async function handleFetchModels() {
