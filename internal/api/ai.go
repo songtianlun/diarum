@@ -15,6 +15,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/models"
 
+	"github.com/songtianlun/diaria/internal/chat"
 	"github.com/songtianlun/diaria/internal/config"
 	"github.com/songtianlun/diaria/internal/embedding"
 	"github.com/songtianlun/diaria/internal/logger"
@@ -161,6 +162,258 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 
 		return c.JSON(http.StatusOK, result)
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Initialize chat service
+	chatService := chat.NewChatService(app, embeddingService)
+
+	// Get all conversations for user
+	e.Router.GET("/api/ai/conversations", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		conversations, err := app.Dao().FindRecordsByFilter(
+			"ai_conversations",
+			"owner = {:owner}",
+			"-updated",
+			100,
+			0,
+			map[string]any{"owner": authRecord.Id},
+		)
+		if err != nil {
+			return apis.NewBadRequestError("Failed to fetch conversations", err)
+		}
+
+		result := make([]map[string]any, 0, len(conversations))
+		for _, conv := range conversations {
+			result = append(result, map[string]any{
+				"id":      conv.Id,
+				"title":   conv.GetString("title"),
+				"created": conv.Created.String(),
+				"updated": conv.Updated.String(),
+			})
+		}
+
+		return c.JSON(http.StatusOK, result)
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Create new conversation
+	e.Router.POST("/api/ai/conversations", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		var body struct {
+			Title string `json:"title"`
+		}
+		c.Bind(&body)
+
+		collection, err := app.Dao().FindCollectionByNameOrId("ai_conversations")
+		if err != nil {
+			return apis.NewBadRequestError("Failed to find conversations collection", err)
+		}
+
+		record := models.NewRecord(collection)
+		record.Set("title", body.Title)
+		record.Set("owner", authRecord.Id)
+
+		if err := app.Dao().SaveRecord(record); err != nil {
+			return apis.NewBadRequestError("Failed to create conversation", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"id":      record.Id,
+			"title":   record.GetString("title"),
+			"created": record.Created.String(),
+			"updated": record.Updated.String(),
+		})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Get conversation with messages
+	e.Router.GET("/api/ai/conversations/:id", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		convID := c.PathParam("id")
+		conv, err := app.Dao().FindRecordById("ai_conversations", convID)
+		if err != nil {
+			return apis.NewNotFoundError("Conversation not found", err)
+		}
+
+		if conv.GetString("owner") != authRecord.Id {
+			return apis.NewForbiddenError("Access denied", nil)
+		}
+
+		messages, err := app.Dao().FindRecordsByFilter(
+			"ai_messages",
+			"conversation = {:conv}",
+			"created",
+			100,
+			0,
+			map[string]any{"conv": convID},
+		)
+		if err != nil {
+			return apis.NewBadRequestError("Failed to fetch messages", err)
+		}
+
+		msgList := make([]map[string]any, 0, len(messages))
+		for _, msg := range messages {
+			msgList = append(msgList, map[string]any{
+				"id":                  msg.Id,
+				"role":                msg.GetString("role"),
+				"content":             msg.GetString("content"),
+				"referenced_diaries":  msg.Get("referenced_diaries"),
+				"created":             msg.Created.String(),
+			})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"conversation": map[string]any{
+				"id":      conv.Id,
+				"title":   conv.GetString("title"),
+				"created": conv.Created.String(),
+				"updated": conv.Updated.String(),
+			},
+			"messages": msgList,
+		})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Delete conversation
+	e.Router.DELETE("/api/ai/conversations/:id", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		convID := c.PathParam("id")
+		conv, err := app.Dao().FindRecordById("ai_conversations", convID)
+		if err != nil {
+			return apis.NewNotFoundError("Conversation not found", err)
+		}
+
+		if conv.GetString("owner") != authRecord.Id {
+			return apis.NewForbiddenError("Access denied", nil)
+		}
+
+		if err := app.Dao().DeleteRecord(conv); err != nil {
+			return apis.NewBadRequestError("Failed to delete conversation", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"success": true})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Update conversation title
+	e.Router.PUT("/api/ai/conversations/:id", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		convID := c.PathParam("id")
+		conv, err := app.Dao().FindRecordById("ai_conversations", convID)
+		if err != nil {
+			return apis.NewNotFoundError("Conversation not found", err)
+		}
+
+		if conv.GetString("owner") != authRecord.Id {
+			return apis.NewForbiddenError("Access denied", nil)
+		}
+
+		var body struct {
+			Title string `json:"title"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return apis.NewBadRequestError("Invalid request body", err)
+		}
+
+		conv.Set("title", body.Title)
+		if err := app.Dao().SaveRecord(conv); err != nil {
+			return apis.NewBadRequestError("Failed to update conversation", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"id":      conv.Id,
+			"title":   conv.GetString("title"),
+			"updated": conv.Updated.String(),
+		})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Streaming chat endpoint
+	e.Router.POST("/api/ai/chat", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		var body struct {
+			ConversationID string `json:"conversation_id"`
+			Content        string `json:"content"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return apis.NewBadRequestError("Invalid request body", err)
+		}
+
+		if body.ConversationID == "" || body.Content == "" {
+			return apis.NewBadRequestError("conversation_id and content are required", nil)
+		}
+
+		// Verify conversation ownership
+		conv, err := app.Dao().FindRecordById("ai_conversations", body.ConversationID)
+		if err != nil {
+			return apis.NewNotFoundError("Conversation not found", err)
+		}
+		if conv.GetString("owner") != authRecord.Id {
+			return apis.NewForbiddenError("Access denied", nil)
+		}
+
+		// Save user message first
+		_, err = chatService.SaveMessage(authRecord.Id, body.ConversationID, "user", body.Content, nil)
+		if err != nil {
+			logger.Error("[POST /api/ai/chat] failed to save user message: %v", err)
+		}
+
+		// Set SSE headers
+		c.Response().Header().Set("Content-Type", "text/event-stream")
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		c.Response().Header().Set("Connection", "keep-alive")
+		c.Response().WriteHeader(http.StatusOK)
+
+		// Create stream writer
+		writer := &sseWriter{w: c.Response()}
+
+		// Stream chat response
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
+		defer cancel()
+
+		fullResponse, referencedDiaries, err := chatService.StreamChat(ctx, authRecord.Id, body.ConversationID, body.Content, writer)
+		if err != nil {
+			logger.Error("[POST /api/ai/chat] stream chat error: %v", err)
+			errData, _ := json.Marshal(map[string]string{"error": err.Error()})
+			writer.Write([]byte("data: " + string(errData) + "\n\n"))
+			writer.Flush()
+			return nil
+		}
+
+		// Save assistant message
+		_, err = chatService.SaveMessage(authRecord.Id, body.ConversationID, "assistant", fullResponse, referencedDiaries)
+		if err != nil {
+			logger.Error("[POST /api/ai/chat] failed to save assistant message: %v", err)
+		}
+
+		// Send done event
+		doneData, _ := json.Marshal(map[string]any{
+			"done":                true,
+			"referenced_diaries":  referencedDiaries,
+		})
+		writer.Write([]byte("data: " + string(doneData) + "\n\n"))
+		writer.Flush()
+
+		return nil
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 }
 
 // fetchModels fetches available models from an OpenAI-compatible API
@@ -197,4 +450,19 @@ func fetchModels(baseURL, apiKey string) ([]ModelInfo, error) {
 	}
 
 	return modelsResp.Data, nil
+}
+
+// sseWriter wraps http.ResponseWriter for SSE streaming
+type sseWriter struct {
+	w http.ResponseWriter
+}
+
+func (s *sseWriter) Write(p []byte) (int, error) {
+	return s.w.Write(p)
+}
+
+func (s *sseWriter) Flush() {
+	if f, ok := s.w.(http.Flusher); ok {
+		f.Flush()
+	}
 }

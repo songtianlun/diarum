@@ -242,3 +242,58 @@ func extractDate(dateTime string) string {
 	}
 	return dateTime
 }
+
+// DiarySearchResult represents a diary found by vector search
+type DiarySearchResult struct {
+	ID       string  `json:"id"`
+	Date     string  `json:"date"`
+	Content  string  `json:"content"`
+	Mood     string  `json:"mood,omitempty"`
+	Weather  string  `json:"weather,omitempty"`
+	Score    float32 `json:"score"`
+}
+
+// QuerySimilar finds diaries similar to the given query
+func (s *EmbeddingService) QuerySimilar(ctx context.Context, userID, query string, limit int) ([]DiarySearchResult, error) {
+	logger.Info("[EmbeddingService] querying similar diaries for user: %s", userID)
+
+	// Check if AI is enabled
+	enabled, _ := s.configService.GetBool(userID, "ai.enabled")
+	if !enabled {
+		return nil, fmt.Errorf("AI features are not enabled")
+	}
+
+	// Create embedding function
+	embeddingFunc, err := s.createEmbeddingFunc(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create embedding function: %w", err)
+	}
+
+	// Get collection
+	collection, err := s.vectorDB.GetOrCreateCollection(ctx, userID, embeddingFunc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	// Query similar documents
+	results, err := collection.Query(ctx, query, limit, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query collection: %w", err)
+	}
+
+	// Convert to DiarySearchResult
+	searchResults := make([]DiarySearchResult, 0, len(results))
+	for _, result := range results {
+		searchResults = append(searchResults, DiarySearchResult{
+			ID:      result.ID,
+			Date:    result.Metadata["date"],
+			Content: result.Content,
+			Mood:    result.Metadata["mood"],
+			Weather: result.Metadata["weather"],
+			Score:   result.Similarity,
+		})
+	}
+
+	logger.Info("[EmbeddingService] found %d similar diaries", len(searchResults))
+	return searchResults, nil
+}
