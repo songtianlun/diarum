@@ -12,6 +12,7 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 
 	"github.com/songtianlun/diaria/internal/config"
+	"github.com/songtianlun/diaria/internal/logger"
 )
 
 // generateToken generates a random 32-character hex token
@@ -36,8 +37,14 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 
 		userId := authRecord.Id
 
-		token, _ := configService.GetString(userId, "api.token")
-		enabled, _ := configService.GetBool(userId, "api.enabled")
+		token, err := configService.GetString(userId, "api.token")
+		if err != nil {
+			logger.Debug("[GET /api/settings/api-token] error getting token: %v", err)
+		}
+		enabled, err := configService.GetBool(userId, "api.enabled")
+		if err != nil {
+			logger.Debug("[GET /api/settings/api-token] error getting enabled: %v", err)
+		}
 
 		if token == "" {
 			return c.JSON(http.StatusOK, map[string]any{
@@ -63,8 +70,14 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 
 		userId := authRecord.Id
 
-		token, _ := configService.GetString(userId, "api.token")
-		enabled, _ := configService.GetBool(userId, "api.enabled")
+		token, err := configService.GetString(userId, "api.token")
+		if err != nil {
+			logger.Debug("[POST /api/settings/api-token/toggle] error getting token: %v", err)
+		}
+		enabled, err := configService.GetBool(userId, "api.enabled")
+		if err != nil {
+			logger.Debug("[POST /api/settings/api-token/toggle] error getting enabled: %v", err)
+		}
 
 		if token == "" {
 			// No token exists, create one and enable it
@@ -119,9 +132,14 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 		}
 
 		// Ensure enabled is set (default to true for reset)
-		enabled, _ := configService.GetBool(userId, "api.enabled")
+		enabled, err := configService.GetBool(userId, "api.enabled")
+		if err != nil {
+			logger.Debug("[POST /api/settings/api-token/reset] error getting enabled: %v", err)
+		}
 		if !enabled {
-			configService.Set(userId, "api.enabled", true)
+			if err := configService.Set(userId, "api.enabled", true); err != nil {
+				logger.Debug("[POST /api/settings/api-token/reset] error setting enabled: %v", err)
+			}
 			enabled = true
 		}
 

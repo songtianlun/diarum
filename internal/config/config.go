@@ -46,7 +46,11 @@ func (s *ConfigService) Get(userId, key string) (any, error) {
 	}
 
 	value := record.Get("value")
-	logger.Debug("[ConfigService.Get] Found value: %v (type: %T)", value, value)
+	if isSensitiveKey(key) {
+		logger.Debug("[ConfigService.Get] Found value: %s (type: %T)", maskSensitiveValue(s.parseStringValue(value)), value)
+	} else {
+		logger.Debug("[ConfigService.Get] Found value: %v (type: %T)", value, value)
+	}
 	return value, nil
 }
 
@@ -215,17 +219,22 @@ func (s *ConfigService) Delete(userId, key string) error {
 	return s.app.Dao().DeleteRecord(record)
 }
 
-// maskToken returns a masked version of the token for safe logging
-func maskToken(token string) string {
-	if len(token) <= 8 {
+// maskSensitiveValue returns a masked version of sensitive values for safe logging
+func maskSensitiveValue(value string) string {
+	if len(value) <= 8 {
 		return "***"
 	}
-	return token[:4] + "***" + token[len(token)-4:]
+	return value[:4] + "***" + value[len(value)-4:]
+}
+
+// isSensitiveKey checks if a key contains sensitive data that should be masked in logs
+func isSensitiveKey(key string) bool {
+	return IsEncrypted(key) || key == "api.token"
 }
 
 // ValidateTokenAndGetUser validates an API token and returns the user ID
 func (s *ConfigService) ValidateTokenAndGetUser(token string) (string, error) {
-	logger.Debug("[ValidateTokenAndGetUser] validating token: %s", maskToken(token))
+	logger.Debug("[ValidateTokenAndGetUser] validating token: %s", maskSensitiveValue(token))
 
 	// Find the record with matching token
 	records, err := s.app.Dao().FindRecordsByFilter(
