@@ -27,6 +27,8 @@
 	let aiEnabled = false;
 	let sidebarOpen = false;
 	let messagesContainer: HTMLDivElement;
+	// New state: true when user wants to start a new chat but hasn't sent a message yet
+	let isNewChatMode = false;
 
 	function closeSidebarOnMobile() {
 		if (window.innerWidth < 1024) {
@@ -62,19 +64,16 @@
 		}, 50);
 	}
 
-	async function handleCreateConversation() {
-		try {
-			const conv = await createConversation();
-			conversations = [conv, ...conversations];
-			selectedConversationId = conv.id;
-			messages = [];
-			closeSidebarOnMobile();
-		} catch (e) {
-			console.error('Failed to create conversation:', e);
-		}
+	function handleStartNewChat() {
+		// Enter new chat mode without creating a conversation yet
+		selectedConversationId = null;
+		isNewChatMode = true;
+		messages = [];
+		closeSidebarOnMobile();
 	}
 
 	async function handleSelectConversation(convId: string) {
+		isNewChatMode = false;
 		selectedConversationId = convId;
 		closeSidebarOnMobile();
 		await loadMessages(convId);
@@ -87,10 +86,6 @@
 			if (selectedConversationId === convId) {
 				selectedConversationId = null;
 				messages = [];
-				// Auto create new conversation if all deleted
-				if (conversations.length === 0) {
-					await handleCreateConversation();
-				}
 			}
 		} catch (e) {
 			console.error('Failed to delete conversation:', e);
@@ -98,7 +93,23 @@
 	}
 
 	async function handleSendMessage(content: string) {
-		if (!selectedConversationId || isStreaming) return;
+		if (isStreaming) return;
+
+		let convId = selectedConversationId;
+
+		// If in new chat mode, create conversation first
+		if (isNewChatMode || !convId) {
+			try {
+				const conv = await createConversation();
+				conversations = [conv, ...conversations];
+				convId = conv.id;
+				selectedConversationId = conv.id;
+				isNewChatMode = false;
+			} catch (e) {
+				console.error('Failed to create conversation:', e);
+				return;
+			}
+		}
 
 		// Add user message
 		const userMsg: Message = {
@@ -114,7 +125,7 @@
 		streamingContent = '';
 
 		try {
-			for await (const chunk of streamChat(selectedConversationId, content)) {
+			for await (const chunk of streamChat(convId, content)) {
 				if (chunk.error) {
 					console.error('Stream error:', chunk.error);
 					break;
@@ -134,6 +145,15 @@
 					};
 					messages = [...messages, assistantMsg];
 					streamingContent = '';
+
+					// Update conversation title if returned
+					if (chunk.title && convId) {
+						conversations = conversations.map(c =>
+							c.id === convId
+								? { ...c, title: chunk.title! }
+								: c
+						);
+					}
 				}
 			}
 		} catch (e) {
@@ -160,10 +180,8 @@
 
 		await loadConversations();
 
-		// Auto create a new conversation on first visit
-		if (conversations.length === 0 || !selectedConversationId) {
-			await handleCreateConversation();
-		}
+		// Always start in new chat mode, ready to send messages
+		isNewChatMode = true;
 
 		loading = false;
 	});
@@ -247,14 +265,14 @@
 					selectedId={selectedConversationId}
 					{loading}
 					on:select={(e) => handleSelectConversation(e.detail)}
-					on:create={handleCreateConversation}
+					on:create={handleStartNewChat}
 					on:delete={(e) => handleDeleteConversation(e.detail)}
 				/>
 			</aside>
 
 			<!-- Chat Area -->
 			<main class="flex-1 flex flex-col min-w-0 lg:bg-card/50 lg:border lg:border-border lg:rounded-2xl overflow-hidden">
-				{#if !selectedConversationId}
+				{#if !selectedConversationId && !isNewChatMode}
 					<div class="flex-1 flex items-center justify-center p-6">
 						<div class="text-center max-w-sm">
 							<div class="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center">
@@ -268,7 +286,7 @@
 								Chat with your diary using AI. Ask questions about your past entries or get insights.
 							</p>
 							<button
-								on:click={handleCreateConversation}
+								on:click={handleStartNewChat}
 								class="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-all shadow-sm font-medium"
 							>
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

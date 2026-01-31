@@ -234,11 +234,14 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 
 		result := make([]map[string]any, 0, len(conversations))
 		for _, conv := range conversations {
+			// Get message count for this conversation
+			messageCount, _ := chatService.GetConversationMessageCount(conv.Id)
 			result = append(result, map[string]any{
-				"id":      conv.Id,
-				"title":   conv.GetString("title"),
-				"created": conv.Created.String(),
-				"updated": conv.Updated.String(),
+				"id":            conv.Id,
+				"title":         conv.GetString("title"),
+				"created":       conv.Created.String(),
+				"updated":       conv.Updated.String(),
+				"message_count": messageCount,
 			})
 		}
 
@@ -417,10 +420,19 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 			return apis.NewForbiddenError("Access denied", nil)
 		}
 
+		// Check if this is the first message (for auto title generation)
+		messageCount, _ := chatService.GetConversationMessageCount(body.ConversationID)
+		isFirstMessage := messageCount == 0
+		currentTitle := conv.GetString("title")
+		logger.Info("[POST /api/ai/chat] conversation=%s, messageCount=%d, isFirstMessage=%v, currentTitle=%s",
+			body.ConversationID, messageCount, isFirstMessage, currentTitle)
+
 		// Save user message first
-		_, err = chatService.SaveMessage(authRecord.Id, body.ConversationID, "user", body.Content, nil)
+		userMsg, err := chatService.SaveMessage(authRecord.Id, body.ConversationID, "user", body.Content, nil)
 		if err != nil {
 			logger.Error("[POST /api/ai/chat] failed to save user message: %v", err)
+		} else {
+			logger.Info("[POST /api/ai/chat] saved user message: %s", userMsg.Id)
 		}
 
 		// Set SSE headers
@@ -446,15 +458,34 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		}
 
 		// Save assistant message
-		_, err = chatService.SaveMessage(authRecord.Id, body.ConversationID, "assistant", fullResponse, referencedDiaries)
+		assistantMsg, err := chatService.SaveMessage(authRecord.Id, body.ConversationID, "assistant", fullResponse, referencedDiaries)
 		if err != nil {
 			logger.Error("[POST /api/ai/chat] failed to save assistant message: %v", err)
+		} else {
+			logger.Info("[POST /api/ai/chat] saved assistant message: %s", assistantMsg.Id)
+		}
+
+		// Generate title for first message
+		var newTitle string
+		if isFirstMessage && currentTitle == "" {
+			logger.Info("[POST /api/ai/chat] generating title for conversation=%s", body.ConversationID)
+			title, err := chatService.GenerateTitle(ctx, authRecord.Id, body.Content, fullResponse)
+			if err != nil {
+				logger.Error("[POST /api/ai/chat] failed to generate title: %v", err)
+			} else {
+				newTitle = title
+				logger.Info("[POST /api/ai/chat] generated title: %s", title)
+				if err := chatService.UpdateConversationTitle(body.ConversationID, title); err != nil {
+					logger.Error("[POST /api/ai/chat] failed to update title: %v", err)
+				}
+			}
 		}
 
 		// Send done event
 		doneData, _ := json.Marshal(map[string]any{
-			"done":                true,
-			"referenced_diaries":  referencedDiaries,
+			"done":               true,
+			"referenced_diaries": referencedDiaries,
+			"title":              newTitle,
 		})
 		writer.Write([]byte("data: " + string(doneData) + "\n\n"))
 		writer.Flush()
