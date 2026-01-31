@@ -171,6 +171,38 @@
 	// Check if AI can be enabled
 	$: canEnableAI = aiSettings.api_key && aiSettings.base_url && aiSettings.chat_model && aiSettings.embedding_model;
 
+	// Embedding model keywords for sorting
+	const embeddingKeywords = ['embed', 'bge', 'e5', 'voyage', 'jina'];
+
+	// Check if a model is likely an embedding model
+	function isEmbeddingModel(modelId: string): boolean {
+		const lower = modelId.toLowerCase();
+		return embeddingKeywords.some(keyword => lower.includes(keyword));
+	}
+
+	// Check if a model is likely a chat model (not embedding)
+	function isChatModel(modelId: string): boolean {
+		return !isEmbeddingModel(modelId);
+	}
+
+	// Sorted models for embedding selection (embedding models first)
+	$: embeddingModels = [...models].sort((a, b) => {
+		const aIsEmbed = isEmbeddingModel(a.id);
+		const bIsEmbed = isEmbeddingModel(b.id);
+		if (aIsEmbed && !bIsEmbed) return -1;
+		if (!aIsEmbed && bIsEmbed) return 1;
+		return a.id.localeCompare(b.id);
+	});
+
+	// Sorted models for chat selection (chat models first)
+	$: chatModels = [...models].sort((a, b) => {
+		const aIsChat = isChatModel(a.id);
+		const bIsChat = isChatModel(b.id);
+		if (aIsChat && !bIsChat) return -1;
+		if (!aIsChat && bIsChat) return 1;
+		return a.id.localeCompare(b.id);
+	});
+
 	onMount(async () => {
 		if (!$isAuthenticated) {
 			goto('/login');
@@ -351,7 +383,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
 							>
 								<option value="">Select a model</option>
-								{#each models as model}
+								{#each chatModels as model}
 									<option value={model.id}>{model.id}</option>
 								{/each}
 							</select>
@@ -378,7 +410,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
 							>
 								<option value="">Select a model</option>
-								{#each models as model}
+								{#each embeddingModels as model}
 									<option value={model.id}>{model.id}</option>
 								{/each}
 							</select>
