@@ -792,6 +792,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									<div>
 										AI conversations:
 										<span class="text-green-600 font-medium">{importStats.conversations.imported} imported</span>
+										{#if importStats.conversations.skipped > 0}
+											, <span class="text-orange-500 font-medium">{importStats.conversations.skipped} skipped</span>
+										{/if}
 										{#if importStats.conversations.failed > 0}
 											, <span class="text-destructive font-medium">{importStats.conversations.failed} failed</span>
 										{/if}
