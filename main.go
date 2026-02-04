@@ -228,6 +228,7 @@ func main() {
 		api.RegisterDiaryRoutes(app, e)
 		api.RegisterSettingsRoutes(app, e)
 		api.RegisterAIRoutes(app, e, embeddingService)
+		api.RegisterExportImportRoutes(app, e, embeddingService)
 		api.RegisterPublicRoutes(app, e)
 		api.RegisterVersionRoutes(e, Version, Name)
 

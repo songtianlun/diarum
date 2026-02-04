@@ -4,8 +4,21 @@
 	import { isAuthenticated } from '$lib/api/client';
 	import { getApiToken, toggleApiToken, resetApiToken, type ApiTokenStatus } from '$lib/api/settings';
 	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
+	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
+	import SettingsToc from '$lib/components/ui/SettingsToc.svelte';
+
+	// TOC state
+	let showMobileToc = false;
+	let showDesktopToc = true;
+	let isMobile = false;
+
+	function checkMobile() {
+		if (typeof window !== 'undefined') {
+			isMobile = window.innerWidth < 1024;
+		}
+	}
 
 	let loading = true;
 	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '' };
@@ -36,6 +49,26 @@
 	// Vector stats
 	let vectorStats: VectorStats | null = null;
 	let loadingStats = false;
+
+	// Data management (export/import)
+	let exporting = false;
+	let exportStats: ExportStats | null = null;
+	let exportError = '';
+	let importing = false;
+	let importStats: ImportStats | null = null;
+	let importError = '';
+	let importFile: File | null = null;
+
+	// Export options
+	let exportOptions: ExportOptions = {
+		date_range: '3m',
+		include_diaries: true,
+		include_media: true,
+		include_conversations: true
+	};
+	let customStartDate = '';
+	let customEndDate = '';
+	let showExportOptions = true;
 
 	async function loadTokenStatus() {
 		tokenStatus = await getApiToken();
@@ -204,11 +237,53 @@
 		return a.id.localeCompare(b.id);
 	});
 
+	async function handleExport() {
+		exporting = true;
+		exportError = '';
+		exportStats = null;
+		try {
+			// Build options with custom dates if needed
+			const options: ExportOptions = { ...exportOptions };
+			if (options.date_range === 'custom') {
+				options.start_date = customStartDate;
+				options.end_date = customEndDate;
+			}
+			exportStats = await exportDiaries(options);
+		} catch (e) {
+			exportError = e instanceof Error ? e.message : 'Export failed';
+		}
+		exporting = false;
+	}
+
+	function handleImportFileChange(e: Event) {
+		const input = e.target as HTMLInputElement;
+		importFile = input.files?.[0] || null;
+	}
+
+	async function handleImport() {
+		if (!importFile) return;
+		importing = true;
+		importError = '';
+		importStats = null;
+		try {
+			importStats = await importDiaries(importFile);
+		} catch (e) {
+			importError = e instanceof Error ? e.message : 'Import failed';
+		}
+		importing = false;
+	}
+
 	onMount(async () => {
 		if (!$isAuthenticated) {
 			goto('/login');
 			return;
 		}
+
+		// Initialize mobile detection
+		checkMobile();
+		showDesktopToc = !isMobile;
+		window.addEventListener('resize', checkMobile);
+
 		loading = true;
 		await Promise.all([loadTokenStatus(), loadAISettings()]);
 		loading = false;
@@ -216,6 +291,10 @@
 		if (aiSettings.enabled) {
 			await loadVectorStats();
 		}
+
+		return () => {
+			window.removeEventListener('resize', checkMobile);
+		};
 	});
 </script>
 
@@ -224,11 +303,56 @@
 </svelte:head>
 
 <div class="min-h-screen bg-background">
-	<PageHeader title="Settings" />
+	<!-- Sticky Header Container -->
+	<div class="sticky top-0 z-20">
+		<!-- Header -->
+		<header class="glass border-b border-border/50">
+			<div class="max-w-6xl mx-auto px-4 h-11">
+				<div class="flex items-center justify-between h-full">
+					<!-- Left: Brand -->
+					<a href="/" class="text-lg font-semibold text-foreground hover:text-primary transition-colors">Diarum</a>
+
+					<!-- Center: Title -->
+					<div class="text-sm font-medium text-foreground">Settings</div>
+
+					<!-- Right: Actions -->
+					<div class="flex items-center gap-2">
+						<button
+							on:click={() => {
+								if (window.innerWidth >= 1024) {
+									showDesktopToc = !showDesktopToc;
+								} else {
+									showMobileToc = !showMobileToc;
+								}
+							}}
+							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 {(showDesktopToc || showMobileToc) ? 'bg-muted/50' : ''}"
+							title="Table of contents"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" />
+							</svg>
+						</button>
+					</div>
+				</div>
+			</div>
+		</header>
+
+		<!-- Mobile TOC - Inside sticky container -->
+		{#if showMobileToc}
+			<div class="lg:hidden glass-subtle border-b border-border/50 animate-slide-in-down">
+				<div class="max-w-6xl mx-auto px-4 py-3">
+					<SettingsToc />
+				</div>
+			</div>
+		{/if}
+	</div>
 
 	<!-- Main Content -->
-	<main class="max-w-4xl mx-auto px-4 py-6">
-		{#if loading}
+	<div class="max-w-6xl mx-auto px-4 py-6">
+		<div class="flex gap-6 {showDesktopToc ? '' : 'justify-center'}">
+			<!-- Settings Content -->
+			<main class="flex-1 min-w-0 max-w-4xl {showDesktopToc ? 'lg:mx-0' : 'mx-auto'}">
+				{#if loading}
 			<div class="flex flex-col items-center justify-center py-20 gap-3">
 				<svg class="w-6 h-6 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
 					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -239,7 +363,7 @@
 		{:else}
 			<div class="space-y-6">
 				<!-- API Settings Section -->
-				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in">
+				<div id="api-access" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<h2 class="text-lg font-semibold text-foreground mb-4">API Access</h2>
 					<p class="text-sm text-muted-foreground mb-6">
 						Enable API access to retrieve your diary entries programmatically. Use your API token to authenticate requests.
@@ -327,7 +451,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 				</div>
 
 				<!-- AI Settings Section -->
-				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in">
+				<div id="ai-assistant" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<h2 class="text-lg font-semibold text-foreground mb-4">AI Assistant</h2>
 					<p class="text-sm text-muted-foreground mb-6">
 						Configure AI services for intelligent diary analysis and conversation. Supports OpenAI-compatible APIs.
@@ -431,8 +555,8 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 
 					<!-- Enable AI Toggle -->
 					<div class="py-4 border-b border-border/50">
-						<div class="flex items-center justify-between">
-							<div>
+						<div class="flex items-center justify-between gap-4">
+							<div class="min-w-0 flex-1">
 								<div class="font-medium text-foreground">Enable AI Features</div>
 								<div class="text-sm text-muted-foreground">
 									{#if !canEnableAI}
@@ -447,7 +571,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							<button
 								on:click={() => { if (canEnableAI) aiSettings.enabled = !aiSettings.enabled; }}
 								disabled={!canEnableAI && !aiSettings.enabled}
-								class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 {aiSettings.enabled ? 'bg-primary' : 'bg-muted'} {!canEnableAI && !aiSettings.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
+								class="relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 {aiSettings.enabled ? 'bg-primary' : 'bg-muted'} {!canEnableAI && !aiSettings.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
 							>
 								<span
 									class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 {aiSettings.enabled ? 'translate-x-6' : 'translate-x-1'}"
@@ -628,9 +752,261 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						</button>
 					</div>
 				</div>
+
+				<!-- Data Management Section -->
+				<div id="data-management" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
+					<h2 class="text-lg font-semibold text-foreground mb-4">Data Management</h2>
+					<p class="text-sm text-muted-foreground mb-6">
+						Import and export your diary data. To avoid large export files, you can export data in segments by date range.
+					</p>
+
+					<!-- Export -->
+					<div class="py-4 border-b border-border/50">
+						<div class="flex items-center justify-between mb-1">
+							<div class="font-medium text-foreground">Export</div>
+							<button
+								on:click={() => showExportOptions = !showExportOptions}
+								class="text-xs text-primary hover:underline"
+							>
+								{showExportOptions ? 'Hide Options' : 'Show Options'}
+							</button>
+						</div>
+						<div class="text-sm text-muted-foreground mb-3">Download your diary data as a ZIP file</div>
+
+						{#if showExportOptions}
+							<div class="mb-4 p-4 bg-muted/50 rounded-lg space-y-4">
+								<div class="text-xs text-amber-600 bg-amber-500/10 p-2 rounded">
+									To avoid large export files, consider exporting data in segments by selecting a specific date range.
+								</div>
+
+								<!-- Date Range -->
+								<div>
+									<label class="block text-sm font-medium text-foreground mb-2">Date Range</label>
+									<select
+										bind:value={exportOptions.date_range}
+										class="w-full px-3 py-2 bg-background rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary border border-border/50"
+									>
+										<option value="1m">Past 1 month</option>
+										<option value="3m">Past 3 months</option>
+										<option value="6m">Past 6 months</option>
+										<option value="1y">Past 1 year</option>
+										<option value="all">All time</option>
+										<option value="custom">Custom range</option>
+									</select>
+								</div>
+
+								{#if exportOptions.date_range === 'custom'}
+									<div class="grid grid-cols-2 gap-3">
+										<div>
+											<label class="block text-xs text-muted-foreground mb-1">Start Date</label>
+											<input
+												type="date"
+												bind:value={customStartDate}
+												class="w-full px-3 py-2 bg-background rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary border border-border/50"
+											/>
+										</div>
+										<div>
+											<label class="block text-xs text-muted-foreground mb-1">End Date</label>
+											<input
+												type="date"
+												bind:value={customEndDate}
+												class="w-full px-3 py-2 bg-background rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary border border-border/50"
+											/>
+										</div>
+									</div>
+								{/if}
+
+								<!-- Content Types -->
+								<div>
+									<label class="block text-sm font-medium text-foreground mb-2">Content to Export</label>
+									<div class="space-y-2">
+										<label class="flex items-center gap-2 cursor-pointer">
+											<input type="checkbox" bind:checked={exportOptions.include_diaries} class="rounded" />
+											<span class="text-sm text-foreground">Diaries</span>
+										</label>
+										<label class="flex items-center gap-2 cursor-pointer">
+											<input type="checkbox" bind:checked={exportOptions.include_media} class="rounded" />
+											<span class="text-sm text-foreground">Media files</span>
+										</label>
+										<label class="flex items-center gap-2 cursor-pointer">
+											<input type="checkbox" bind:checked={exportOptions.include_conversations} class="rounded" />
+											<span class="text-sm text-foreground">AI conversations</span>
+										</label>
+									</div>
+								</div>
+							</div>
+						{/if}
+
+						{#if exportError}
+							<div class="mb-3 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+								{exportError}
+							</div>
+						{/if}
+
+						<button
+							on:click={handleExport}
+							disabled={exporting}
+							class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors duration-200 disabled:opacity-50 flex items-center gap-2"
+						>
+							{#if exporting}
+								<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Exporting...
+							{:else}
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+								</svg>
+								Export Data
+							{/if}
+						</button>
+
+						{#if exportStats}
+							<div class="mt-3 p-3 bg-muted rounded-lg text-sm">
+								<div class="font-medium text-foreground mb-2">Export Complete</div>
+								<div class="text-xs text-muted-foreground mb-2">
+									Period: {exportStats.start_date} to {exportStats.end_date}
+								</div>
+								<div class="space-y-2 text-muted-foreground">
+									<div class="flex justify-between">
+										<span>Diaries:</span>
+										<span>
+											<span class="text-foreground font-medium">{exportStats.diaries.actual_exported}</span>
+											<span class="text-xs">/ {exportStats.diaries.should_export} selected / {exportStats.diaries.total_in_system} total</span>
+										</span>
+									</div>
+									<div class="flex justify-between">
+										<span>Media:</span>
+										<span>
+											<span class="text-foreground font-medium">{exportStats.media.actual_exported}</span>
+											<span class="text-xs">/ {exportStats.media.should_export} selected / {exportStats.media.total_in_system} total</span>
+										</span>
+									</div>
+									<div class="flex justify-between">
+										<span>Conversations:</span>
+										<span>
+											<span class="text-foreground font-medium">{exportStats.conversations.actual_exported}</span>
+											<span class="text-xs">/ {exportStats.conversations.should_export} selected / {exportStats.conversations.total_in_system} total</span>
+											<span class="text-xs">({exportStats.messages} messages)</span>
+										</span>
+									</div>
+								</div>
+								{#if exportStats.failed_items && exportStats.failed_items.length > 0}
+									<div class="mt-3 pt-2 border-t border-border/50">
+										<div class="font-medium text-destructive mb-1">Failed Items:</div>
+										<div class="text-xs space-y-1 max-h-24 overflow-y-auto">
+											{#each exportStats.failed_items as item}
+												<div class="text-muted-foreground">
+													<span class="text-destructive">[{item.type}]</span> {item.id}: {item.reason}
+												</div>
+											{/each}
+										</div>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</div>
+
+					<!-- Import -->
+					<div class="py-4">
+						<div class="font-medium text-foreground mb-1">Import</div>
+						<div class="text-sm text-muted-foreground mb-3">Restore diary data from a previously exported ZIP file. Diaries with an existing date will be skipped.</div>
+
+						{#if importError}
+							<div class="mb-3 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+								{importError}
+							</div>
+						{/if}
+
+						<div class="flex items-center gap-3 flex-wrap">
+							<label class="px-4 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200 cursor-pointer">
+								<span>{importFile ? importFile.name : 'Choose File'}</span>
+								<input
+									type="file"
+									accept=".zip"
+									class="hidden"
+									on:change={handleImportFileChange}
+								/>
+							</label>
+							<button
+								on:click={handleImport}
+								disabled={importing || !importFile}
+								class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors duration-200 disabled:opacity-50 flex items-center gap-2"
+							>
+								{#if importing}
+									<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									Importing...
+								{:else}
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />
+									</svg>
+									Import
+								{/if}
+							</button>
+						</div>
+
+						{#if importStats}
+							<div class="mt-3 p-3 bg-muted rounded-lg text-sm">
+								<div class="font-medium text-foreground mb-2">Import Complete</div>
+								<div class="space-y-1 text-muted-foreground">
+									<div>
+										Diaries:
+										<span class="text-green-600 font-medium">{importStats.diaries.imported} imported</span>
+										{#if importStats.diaries.skipped > 0}
+											, <span class="text-amber-600 font-medium">{importStats.diaries.skipped} skipped</span>
+										{/if}
+										{#if importStats.diaries.failed > 0}
+											, <span class="text-destructive font-medium">{importStats.diaries.failed} failed</span>
+										{/if}
+										<span class="text-muted-foreground">({importStats.diaries.total} total)</span>
+									</div>
+									<div>
+										Media:
+										<span class="text-green-600 font-medium">{importStats.media.imported} imported</span>
+										{#if importStats.media.skipped > 0}
+											, <span class="text-amber-600 font-medium">{importStats.media.skipped} skipped</span>
+										{/if}
+										{#if importStats.media.failed > 0}
+											, <span class="text-destructive font-medium">{importStats.media.failed} failed</span>
+										{/if}
+										<span class="text-muted-foreground">({importStats.media.total} total)</span>
+									</div>
+									<div>
+										AI conversations:
+										<span class="text-green-600 font-medium">{importStats.conversations.imported} imported</span>
+										{#if importStats.conversations.skipped > 0}
+											, <span class="text-orange-500 font-medium">{importStats.conversations.skipped} skipped</span>
+										{/if}
+										{#if importStats.conversations.failed > 0}
+											, <span class="text-destructive font-medium">{importStats.conversations.failed} failed</span>
+										{/if}
+										<span class="text-muted-foreground">({importStats.conversations.total} total)</span>
+									</div>
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
 			</div>
 		{/if}
 	</main>
 
-	<Footer maxWidth="4xl" tagline="Manage your settings" />
+			<!-- Desktop TOC Sidebar -->
+			{#if showDesktopToc}
+				<aside class="hidden lg:block w-56 flex-shrink-0">
+					<div class="sticky top-16 animate-slide-in-right">
+						<div class="bg-card/50 rounded-xl border border-border/50 p-4">
+							<SettingsToc />
+						</div>
+					</div>
+				</aside>
+			{/if}
+		</div>
+	</div>
+
+	<Footer maxWidth="6xl" tagline="Manage your settings" />
 </div>

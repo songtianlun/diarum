@@ -7,6 +7,8 @@ import (
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/models/schema"
 	"github.com/pocketbase/pocketbase/tools/types"
+
+	"github.com/songtianlun/diarum/internal/config"
 )
 
 func init() {
@@ -30,13 +32,7 @@ func init() {
 					Options: &schema.FileOptions{
 						MaxSelect: 1,
 						MaxSize:   5242880, // 5MB
-						MimeTypes: []string{
-							"image/jpeg",
-							"image/png",
-							"image/gif",
-							"image/webp",
-							"image/svg+xml",
-						},
+						MimeTypes: config.AllowedMediaMimeTypes,
 						Thumbs: []string{
 							"100x100",
 							"300x300",
