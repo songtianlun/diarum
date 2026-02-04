@@ -21,7 +21,8 @@ import (
 	"github.com/songtianlun/diarum/internal/logger"
 )
 
-const maxImportSize = 100 << 20 // 100MB
+const maxImportSize = 100 << 20     // 100MB total upload
+const maxSingleFileSize = 100 << 20 // 100MB per file (ZIP bomb protection)
 
 // ---------- Export/Import 数据结构 ----------
 
@@ -359,13 +360,32 @@ func handleImport(c echo.Context, app *pocketbase.PocketBase, embeddingService *
 	mediaFiles := make(map[string][]byte) // filename -> bytes
 
 	for _, zf := range zipReader.File {
+		// Path traversal protection
+		if !isValidZipPath(zf.Name) {
+			logger.Warn("[Import] skipping file with invalid path: %s", zf.Name)
+			continue
+		}
+
+		// ZIP bomb protection - check uncompressed size
+		if zf.UncompressedSize64 > maxSingleFileSize {
+			logger.Warn("[Import] skipping file exceeding size limit: %s (%d bytes)", zf.Name, zf.UncompressedSize64)
+			continue
+		}
+
 		rc, err := zf.Open()
 		if err != nil {
 			continue
 		}
-		data, err := io.ReadAll(rc)
+
+		// Read with size limit (defense in depth)
+		limitedReader := io.LimitReader(rc, maxSingleFileSize+1)
+		data, err := io.ReadAll(limitedReader)
 		rc.Close()
 		if err != nil {
+			continue
+		}
+		if int64(len(data)) > maxSingleFileSize {
+			logger.Warn("[Import] file exceeded size limit during read: %s", zf.Name)
 			continue
 		}
 
@@ -641,6 +661,17 @@ func handleImport(c echo.Context, app *pocketbase.PocketBase, embeddingService *
 }
 
 // ---------- Helpers ----------
+
+// isValidZipPath checks for path traversal attacks
+func isValidZipPath(name string) bool {
+	if strings.Contains(name, "..") {
+		return false
+	}
+	if strings.HasPrefix(name, "/") || strings.HasPrefix(name, "\\") {
+		return false
+	}
+	return true
+}
 
 // extractExportDate extracts YYYY-MM-DD from a PocketBase timestamp string
 func extractExportDate(dateTime string) string {
