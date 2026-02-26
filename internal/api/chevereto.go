@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -152,6 +155,107 @@ func RegisterCheveretoRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 		return c.JSON(http.StatusOK, map[string]any{
 			"success": true,
 			"message": "Connection successful",
+		})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Proxy upload to Chevereto (avoids CORS issues)
+	e.Router.POST("/api/chevereto/upload", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		userId := authRecord.Id
+
+		// Read settings from config
+		enabled, _ := configService.GetBool(userId, "chevereto.enabled")
+		if !enabled {
+			return apis.NewBadRequestError("Chevereto is not enabled", nil)
+		}
+
+		domain, _ := configService.GetString(userId, "chevereto.domain")
+		apiKey, _ := configService.GetString(userId, "chevereto.api_key")
+		albumId, _ := configService.GetString(userId, "chevereto.album_id")
+
+		if domain == "" || apiKey == "" {
+			return apis.NewBadRequestError("Chevereto domain and API key are not configured", nil)
+		}
+
+		// Get uploaded file from request
+		file, header, err := c.Request().FormFile("source")
+		if err != nil {
+			return apis.NewBadRequestError("No file provided", err)
+		}
+		defer file.Close()
+
+		// Build multipart request to Chevereto
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+
+		part, err := writer.CreateFormFile("source", header.Filename)
+		if err != nil {
+			return apis.NewBadRequestError("Failed to create form file", err)
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			return apis.NewBadRequestError("Failed to read file", err)
+		}
+
+		if albumId != "" {
+			writer.WriteField("album_id", albumId)
+		}
+		writer.WriteField("title", header.Filename)
+		writer.Close()
+
+		// Send to Chevereto
+		uploadURL := fmt.Sprintf("%s/api/1/upload", domain)
+		req, err := http.NewRequest("POST", uploadURL, &buf)
+		if err != nil {
+			return apis.NewBadRequestError("Failed to create request", err)
+		}
+		req.Header.Set("X-API-Key", apiKey)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		client := &http.Client{Timeout: 60 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return apis.NewBadRequestError(fmt.Sprintf("Upload to Chevereto failed: %v", err), nil)
+		}
+		defer resp.Body.Close()
+
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return apis.NewBadRequestError("Failed to read Chevereto response", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			var errResp map[string]any
+			if json.Unmarshal(respBody, &errResp) == nil {
+				if errObj, ok := errResp["error"].(map[string]any); ok {
+					if msg, ok := errObj["message"].(string); ok {
+						return apis.NewBadRequestError(fmt.Sprintf("Chevereto error: %s", msg), nil)
+					}
+				}
+			}
+			return apis.NewBadRequestError(fmt.Sprintf("Chevereto returned status %d", resp.StatusCode), nil)
+		}
+
+		var result map[string]any
+		if err := json.Unmarshal(respBody, &result); err != nil {
+			return apis.NewBadRequestError("Failed to parse Chevereto response", err)
+		}
+
+		// Extract image URL
+		imageObj, ok := result["image"].(map[string]any)
+		if !ok {
+			return apis.NewBadRequestError("No image data in Chevereto response", nil)
+		}
+		imageURL, ok := imageObj["url"].(string)
+		if !ok || imageURL == "" {
+			return apis.NewBadRequestError("No image URL in Chevereto response", nil)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"url": imageURL,
 		})
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 }

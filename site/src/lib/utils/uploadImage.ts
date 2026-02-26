@@ -82,14 +82,9 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 	}
 	const settings = get(cheveretoSettings);
 
-	if (settings.enabled && settings.domain && settings.api_key) {
+	if (settings.enabled) {
 		try {
-			const result = await uploadToChevereto(
-				file,
-				settings.domain,
-				settings.api_key,
-				settings.album_id || undefined
-			);
+			const result = await uploadToChevereto(file);
 			return { cheveretoUrl: result.url };
 		} catch (error) {
 			console.error('Chevereto upload failed:', error);

@@ -67,46 +67,27 @@ export async function testCheveretoConnection(domain: string, apiKey: string): P
 	return await response.json();
 }
 
-export async function uploadToChevereto(
-	file: File,
-	domain: string,
-	apiKey: string,
-	albumId?: string
-): Promise<{ url: string }> {
+export async function uploadToChevereto(file: File): Promise<{ url: string }> {
 	const formData = new FormData();
 	formData.append('source', file);
-	if (albumId) {
-		formData.append('album_id', albumId);
-	}
-	formData.append('title', file.name);
 
-	const uploadUrl = `${domain.replace(/\/+$/, '')}/api/1/upload`;
-
-	const response = await fetch(uploadUrl, {
+	const response = await fetch('/api/chevereto/upload', {
 		method: 'POST',
 		headers: {
-			'X-API-Key': apiKey
+			'Authorization': `Bearer ${pb.authStore.token}`
 		},
 		body: formData
 	});
 
 	if (!response.ok) {
-		const text = await response.text();
-		let message = 'Upload to Chevereto failed';
-		try {
-			const data = JSON.parse(text);
-			message = data?.error?.message || data?.status_txt || message;
-		} catch {
-			// ignore parse error
-		}
-		throw new Error(message);
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data?.message || 'Upload to Chevereto failed');
 	}
 
 	const data = await response.json();
-	const url = data?.image?.url;
-	if (!url) {
+	if (!data?.url) {
 		throw new Error('No image URL in Chevereto response');
 	}
 
-	return { url };
+	return { url: data.url };
 }
