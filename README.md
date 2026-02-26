@@ -27,7 +27,7 @@
 ### Features
 
 - 📝 **Markdown Support** - Write your daily thoughts with full Markdown formatting
-- 🖼️ **Media Upload** - Attach images and files to your diary entries
+- 🖼️ **Media Upload** - Attach images and files to your diary entries, with Chevereto image hosting support for flexible switching between built-in media manager and external image hosting
 - 📱 **Progressive Web App** - Install on any device with offline support and app-like experience
 - 📤 **One-Click Share** - Share your diary entries instantly with a single tap
 - 🔄 **Offline & Auto Sync** - Work offline seamlessly with automatic cache synchronization and real-time sync status monitoring
@@ -203,7 +203,7 @@ Access the PocketBase admin panel at `http://localhost:8090/_/` to:
 ### 主要功能
 
 - 📝 **Markdown 支持** - 使用完整的 Markdown 格式记录每日想法
-- 🖼️ **媒体上传** - 为日记条目添加图片和文件
+- 🖼️ **媒体上传** - 为日记条目添加图片和文件，支持 Chevereto 图床，灵活切换内置媒体管理器或外部图床
 - 📱 **渐进式 Web 应用** - 支持安装到任意设备，离线可用，原生应用般的体验
 - 📤 **一键分享** - 轻点即可分享日记内容
 - 🔄 **离线与自动同步** - 完整离线支持，自动缓存同步，实时查看数据同步状态
