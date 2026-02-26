@@ -957,6 +957,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								/>
 							</button>
 						</div>
+						<p class="text-xs text-muted-foreground mt-3">
+							Note: When Chevereto is enabled, images will be uploaded directly to your Chevereto instance and managed there. Image links in diary entries will point to Chevereto URLs. The built-in media library will no longer track these images, and they will not be included in data exports.
+						</p>
 					</div>
 
 					<!-- Save Button -->
