@@ -156,7 +156,7 @@ export async function deleteMedia(mediaId: string): Promise<void> {
  * @param url - The image URL
  * @param options - Upload options
  */
-export async function uploadImageFromUrl(url: string, options: UploadOptions = {}): Promise<Media> {
+export async function uploadImageFromUrl(url: string, options: UploadOptions = {}): Promise<Media | CheveretoUploadResult> {
 	try {
 		const response = await fetch(url);
 		if (!response.ok) {
