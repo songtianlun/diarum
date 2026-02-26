@@ -1,5 +1,8 @@
 import { pb } from '$lib/api/client';
 import type { Media, UploadProgress } from '$lib/api/client';
+import { get } from 'svelte/store';
+import { cheveretoSettings, loadCheveretoSettings, isCheveretoLoaded } from '$lib/stores/chevereto';
+import { uploadToChevereto } from '$lib/api/chevereto';
 
 /**
  * Get or create diary ID for a given date
@@ -44,13 +47,21 @@ export interface UploadOptions {
 	onProgress?: (progress: UploadProgress) => void;
 }
 
+export interface CheveretoUploadResult {
+	cheveretoUrl: string;
+}
+
+export function isCheveretoResult(result: Media | CheveretoUploadResult): result is CheveretoUploadResult {
+	return 'cheveretoUrl' in result;
+}
+
 /**
- * Upload an image file to PocketBase
+ * Upload an image file to PocketBase or Chevereto
  * @param file - The image file to upload
  * @param options - Upload options
- * @returns The created media record with file URL
+ * @returns The created media record or Chevereto URL
  */
-export async function uploadImage(file: File, options: UploadOptions = {}): Promise<Media> {
+export async function uploadImage(file: File, options: UploadOptions = {}): Promise<Media | CheveretoUploadResult> {
 	const { diaryId, diaryDate, alt, onProgress } = options;
 
 	// Validate file type
@@ -65,13 +76,33 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		throw new Error(`File size exceeds 50MB limit. File size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
 	}
 
-	// Resolve diary ID from date if provided
+	// Check if Chevereto is enabled
+	if (!isCheveretoLoaded()) {
+		await loadCheveretoSettings();
+	}
+	const settings = get(cheveretoSettings);
+
+	if (settings.enabled && settings.domain && settings.api_key) {
+		try {
+			const result = await uploadToChevereto(
+				file,
+				settings.domain,
+				settings.api_key,
+				settings.album_id || undefined
+			);
+			return { cheveretoUrl: result.url };
+		} catch (error) {
+			console.error('Chevereto upload failed:', error);
+			throw new Error('Failed to upload image to Chevereto. Please try again.');
+		}
+	}
+
+	// Fallback to PocketBase upload
 	let resolvedDiaryId = diaryId;
 	if (!resolvedDiaryId && diaryDate) {
 		resolvedDiaryId = await getOrCreateDiaryId(diaryDate);
 	}
 
-	// Create FormData
 	const formData = new FormData();
 	formData.append('file', file);
 	formData.append('name', file.name);
@@ -81,13 +112,11 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		formData.append('alt', alt);
 	}
 
-	// For multi-select relation, PocketBase expects the field name with array notation
 	if (resolvedDiaryId) {
 		formData.append('diary', resolvedDiaryId);
 	}
 
 	try {
-		// Upload with progress tracking
 		const record = await pb.collection('media').create<Media>(formData, {
 			requestKey: `upload_${Date.now()}`,
 		});

@@ -24,6 +24,12 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"ai.chat_model":       {Type: "string", Default: "", Encrypted: false},
 	"ai.embedding_model":  {Type: "string", Default: "", Encrypted: false},
 	"ai.vectors_built_at": {Type: "string", Default: "", Encrypted: false},
+
+	// Chevereto image hosting settings
+	"chevereto.enabled":  {Type: "bool", Default: false, Encrypted: false},
+	"chevereto.domain":   {Type: "string", Default: "", Encrypted: false},
+	"chevereto.api_key":  {Type: "string", Default: "", Encrypted: true},
+	"chevereto.album_id": {Type: "string", Default: "", Encrypted: false},
 }
 
 // GetConfigMeta returns the metadata for a configuration key

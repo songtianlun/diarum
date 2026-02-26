@@ -5,6 +5,8 @@
 	import { getApiToken, toggleApiToken, resetApiToken, type ApiTokenStatus } from '$lib/api/settings';
 	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
+	import { getCheveretoSettings, saveCheveretoSettings, testCheveretoConnection, type CheveretoSettings } from '$lib/api/chevereto';
+	import { cheveretoSettings as cheveretoStore, loadCheveretoSettings } from '$lib/stores/chevereto';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import SettingsToc from '$lib/components/ui/SettingsToc.svelte';
@@ -51,6 +53,20 @@
 	// Vector stats
 	let vectorStats: VectorStats | null = null;
 	let loadingStats = false;
+
+	// Chevereto Settings
+	let cheveretoSettingsLocal: CheveretoSettings = {
+		enabled: false,
+		domain: '',
+		api_key: '',
+		album_id: ''
+	};
+	let originalCheveretoSettings: CheveretoSettings = { ...cheveretoSettingsLocal };
+	let cheveretoSaving = false;
+	let cheveretoError = '';
+	let cheveretoSuccess = '';
+	let cheveretoTesting = false;
+	let cheveretoTestResult: { success: boolean; message: string } | null = null;
 
 	// Data management (export/import)
 	let exporting = false;
@@ -248,6 +264,63 @@
 		return a.id.localeCompare(b.id);
 	});
 
+	// Chevereto functions
+	async function loadCheveretoSettingsLocal() {
+		cheveretoSettingsLocal = await getCheveretoSettings();
+		originalCheveretoSettings = JSON.parse(JSON.stringify(cheveretoSettingsLocal));
+	}
+
+	$: canEnableChevereto = cheveretoSettingsLocal.domain && cheveretoSettingsLocal.api_key;
+
+	$: cheveretoSettingsChanged = cheveretoSettingsLocal.enabled !== originalCheveretoSettings.enabled ||
+		cheveretoSettingsLocal.domain !== originalCheveretoSettings.domain ||
+		cheveretoSettingsLocal.api_key !== originalCheveretoSettings.api_key ||
+		cheveretoSettingsLocal.album_id !== originalCheveretoSettings.album_id;
+
+	async function handleTestChevereto() {
+		if (!cheveretoSettingsLocal.domain || !cheveretoSettingsLocal.api_key) {
+			cheveretoError = 'Please enter Domain and API Key first';
+			return;
+		}
+		cheveretoTesting = true;
+		cheveretoTestResult = null;
+		cheveretoError = '';
+		try {
+			cheveretoTestResult = await testCheveretoConnection(
+				cheveretoSettingsLocal.domain,
+				cheveretoSettingsLocal.api_key
+			);
+		} catch (e) {
+			cheveretoError = e instanceof Error ? e.message : 'Connection test failed';
+		}
+		cheveretoTesting = false;
+	}
+
+	async function handleSaveCheveretoSettings() {
+		cheveretoError = '';
+		cheveretoSuccess = '';
+
+		if (cheveretoSettingsLocal.enabled) {
+			if (!cheveretoSettingsLocal.domain || !cheveretoSettingsLocal.api_key) {
+				cheveretoError = 'Domain and API Key are required to enable Chevereto';
+				return;
+			}
+		}
+
+		cheveretoSaving = true;
+		try {
+			await saveCheveretoSettings(cheveretoSettingsLocal);
+			originalCheveretoSettings = JSON.parse(JSON.stringify(cheveretoSettingsLocal));
+			// Update the global store so the editor picks up changes
+			await loadCheveretoSettings();
+			cheveretoSuccess = 'Chevereto settings saved successfully';
+			setTimeout(() => cheveretoSuccess = '', 3000);
+		} catch (e) {
+			cheveretoError = e instanceof Error ? e.message : 'Failed to save Chevereto settings';
+		}
+		cheveretoSaving = false;
+	}
+
 	async function handleExport() {
 		exporting = true;
 		exportError = '';
@@ -296,7 +369,7 @@
 		window.addEventListener('resize', checkMobile);
 
 		loading = true;
-		await Promise.all([loadTokenStatus(), loadAISettings()]);
+		await Promise.all([loadTokenStatus(), loadAISettings(), loadCheveretoSettingsLocal()]);
 		loading = false;
 		// Load vector stats if AI is enabled
 		if (aiSettings.enabled) {
@@ -764,6 +837,146 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							{/if}
 						</button>
 						{#if aiSuccess}
+							<span class="text-sm text-green-600 flex items-center gap-1 animate-fade-in">
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+								</svg>
+								Saved
+							</span>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Image Upload (Chevereto) Section -->
+				<div id="image-upload" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
+					<h2 class="text-lg font-semibold text-foreground mb-4">Image Upload</h2>
+					<p class="text-sm text-muted-foreground mb-6">
+						Configure Chevereto as an external image hosting backend. When enabled, images inserted into diary entries will be uploaded to your Chevereto instance instead of PocketBase.
+					</p>
+
+					{#if cheveretoError}
+						<div class="mb-4 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+							{cheveretoError}
+						</div>
+					{/if}
+
+					{#if cheveretoSuccess}
+						<div class="mb-4 p-3 bg-green-500/10 text-green-600 rounded-lg text-sm">
+							{cheveretoSuccess}
+						</div>
+					{/if}
+
+					<!-- Domain -->
+					<div class="py-4 border-b border-border/50">
+						<label class="block font-medium text-foreground mb-2">Domain</label>
+						<input
+							type="text"
+							bind:value={cheveretoSettingsLocal.domain}
+							placeholder="https://img.example.com"
+							class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+						<p class="text-xs text-muted-foreground mt-1">Your Chevereto instance URL, e.g. https://img.example.com</p>
+					</div>
+
+					<!-- API Key -->
+					<div class="py-4 border-b border-border/50">
+						<label class="block font-medium text-foreground mb-2">API Key</label>
+						<input
+							type="password"
+							bind:value={cheveretoSettingsLocal.api_key}
+							placeholder="chv-key-..."
+							class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+						<p class="text-xs text-muted-foreground mt-1">Chevereto API v1 key for authentication</p>
+					</div>
+
+					<!-- Album ID -->
+					<div class="py-4 border-b border-border/50">
+						<label class="block font-medium text-foreground mb-2">Album ID (optional)</label>
+						<input
+							type="text"
+							bind:value={cheveretoSettingsLocal.album_id}
+							placeholder=""
+							class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+						<p class="text-xs text-muted-foreground mt-1">Optional album ID to organize uploaded images</p>
+					</div>
+
+					<!-- Test Connection -->
+					<div class="py-4 border-b border-border/50">
+						<div class="flex items-center justify-between">
+							<div>
+								<div class="font-medium text-foreground">Test Connection</div>
+								<div class="text-sm text-muted-foreground">Verify your Chevereto server is reachable</div>
+							</div>
+							<button
+								on:click={handleTestChevereto}
+								disabled={cheveretoTesting || !cheveretoSettingsLocal.domain || !cheveretoSettingsLocal.api_key}
+								class="px-4 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200 disabled:opacity-50 flex items-center gap-2"
+							>
+								{#if cheveretoTesting}
+									<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+										<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+									</svg>
+									Testing...
+								{:else}
+									Test
+								{/if}
+							</button>
+						</div>
+						{#if cheveretoTestResult}
+							<div class="mt-3 p-3 rounded-lg text-sm {cheveretoTestResult.success ? 'bg-green-500/10 text-green-600' : 'bg-destructive/10 text-destructive'}">
+								{cheveretoTestResult.message}
+							</div>
+						{/if}
+					</div>
+
+					<!-- Enable Toggle -->
+					<div class="py-4 border-b border-border/50">
+						<div class="flex items-center justify-between gap-4">
+							<div class="min-w-0 flex-1">
+								<div class="font-medium text-foreground">Enable Chevereto</div>
+								<div class="text-sm text-muted-foreground">
+									{#if !canEnableChevereto}
+										Fill Domain and API Key above to enable
+									{:else if cheveretoSettingsLocal.enabled}
+										Images will be uploaded to Chevereto
+									{:else}
+										Enable to use Chevereto for image hosting
+									{/if}
+								</div>
+							</div>
+							<button
+								on:click={() => { if (canEnableChevereto) cheveretoSettingsLocal.enabled = !cheveretoSettingsLocal.enabled; }}
+								disabled={!canEnableChevereto && !cheveretoSettingsLocal.enabled}
+								class="relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 {cheveretoSettingsLocal.enabled ? 'bg-primary' : 'bg-muted'} {!canEnableChevereto && !cheveretoSettingsLocal.enabled ? 'opacity-50 cursor-not-allowed' : ''}"
+							>
+								<span
+									class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 {cheveretoSettingsLocal.enabled ? 'translate-x-6' : 'translate-x-1'}"
+								/>
+							</button>
+						</div>
+					</div>
+
+					<!-- Save Button -->
+					<div class="pt-4 flex items-center gap-3">
+						<button
+							on:click={handleSaveCheveretoSettings}
+							disabled={cheveretoSaving || !cheveretoSettingsChanged}
+							class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+						>
+							{#if cheveretoSaving}
+								<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Saving...
+							{:else}
+								Save Image Upload Settings
+							{/if}
+						</button>
+						{#if cheveretoSuccess}
 							<span class="text-sm text-green-600 flex items-center gap-1 animate-fade-in">
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />

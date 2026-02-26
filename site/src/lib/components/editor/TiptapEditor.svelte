@@ -14,7 +14,7 @@
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 	import Focus from '@tiptap/extension-focus';
 	import { common, createLowlight } from 'lowlight';
-	import { uploadImage, getMediaUrl } from '$lib/utils/uploadImage';
+	import { uploadImage, getMediaUrl, isCheveretoResult } from '$lib/utils/uploadImage';
 	import { SlashCommands } from './SlashCommands';
 	import { getSuggestionItems, setImageUploadTrigger, setGalleryPickerTrigger } from './commands';
 	import { suggestionRenderer, showCommandMenu } from './suggestionRenderer';
@@ -82,8 +82,14 @@
 		uploadError = '';
 
 		try {
-			const media = await uploadImage(file, { diaryDate });
-			const url = getMediaUrl(media);
+			const result = await uploadImage(file, { diaryDate });
+			let url: string;
+
+			if (isCheveretoResult(result)) {
+				url = result.cheveretoUrl;
+			} else {
+				url = getMediaUrl(result);
+			}
 
 			// Replace placeholder with actual image
 			editor.commands.replacePlaceholderWithImage({

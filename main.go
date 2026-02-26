@@ -229,6 +229,7 @@ func main() {
 		api.RegisterSettingsRoutes(app, e)
 		api.RegisterAIRoutes(app, e, embeddingService)
 		api.RegisterExportImportRoutes(app, e, embeddingService)
+		api.RegisterCheveretoRoutes(app, e)
 		api.RegisterPublicRoutes(app, e)
 		api.RegisterVersionRoutes(e, Version, Name)
 
