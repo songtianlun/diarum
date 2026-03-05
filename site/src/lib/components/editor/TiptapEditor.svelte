@@ -14,7 +14,7 @@
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 	import Focus from '@tiptap/extension-focus';
 	import { common, createLowlight } from 'lowlight';
-	import { DOMSerializer } from 'prosemirror-model';
+	import { DOMSerializer } from '@tiptap/pm/model';
 	import { uploadImage, getMediaUrl, isCheveretoResult } from '$lib/utils/uploadImage';
 	import { SlashCommands } from './SlashCommands';
 	import { getSuggestionItems, setImageUploadTrigger, setGalleryPickerTrigger } from './commands';

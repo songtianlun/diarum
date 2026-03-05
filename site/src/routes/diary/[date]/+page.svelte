@@ -39,6 +39,13 @@
 	let showDesktopToc = true;
 	let showShareModal = false;
 	let selectedContent = '';
+	// Snapshot taken on mousedown (before blur clears selectedContent)
+	let shareSelectedContent = '';
+
+	function openShareModal() {
+		shareSelectedContent = selectedContent;
+		showShareModal = true;
+	}
 
 	$: date = $page.params.date;
 	$: canGoNext = !isToday(date);
@@ -261,7 +268,7 @@
 						</a>
 
 						<button
-							on:click={() => showShareModal = true}
+							on:mousedown={openShareModal}
 							class="hidden sm:block p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200"
 							title="Share as image"
 						>
@@ -414,7 +421,7 @@
 					</a>
 
 					<button
-						on:click={() => { showDrawer = false; showShareModal = true; }}
+						on:mousedown={() => { showDrawer = false; openShareModal(); }}
 						class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/70 transition-all duration-200 group"
 					>
 						<div class="p-1.5 rounded-md bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20 transition-colors">
@@ -480,7 +487,7 @@
 	isOpen={showShareModal}
 	{date}
 	{content}
-	{selectedContent}
+	selectedContent={shareSelectedContent}
 	onClose={() => showShareModal = false}
 />
 
