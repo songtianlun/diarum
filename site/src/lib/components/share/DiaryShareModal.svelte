@@ -15,10 +15,13 @@
 	export let isOpen = false;
 	export let date: string;
 	export let content: string;
+	export let selectedContent: string = '';
 	export let mood: string = '';
 	export let weather: string = '';
 	export let tags: string[] = [];
 	export let onClose: () => void = () => {};
+
+	$: effectiveContent = selectedContent || content;
 
 	let options: ShareOptions = { ...defaultShareOptions };
 	let previewElement: HTMLElement;
@@ -160,7 +163,7 @@
 						>
 							<DiarySharePreview
 								{date}
-								{content}
+								content={effectiveContent}
 								{options}
 								{mood}
 								{weather}
@@ -182,6 +185,13 @@
 			<div class="px-4 py-3 border-t border-border/50 flex items-center justify-between">
 				{#if error}
 					<div class="text-sm text-red-500">{error}</div>
+				{:else if selectedContent}
+					<div class="text-sm text-primary flex items-center gap-1.5">
+						<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+						</svg>
+						Exporting selected text
+					</div>
 				{:else}
 					<div class="text-sm text-muted-foreground">
 						Preview: {options.width}px × {options.scale}x

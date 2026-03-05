@@ -14,6 +14,7 @@
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 	import Focus from '@tiptap/extension-focus';
 	import { common, createLowlight } from 'lowlight';
+	import { DOMSerializer } from 'prosemirror-model';
 	import { uploadImage, getMediaUrl, isCheveretoResult } from '$lib/utils/uploadImage';
 	import { SlashCommands } from './SlashCommands';
 	import { getSuggestionItems, setImageUploadTrigger, setGalleryPickerTrigger } from './commands';
@@ -26,6 +27,7 @@
 	export let onChange: (value: string) => void = () => {};
 	export let placeholder = 'Start writing...';
 	export let diaryDate: string | undefined = undefined;
+	export let selectedContent: string = '';
 
 	let editorElement: HTMLDivElement;
 	let editor: Editor | null = null;
@@ -179,6 +181,20 @@
 		}
 	}
 
+	// Get HTML of current selection
+	function getSelectionHtml(): string {
+		if (!editor) return '';
+		const { from, to, empty } = editor.state.selection;
+		if (empty) return '';
+		const { schema, doc } = editor.state;
+		const slice = doc.slice(from, to);
+		const div = document.createElement('div');
+		const serializer = DOMSerializer.fromSchema(schema);
+		const fragment = serializer.serializeFragment(slice.content);
+		div.appendChild(fragment);
+		return div.innerHTML;
+	}
+
 	// Update add button position based on cursor
 	function updateAddButton() {
 		if (!editor || !editorElement) {
@@ -275,8 +291,24 @@
 			onTransaction: () => {
 				editor = editor;
 				updateAddButton();
+				selectedContent = getSelectionHtml();
 			},
 		});
+
+		// When the user deselects outside the editor, Tiptap's onTransaction
+		// doesn't fire, so we rely on the native selectionchange event to clear.
+		function handleDocumentSelectionChange() {
+			if (!editorElement) return;
+			const sel = window.getSelection();
+			if (!sel || sel.isCollapsed || !editorElement.contains(sel.anchorNode)) {
+				selectedContent = '';
+			}
+		}
+		document.addEventListener('selectionchange', handleDocumentSelectionChange);
+
+		return () => {
+			document.removeEventListener('selectionchange', handleDocumentSelectionChange);
+		};
 	});
 
 	onDestroy(() => {

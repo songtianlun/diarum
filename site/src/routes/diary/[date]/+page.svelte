@@ -38,6 +38,7 @@
 	let showDrawer = false;
 	let showDesktopToc = true;
 	let showShareModal = false;
+	let selectedContent = '';
 
 	$: date = $page.params.date;
 	$: canGoNext = !isToday(date);
@@ -332,6 +333,7 @@
 					<div class="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden animate-fade-in">
 						<TiptapEditor
 							{content}
+							bind:selectedContent
 							onChange={handleContentChange}
 							placeholder="What's on your mind today?"
 							diaryDate={date}
@@ -478,6 +480,7 @@
 	isOpen={showShareModal}
 	{date}
 	{content}
+	{selectedContent}
 	onClose={() => showShareModal = false}
 />
 
