@@ -41,12 +41,19 @@
 	let selectedContent = '';
 	// Snapshot taken on mousedown (before blur clears selectedContent)
 	let shareSelectedContent = '';
+	let shareOpenedByMouse = false;
 
 	function captureShareSelection() {
 		shareSelectedContent = selectedContent;
+		shareOpenedByMouse = true;
 	}
 
 	function openShareModal() {
+		// Keyboard path (Enter/Space): mousedown never fired, so clear any stale snapshot
+		if (!shareOpenedByMouse) {
+			shareSelectedContent = '';
+		}
+		shareOpenedByMouse = false;
 		showShareModal = true;
 	}
 
