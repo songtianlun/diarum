@@ -42,8 +42,11 @@
 	// Snapshot taken on mousedown (before blur clears selectedContent)
 	let shareSelectedContent = '';
 
-	function openShareModal() {
+	function captureShareSelection() {
 		shareSelectedContent = selectedContent;
+	}
+
+	function openShareModal() {
 		showShareModal = true;
 	}
 
@@ -268,7 +271,8 @@
 						</a>
 
 						<button
-							on:mousedown={openShareModal}
+							on:mousedown={captureShareSelection}
+							on:click={openShareModal}
 							class="hidden sm:block p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200"
 							title="Share as image"
 						>
@@ -421,7 +425,8 @@
 					</a>
 
 					<button
-						on:mousedown={() => { showDrawer = false; openShareModal(); }}
+						on:mousedown={captureShareSelection}
+						on:click={() => { showDrawer = false; openShareModal(); }}
 						class="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/70 transition-all duration-200 group"
 					>
 						<div class="p-1.5 rounded-md bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20 transition-colors">
