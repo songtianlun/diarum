@@ -368,7 +368,7 @@ async function syncDirtyEntries(): Promise<void> {
 	});
 
 	// Import API dynamically to avoid circular dependency
-	const { saveDiary, getDiaryByDate } = await import('$lib/api/diaries');
+	const { saveDiary, getDiaryByDateResult } = await import('$lib/api/diaries');
 
 	for (const entry of dirtyEntries) {
 		try {
@@ -379,11 +379,22 @@ async function syncDirtyEntries(): Promise<void> {
 
 			if (success) {
 				// Re-check server state to avoid local/server mismatch.
-				const serverDiary = await getDiaryByDate(entry.date);
-				if (!serverDiary) {
+				const serverState = await getDiaryByDateResult(entry.date);
+				if (serverState.status === 'error') {
+					syncState.set({
+						isSyncing: false,
+						currentDate: entry.date,
+						status: 'error',
+						message: 'Failed to verify save'
+					});
+					// Retry later; keep dirty cache until verification succeeds.
+					scheduleSyncToServer(true);
+					return;
+				}
+				if (serverState.status === 'not_found') {
 					clearCache(entry.date);
 				} else {
-					markAsSynced(entry.date, serverDiary.updated || new Date().toISOString());
+					markAsSynced(entry.date, serverState.diary.updated || new Date().toISOString());
 				}
 			} else {
 				syncState.set({
@@ -459,7 +470,7 @@ export async function forceSyncNow(): Promise<boolean> {
 		message: 'Saving...'
 	});
 
-	const { saveDiary, getDiaryByDate } = await import('$lib/api/diaries');
+	const { saveDiary, getDiaryByDateResult } = await import('$lib/api/diaries');
 
 	for (const entry of dirtyEntries) {
 		try {
@@ -470,11 +481,20 @@ export async function forceSyncNow(): Promise<boolean> {
 
 			if (success) {
 				// Re-check server state to avoid local/server mismatch.
-				const serverDiary = await getDiaryByDate(entry.date);
-				if (!serverDiary) {
+				const serverState = await getDiaryByDateResult(entry.date);
+				if (serverState.status === 'error') {
+					syncState.set({
+						isSyncing: false,
+						currentDate: entry.date,
+						status: 'error',
+						message: 'Failed to verify save'
+					});
+					return false;
+				}
+				if (serverState.status === 'not_found') {
 					clearCache(entry.date);
 				} else {
-					markAsSynced(entry.date, serverDiary.updated || new Date().toISOString());
+					markAsSynced(entry.date, serverState.diary.updated || new Date().toISOString());
 				}
 			} else {
 				syncState.set({
