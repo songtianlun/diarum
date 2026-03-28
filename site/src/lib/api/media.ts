@@ -90,6 +90,22 @@ export async function updateMediaDiary(mediaId: string, diaryId: string): Promis
 }
 
 /**
+ * Get all media associated with a specific diary (by diary ID)
+ */
+export async function getMediaByDiaryId(diaryId: string): Promise<MediaWithDiary[]> {
+	try {
+		const result = await pb.collection('media').getList<MediaWithDiary>(1, 100, {
+			filter: `diary ~ "${diaryId}"`,
+			sort: '-created',
+		});
+		return result.items;
+	} catch (error) {
+		console.error('Error fetching media for diary:', error);
+		return [];
+	}
+}
+
+/**
  * Delete media by ID
  */
 export async function deleteMediaById(id: string): Promise<boolean> {

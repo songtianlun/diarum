@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
+	import DiaryAttachments from '$lib/components/editor/DiaryAttachments.svelte';
 	import TableOfContents from '$lib/components/ui/TableOfContents.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
@@ -322,6 +323,7 @@
 							placeholder="What's on your mind today?"
 							diaryDate={date}
 						/>
+						<DiaryAttachments diaryDate={date} />
 					</div>
 				{/if}
 			</main>
