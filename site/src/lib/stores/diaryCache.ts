@@ -437,8 +437,8 @@ async function syncDirtyEntries(): Promise<void> {
 		message: 'Saving...'
 	});
 
-	// Import saveDiary dynamically to avoid circular dependency
-	const { saveDiary } = await import('$lib/api/diaries');
+	// Import API dynamically to avoid circular dependency
+	const { saveDiary, getDiaryByDate } = await import('$lib/api/diaries');
 
 	for (const entry of dirtyEntries) {
 		try {
@@ -448,14 +448,23 @@ async function syncDirtyEntries(): Promise<void> {
 			});
 
 			if (success) {
-				// If content is empty the entry was deleted on the server — clear local cache.
-				// Otherwise mark it as synced.
-				const contentStripped = entry.content.replace(/<[^>]*>/g, '').trim();
-				if (!contentStripped) {
+				// Re-check server state to avoid local/server mismatch.
+				const serverDiary = await getDiaryByDate(entry.date);
+				if (!serverDiary) {
 					clearCache(entry.date);
 				} else {
-					markAsSynced(entry.date, new Date().toISOString());
+					markAsSynced(entry.date, serverDiary.updated || new Date().toISOString());
 				}
+			} else {
+				syncState.set({
+					isSyncing: false,
+					currentDate: entry.date,
+					status: 'error',
+					message: 'Failed to save'
+				});
+				// Retry later with exponential backoff
+				scheduleSyncToServer(true);
+				return;
 			}
 		} catch (error) {
 			console.error(`Failed to sync diary for ${entry.date}:`, error);
@@ -520,7 +529,7 @@ export async function forceSyncNow(): Promise<boolean> {
 		message: 'Saving...'
 	});
 
-	const { saveDiary } = await import('$lib/api/diaries');
+	const { saveDiary, getDiaryByDate } = await import('$lib/api/diaries');
 
 	for (const entry of dirtyEntries) {
 		try {
@@ -530,13 +539,12 @@ export async function forceSyncNow(): Promise<boolean> {
 			});
 
 			if (success) {
-				// If content is empty the entry was deleted on the server — clear local cache.
-				// Otherwise mark it as synced.
-				const contentStripped = entry.content.replace(/<[^>]*>/g, '').trim();
-				if (!contentStripped) {
+				// Re-check server state to avoid local/server mismatch.
+				const serverDiary = await getDiaryByDate(entry.date);
+				if (!serverDiary) {
 					clearCache(entry.date);
 				} else {
-					markAsSynced(entry.date, new Date().toISOString());
+					markAsSynced(entry.date, serverDiary.updated || new Date().toISOString());
 				}
 			} else {
 				syncState.set({

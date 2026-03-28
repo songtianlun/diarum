@@ -42,6 +42,7 @@
 	// Snapshot taken on mousedown (before blur clears selectedContent)
 	let shareSelectedContent = '';
 	let shareOpenedByMouse = false;
+	let date = getToday();
 
 	function captureShareSelection() {
 		shareSelectedContent = selectedContent;
@@ -57,25 +58,25 @@
 		showShareModal = true;
 	}
 
-	$: date = $page.params.date;
+	$: date = $page.params.date ?? getToday();
 	$: canGoNext = !isToday(date);
 	$: currentDateIsDirty = date ? $diaryCache[date]?.isDirty || false : false;
 	$: isAnySyncing = $syncState.isSyncing;
 
 	function goToPreviousDay() {
-		const prevDate = getPreviousDay($page.params.date);
+		const prevDate = getPreviousDay(date);
 		goto(`/diary/${prevDate}`);
 	}
 
 	function goToNextDay() {
-		const currentDate = $page.params.date;
+		const currentDate = date;
 		if (isToday(currentDate)) return;
 		const nextDate = getNextDay(currentDate);
 		goto(`/diary/${nextDate}`);
 	}
 
 	function goToToday() {
-		if (isToday($page.params.date)) return;
+		if (isToday(date)) return;
 		goto(`/diary/${getToday()}`);
 	}
 

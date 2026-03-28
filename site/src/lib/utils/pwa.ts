@@ -1,5 +1,6 @@
 // PWA utility functions
 import { writable } from 'svelte/store';
+import { get } from 'svelte/store';
 
 interface BeforeInstallPromptEvent extends Event {
 	prompt(): Promise<void>;
@@ -37,10 +38,7 @@ export function initPWA() {
 
 // Trigger installation prompt
 export async function installPWA() {
-	let prompt: BeforeInstallPromptEvent | null = null;
-	deferredPrompt.subscribe((value) => {
-		prompt = value;
-	})();
+	const prompt = get(deferredPrompt);
 
 	if (!prompt) {
 		console.log('Installation prompt not available');

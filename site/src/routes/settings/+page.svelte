@@ -357,7 +357,8 @@
 		importing = false;
 	}
 
-	onMount(async () => {
+	onMount(() => {
+		const initialize = async () => {
 		if (!$isAuthenticated) {
 			goto('/login');
 			return;
@@ -375,6 +376,9 @@
 		if (aiSettings.enabled) {
 			await loadVectorStats();
 		}
+		};
+
+		void initialize();
 
 		return () => {
 			window.removeEventListener('resize', checkMobile);

@@ -77,7 +77,16 @@ export async function getDiaryByDate(date: string): Promise<Diary | null> {
  */
 function isContentEmpty(content: string | undefined | null): boolean {
 	if (!content) return true;
-	return content.replace(/<[^>]*>/g, '').trim().length === 0;
+
+	const normalized = content.replace(/&nbsp;|&#160;/gi, ' ').trim();
+	if (!normalized) return true;
+
+	// Treat media/embedded elements as meaningful content even without plain text.
+	if (/<(img|video|audio|iframe|embed|object|svg|canvas)\b[^>]*>/i.test(normalized)) {
+		return false;
+	}
+
+	return normalized.replace(/<[^>]*>/g, '').trim().length === 0;
 }
 
 /**
