@@ -1,4 +1,4 @@
-export const MAX_DIARY_EMOJI_OPTION_LENGTH = 5;
+export const MAX_DIARY_EMOJI_OPTION_LENGTH = 2;
 
 export const DEFAULT_MOOD_OPTIONS = [
 	'😊',

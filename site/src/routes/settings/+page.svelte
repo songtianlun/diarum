@@ -17,6 +17,8 @@
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import SettingsToc from '$lib/components/ui/SettingsToc.svelte';
 	import {
+		DEFAULT_MOOD_OPTIONS,
+		DEFAULT_WEATHER_OPTIONS,
 		MAX_DIARY_EMOJI_OPTION_LENGTH,
 		countDisplayChars,
 		sanitizeMoodOptions,
@@ -50,6 +52,11 @@
 	let emojiSettingsSaving = false;
 	let emojiSettingsError = '';
 	let emojiSettingsSuccess = '';
+	type EmojiListType = 'mood' | 'weather';
+	let draggingType: EmojiListType | null = null;
+	let draggingIndex: number | null = null;
+	let dragOverType: EmojiListType | null = null;
+	let dragOverIndex: number | null = null;
 
 	// AI Settings
 	let aiSettings: AISettings = {
@@ -162,6 +169,88 @@
 	function removeWeatherOption(value: string) {
 		emojiSettingsError = '';
 		weatherOptions = weatherOptions.filter((item) => item !== value);
+	}
+
+	function restoreMoodDefaults() {
+		emojiSettingsError = '';
+		emojiSettingsSuccess = '';
+		moodOptions = [...DEFAULT_MOOD_OPTIONS];
+	}
+
+	function restoreWeatherDefaults() {
+		emojiSettingsError = '';
+		emojiSettingsSuccess = '';
+		weatherOptions = [...DEFAULT_WEATHER_OPTIONS];
+	}
+
+	function restoreAllDefaults() {
+		emojiSettingsError = '';
+		emojiSettingsSuccess = '';
+		moodOptions = [...DEFAULT_MOOD_OPTIONS];
+		weatherOptions = [...DEFAULT_WEATHER_OPTIONS];
+	}
+
+	function reorderOptions(options: string[], fromIndex: number, toIndex: number): string[] {
+		if (fromIndex === toIndex) return options;
+		const next = [...options];
+		const [moved] = next.splice(fromIndex, 1);
+		next.splice(toIndex, 0, moved);
+		return next;
+	}
+
+	function handleDragStart(type: EmojiListType, index: number) {
+		draggingType = type;
+		draggingIndex = index;
+		dragOverType = type;
+		dragOverIndex = index;
+	}
+
+	function handleDragOver(event: DragEvent, type: EmojiListType, index: number) {
+		event.preventDefault();
+		if (draggingType !== type) return;
+		dragOverType = type;
+		dragOverIndex = index;
+	}
+
+	function handleDrop(type: EmojiListType, index: number) {
+		if (draggingType !== type || draggingIndex === null) {
+			clearDragState();
+			return;
+		}
+
+		emojiSettingsError = '';
+		emojiSettingsSuccess = '';
+		if (type === 'mood') {
+			moodOptions = reorderOptions(moodOptions, draggingIndex, index);
+		} else {
+			weatherOptions = reorderOptions(weatherOptions, draggingIndex, index);
+		}
+
+		clearDragState();
+	}
+
+	function handleDropToEnd(type: EmojiListType) {
+		if (draggingType !== type || draggingIndex === null) {
+			clearDragState();
+			return;
+		}
+
+		emojiSettingsError = '';
+		emojiSettingsSuccess = '';
+		if (type === 'mood') {
+			moodOptions = reorderOptions(moodOptions, draggingIndex, moodOptions.length - 1);
+		} else {
+			weatherOptions = reorderOptions(weatherOptions, draggingIndex, weatherOptions.length - 1);
+		}
+
+		clearDragState();
+	}
+
+	function clearDragState() {
+		draggingType = null;
+		draggingIndex = null;
+		dragOverType = null;
+		dragOverIndex = null;
 	}
 
 	async function handleSaveEmojiSettings() {
@@ -637,9 +726,17 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 
 				<!-- Mood & Weather Section -->
 				<div id="mood-weather" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
-					<h2 class="text-lg font-semibold text-foreground mb-4">Mood & Weather</h2>
+					<div class="flex items-center justify-between gap-3 mb-4">
+						<h2 class="text-lg font-semibold text-foreground">Mood & Weather</h2>
+						<button
+							on:click={restoreAllDefaults}
+							class="px-3 py-1.5 text-xs bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+						>
+							Restore All Defaults
+						</button>
+					</div>
 					<p class="text-sm text-muted-foreground mb-6">
-						Customize the options shown in the diary editor. Add any emoji or short text (up to {MAX_DIARY_EMOJI_OPTION_LENGTH} characters), remove what you do not need, then save.
+						Customize the options shown in the diary editor. Add any emoji or short text (up to {MAX_DIARY_EMOJI_OPTION_LENGTH} characters), drag to reorder, remove what you do not need, then save.
 					</p>
 
 					{#if emojiSettingsError}
@@ -654,91 +751,147 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						</div>
 					{/if}
 
-					<div class="py-4 border-b border-border/50">
-						<div class="font-medium text-foreground mb-2">Mood options</div>
-						<div class="flex items-center gap-2 mb-3">
-							<input
-								type="text"
-								bind:value={moodInput}
-								maxlength={MAX_DIARY_EMOJI_OPTION_LENGTH}
-								placeholder="e.g. 😊"
-								class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-								on:keydown={(event) => {
-									if (event.key === 'Enter') {
-										event.preventDefault();
-										addMoodOption();
-									}
-								}}
-							/>
-							<button
-								on:click={addMoodOption}
-								class="px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
-							>
-								Add
-							</button>
-						</div>
-						<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option</div>
-						<div class="flex flex-wrap gap-2">
-							{#if moodOptions.length === 0}
-								<div class="text-sm text-muted-foreground">No mood options yet</div>
-							{:else}
-								{#each moodOptions as option}
-									<div class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-muted/70 border border-border/60">
-										<span class="text-base leading-none">{option}</span>
-										<button
-											on:click={() => removeMoodOption(option)}
-											class="text-xs text-muted-foreground hover:text-destructive transition-colors"
-											aria-label={`Remove mood option ${option}`}
+					<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-4 border-b border-border/50">
+						<div class="rounded-xl border border-border/50 p-4">
+							<div class="flex items-center justify-between gap-3 mb-2">
+								<div class="font-medium text-foreground">Mood options</div>
+								<button
+									on:click={restoreMoodDefaults}
+									class="px-2.5 py-1 text-xs bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+								>
+									Restore Defaults
+								</button>
+							</div>
+							<div class="flex items-center gap-2 mb-3">
+								<input
+									type="text"
+									bind:value={moodInput}
+									maxlength={MAX_DIARY_EMOJI_OPTION_LENGTH}
+									placeholder="e.g. 😊"
+									class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+									on:keydown={(event) => {
+										if (event.key === 'Enter') {
+											event.preventDefault();
+											addMoodOption();
+										}
+									}}
+								/>
+								<button
+									on:click={addMoodOption}
+									class="px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+								>
+									Add
+								</button>
+							</div>
+							<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option. Drag chips to reorder.</div>
+							<div class="flex flex-wrap gap-2">
+								{#if moodOptions.length === 0}
+									<div class="text-sm text-muted-foreground">No mood options yet</div>
+								{:else}
+									{#each moodOptions as option, index}
+										<div
+											draggable="true"
+											role="listitem"
+											on:dragstart={() => handleDragStart('mood', index)}
+											on:dragover={(event) => handleDragOver(event, 'mood', index)}
+											on:drop={() => handleDrop('mood', index)}
+											on:dragend={clearDragState}
+											class="relative w-14 h-14 rounded-xl border transition-colors flex items-center justify-center cursor-grab select-none {dragOverType === 'mood' && dragOverIndex === index ? 'border-primary bg-primary/10' : 'bg-muted/70 border-border/60'}"
+											title={option}
 										>
-											Remove
-										</button>
+											<button
+												on:click|stopPropagation={() => removeMoodOption(option)}
+												class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-background border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors flex items-center justify-center"
+												aria-label={`Remove mood option ${option}`}
+											>
+												<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.25" d="M6 6l12 12M18 6l-12 12" />
+												</svg>
+											</button>
+											<span class="text-xl leading-none">{option}</span>
+										</div>
+									{/each}
+									<div
+										role="status"
+										on:dragover={(event) => handleDragOver(event, 'mood', moodOptions.length - 1)}
+										on:drop={() => handleDropToEnd('mood')}
+										class="h-14 px-3 rounded-xl border border-dashed text-xs text-muted-foreground flex items-center {dragOverType === 'mood' ? 'border-primary bg-primary/5' : 'border-border/60'}"
+									>
+										Drop to end
 									</div>
-								{/each}
-							{/if}
+								{/if}
+							</div>
 						</div>
-					</div>
 
-					<div class="py-4 border-b border-border/50">
-						<div class="font-medium text-foreground mb-2">Weather options</div>
-						<div class="flex items-center gap-2 mb-3">
-							<input
-								type="text"
-								bind:value={weatherInput}
-								maxlength={MAX_DIARY_EMOJI_OPTION_LENGTH}
-								placeholder="e.g. ☀️"
-								class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-								on:keydown={(event) => {
-									if (event.key === 'Enter') {
-										event.preventDefault();
-										addWeatherOption();
-									}
-								}}
-							/>
-							<button
-								on:click={addWeatherOption}
-								class="px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
-							>
-								Add
-							</button>
-						</div>
-						<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option</div>
-						<div class="flex flex-wrap gap-2">
-							{#if weatherOptions.length === 0}
-								<div class="text-sm text-muted-foreground">No weather options yet</div>
-							{:else}
-								{#each weatherOptions as option}
-									<div class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-muted/70 border border-border/60">
-										<span class="text-base leading-none">{option}</span>
-										<button
-											on:click={() => removeWeatherOption(option)}
-											class="text-xs text-muted-foreground hover:text-destructive transition-colors"
-											aria-label={`Remove weather option ${option}`}
+						<div class="rounded-xl border border-border/50 p-4">
+							<div class="flex items-center justify-between gap-3 mb-2">
+								<div class="font-medium text-foreground">Weather options</div>
+								<button
+									on:click={restoreWeatherDefaults}
+									class="px-2.5 py-1 text-xs bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+								>
+									Restore Defaults
+								</button>
+							</div>
+							<div class="flex items-center gap-2 mb-3">
+								<input
+									type="text"
+									bind:value={weatherInput}
+									maxlength={MAX_DIARY_EMOJI_OPTION_LENGTH}
+									placeholder="e.g. ☀️"
+									class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+									on:keydown={(event) => {
+										if (event.key === 'Enter') {
+											event.preventDefault();
+											addWeatherOption();
+										}
+									}}
+								/>
+								<button
+									on:click={addWeatherOption}
+									class="px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+								>
+									Add
+								</button>
+							</div>
+							<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option. Drag chips to reorder.</div>
+							<div class="flex flex-wrap gap-2">
+								{#if weatherOptions.length === 0}
+									<div class="text-sm text-muted-foreground">No weather options yet</div>
+								{:else}
+									{#each weatherOptions as option, index}
+										<div
+											draggable="true"
+											role="listitem"
+											on:dragstart={() => handleDragStart('weather', index)}
+											on:dragover={(event) => handleDragOver(event, 'weather', index)}
+											on:drop={() => handleDrop('weather', index)}
+											on:dragend={clearDragState}
+											class="relative w-14 h-14 rounded-xl border transition-colors flex items-center justify-center cursor-grab select-none {dragOverType === 'weather' && dragOverIndex === index ? 'border-primary bg-primary/10' : 'bg-muted/70 border-border/60'}"
+											title={option}
 										>
-											Remove
-										</button>
+											<button
+												on:click|stopPropagation={() => removeWeatherOption(option)}
+												class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-background border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors flex items-center justify-center"
+												aria-label={`Remove weather option ${option}`}
+											>
+												<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.25" d="M6 6l12 12M18 6l-12 12" />
+												</svg>
+											</button>
+											<span class="text-xl leading-none">{option}</span>
+										</div>
+									{/each}
+									<div
+										role="status"
+										on:dragover={(event) => handleDragOver(event, 'weather', weatherOptions.length - 1)}
+										on:drop={() => handleDropToEnd('weather')}
+										class="h-14 px-3 rounded-xl border border-dashed text-xs text-muted-foreground flex items-center {dragOverType === 'weather' ? 'border-primary bg-primary/5' : 'border-border/60'}"
+									>
+										Drop to end
 									</div>
-								{/each}
-							{/if}
+								{/if}
+							</div>
 						</div>
 					</div>
 
