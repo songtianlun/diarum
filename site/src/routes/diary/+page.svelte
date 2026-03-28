@@ -120,10 +120,6 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
 						</svg>
 					</a>
-					<a href="/diary/{new Date().toISOString().split('T')[0]}"
-						class="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-all duration-200">
-						Today
-					</a>
 				</div>
 			</div>
 		</div>
