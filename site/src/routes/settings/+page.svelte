@@ -49,6 +49,16 @@
 		}
 	}
 
+	function setActiveTab(tab: SettingsTab) {
+		activeTab = tab;
+
+		if (typeof window === 'undefined') return;
+
+		const url = new URL(window.location.href);
+		url.hash = tab;
+		history.replaceState(null, '', url);
+	}
+
 	let loading = true;
 	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '' };
 	let copied = false;
@@ -450,13 +460,6 @@
 		JSON.stringify(moodOptions) !== JSON.stringify(originalMoodOptions) ||
 		JSON.stringify(weatherOptions) !== JSON.stringify(originalWeatherOptions);
 
-	$: if (typeof window !== 'undefined' && activeTab) {
-		const nextHash = `#${activeTab}`;
-		if (window.location.hash !== nextHash) {
-			history.replaceState(null, '', nextHash);
-		}
-	}
-
 	// Check if AI settings have changed
 	$: aiSettingsChanged = aiSettings.api_key !== originalAISettings.api_key ||
 		aiSettings.base_url !== originalAISettings.base_url ||
@@ -668,7 +671,8 @@
 						<div class="relative">
 							<select
 								id="settings-tab-select"
-								bind:value={activeTab}
+								value={activeTab}
+								on:change={(event) => setActiveTab((event.currentTarget as HTMLSelectElement).value as SettingsTab)}
 								class="w-full pl-3 pr-9 py-2 bg-card border border-border/60 rounded-lg text-sm text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary"
 							>
 								{#each settingsTabs as tab}
@@ -683,7 +687,7 @@
 					<div class="hidden sm:flex gap-2 overflow-x-auto pb-1">
 						{#each settingsTabs as tab}
 							<button
-								on:click={() => { activeTab = tab.id; }}
+								on:click={() => setActiveTab(tab.id)}
 								class="px-3 py-1.5 rounded-lg text-sm whitespace-nowrap border transition-colors {activeTab === tab.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border/60 hover:bg-muted/50'}"
 							>
 								{tab.label}
