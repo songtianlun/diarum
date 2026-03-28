@@ -17,6 +17,21 @@ export interface DiaryEmojiSettings {
 	weather_options: string[];
 }
 
+async function getSettingValue(key: string): Promise<unknown> {
+	const response = await fetch(`/api/v1/settings/${encodeURIComponent(key)}`, {
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`
+		}
+	});
+
+	if (!response.ok) {
+		throw new Error(`Failed to get setting: ${key}`);
+	}
+
+	const data = await response.json();
+	return data?.value;
+}
+
 /**
  * Get API token status and value
  */
@@ -89,22 +104,14 @@ export async function resetApiToken(): Promise<ApiTokenStatus> {
 
 export async function getDiaryEmojiSettings(): Promise<DiaryEmojiSettings> {
 	try {
-		const response = await fetch('/api/v1/settings', {
-			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`
-			}
-		});
-
-		if (!response.ok) {
-			throw new Error('Failed to get settings');
-		}
-
-		const data = await response.json();
-		const settings = data?.settings ?? {};
+		const [moodOptions, weatherOptions] = await Promise.all([
+			getSettingValue('diary.mood_options'),
+			getSettingValue('diary.weather_options')
+		]);
 
 		return {
-			mood_options: sanitizeMoodOptions(settings['diary.mood_options']),
-			weather_options: sanitizeWeatherOptions(settings['diary.weather_options'])
+			mood_options: sanitizeMoodOptions(moodOptions),
+			weather_options: sanitizeWeatherOptions(weatherOptions)
 		};
 	} catch (error) {
 		console.error('Error fetching diary emoji settings:', error);
