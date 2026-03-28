@@ -30,6 +30,12 @@
 		}
 	}
 
+	function handleOverlayClick(e: MouseEvent) {
+		if (e.target === e.currentTarget) {
+			onClose();
+		}
+	}
+
 	function formatDate(dateStr: string): string {
 		const date = new Date(dateStr);
 		return date.toLocaleDateString('zh-CN', {
@@ -54,15 +60,13 @@
 
 <div
 	class="media-picker-overlay"
-	on:click={onClose}
+	on:click={handleOverlayClick}
 	on:keydown={handleKeydown}
 	role="dialog"
 	tabindex="-1"
 >
 	<div
 		class="media-picker-modal"
-		on:click|stopPropagation
-		on:keydown|stopPropagation
 		role="document"
 	>
 		<!-- Header -->

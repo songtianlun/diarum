@@ -39,6 +39,12 @@
 		showDeleteConfirm = false;
 	}
 
+	function handleModalBackdropClick(e: MouseEvent) {
+		if (e.target === e.currentTarget) {
+			closeModal();
+		}
+	}
+
 	function formatDate(dateStr: string): string {
 		const date = new Date(dateStr);
 		return date.toLocaleDateString('zh-CN', {
@@ -201,15 +207,13 @@
 {#if showModal && selectedMedia}
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
-		on:click={closeModal}
+		on:click={handleModalBackdropClick}
 		on:keydown={(e) => e.key === 'Escape' && closeModal()}
 		role="dialog"
 		tabindex="-1"
 	>
 		<div
 			class="bg-card rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden animate-scale-in"
-			on:click|stopPropagation
-			on:keydown|stopPropagation
 			role="document"
 		>
 			<!-- Modal Header -->

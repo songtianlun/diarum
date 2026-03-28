@@ -504,8 +504,3 @@
 	onClose={() => showShareModal = false}
 />
 
-<style>
-	kbd {
-		font-family: ui-monospace, monospace;
-	}
-</style>
