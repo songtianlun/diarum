@@ -15,7 +15,6 @@
 	import { getCheveretoSettings, saveCheveretoSettings, testCheveretoConnection, type CheveretoSettings } from '$lib/api/chevereto';
 	import { loadCheveretoSettings } from '$lib/stores/chevereto';
 	import Footer from '$lib/components/ui/Footer.svelte';
-	import SettingsToc from '$lib/components/ui/SettingsToc.svelte';
 	import {
 		DEFAULT_MOOD_OPTIONS,
 		DEFAULT_WEATHER_OPTIONS,
@@ -25,14 +24,27 @@
 		sanitizeWeatherOptions
 	} from '$lib/utils/diaryEmoji';
 
-	// TOC state
-	let showMobileToc = false;
-	let showDesktopToc = true;
-	let isMobile = false;
+	type SettingsTab = 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'data-management';
 
-	function checkMobile() {
-		if (typeof window !== 'undefined') {
-			isMobile = window.innerWidth < 1024;
+	const settingsTabs: { id: SettingsTab; label: string }[] = [
+		{ id: 'api-access', label: 'API Access' },
+		{ id: 'mood-weather', label: 'Mood & Weather' },
+		{ id: 'ai-assistant', label: 'AI Assistant' },
+		{ id: 'image-upload', label: 'Image Upload' },
+		{ id: 'data-management', label: 'Data Management' }
+	];
+
+	let activeTab: SettingsTab = 'api-access';
+
+	function isSettingsTab(value: string): value is SettingsTab {
+		return settingsTabs.some((tab) => tab.id === value);
+	}
+
+	function syncActiveTabFromHash() {
+		if (typeof window === 'undefined') return;
+		const hash = window.location.hash.replace('#', '');
+		if (hash && isSettingsTab(hash)) {
+			activeTab = hash;
 		}
 	}
 
@@ -416,6 +428,13 @@
 		JSON.stringify(moodOptions) !== JSON.stringify(originalMoodOptions) ||
 		JSON.stringify(weatherOptions) !== JSON.stringify(originalWeatherOptions);
 
+	$: if (typeof window !== 'undefined' && activeTab) {
+		const nextHash = `#${activeTab}`;
+		if (window.location.hash !== nextHash) {
+			history.replaceState(null, '', nextHash);
+		}
+	}
+
 	// Check if AI settings have changed
 	$: aiSettingsChanged = aiSettings.api_key !== originalAISettings.api_key ||
 		aiSettings.base_url !== originalAISettings.base_url ||
@@ -549,16 +568,19 @@
 	}
 
 	onMount(() => {
+		syncActiveTabFromHash();
+
+		const handleHashChange = () => {
+			syncActiveTabFromHash();
+		};
+
+		window.addEventListener('hashchange', handleHashChange);
+
 		const initialize = async () => {
 		if (!$isAuthenticated) {
 			goto('/login');
 			return;
 		}
-
-		// Initialize mobile detection
-		checkMobile();
-		showDesktopToc = !isMobile;
-		window.addEventListener('resize', checkMobile);
 
 		loading = true;
 		await Promise.all([loadTokenStatus(), loadDiaryEmojiSettingsLocal(), loadAISettings(), loadCheveretoSettingsLocal()]);
@@ -572,7 +594,7 @@
 		void initialize();
 
 		return () => {
-			window.removeEventListener('resize', checkMobile);
+			window.removeEventListener('hashchange', handleHashChange);
 		};
 	});
 </script>
@@ -598,23 +620,7 @@
 					<div class="text-sm font-medium text-foreground">Settings</div>
 
 					<!-- Right: Actions -->
-					<div class="flex items-center gap-2">
-						<button
-							on:click={() => {
-								if (window.innerWidth >= 1024) {
-									showDesktopToc = !showDesktopToc;
-								} else {
-									showMobileToc = !showMobileToc;
-								}
-							}}
-							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 {(showDesktopToc || showMobileToc) ? 'bg-muted/50' : ''}"
-							title="Table of contents"
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-							</svg>
-						</button>
-					</div>
+					<div class="text-xs text-muted-foreground">5 Sections</div>
 				</div>
 			</div>
 		</header>
@@ -622,9 +628,37 @@
 
 	<!-- Main Content -->
 	<div class="max-w-6xl mx-auto px-4 py-6">
-		<div class="flex gap-6 {showDesktopToc ? '' : 'justify-center'}">
-			<!-- Settings Content -->
-			<main class="flex-1 min-w-0 max-w-4xl {showDesktopToc ? 'lg:mx-0' : 'mx-auto'}">
+		<div class="flex justify-center">
+			<main class="w-full max-w-4xl">
+				<div class="mb-4 space-y-3">
+					<div class="sm:hidden">
+						<label for="settings-tab-select" class="sr-only">Choose settings section</label>
+						<div class="relative">
+							<select
+								id="settings-tab-select"
+								bind:value={activeTab}
+								class="w-full pl-3 pr-9 py-2 bg-card border border-border/60 rounded-lg text-sm text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary"
+							>
+								{#each settingsTabs as tab}
+									<option value={tab.id}>{tab.label}</option>
+								{/each}
+							</select>
+							<svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+							</svg>
+						</div>
+					</div>
+					<div class="hidden sm:flex gap-2 overflow-x-auto pb-1">
+						{#each settingsTabs as tab}
+							<button
+								on:click={() => { activeTab = tab.id; }}
+								class="px-3 py-1.5 rounded-lg text-sm whitespace-nowrap border transition-colors {activeTab === tab.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border/60 hover:bg-muted/50'}"
+							>
+								{tab.label}
+							</button>
+						{/each}
+					</div>
+				</div>
 				{#if loading}
 			<div class="flex flex-col items-center justify-center py-20 gap-3">
 				<svg class="w-6 h-6 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
@@ -635,6 +669,7 @@
 			</div>
 		{:else}
 			<div class="space-y-6">
+				{#if activeTab === 'api-access'}
 				<!-- API Settings Section -->
 				<div id="api-access" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<h2 class="text-lg font-semibold text-foreground mb-4">API Access</h2>
@@ -723,7 +758,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						</div>
 					{/if}
 				</div>
+				{/if}
 
+				{#if activeTab === 'mood-weather'}
 				<!-- Mood & Weather Section -->
 				<div id="mood-weather" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<div class="flex items-center justify-between gap-3 mb-4">
@@ -921,7 +958,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						{/if}
 					</div>
 				</div>
+				{/if}
 
+				{#if activeTab === 'ai-assistant'}
 				<!-- AI Settings Section -->
 				<div id="ai-assistant" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<h2 class="text-lg font-semibold text-foreground mb-4">AI Assistant</h2>
@@ -977,16 +1016,21 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 					<div class="py-4 border-b border-border/50">
 						<label for="ai-chat-model" class="block font-medium text-foreground mb-2">Chat Model</label>
 						<div class="flex items-center gap-2">
-							<select
-								id="ai-chat-model"
-								bind:value={aiSettings.chat_model}
-								class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-							>
-								<option value="">Select a model</option>
-								{#each chatModels as model}
-									<option value={model.id}>{model.id}</option>
-								{/each}
-							</select>
+							<div class="relative flex-1">
+								<select
+									id="ai-chat-model"
+									bind:value={aiSettings.chat_model}
+									class="w-full pl-3 pr-9 py-2 bg-muted rounded-lg text-sm text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary"
+								>
+									<option value="">Select a model</option>
+									{#each chatModels as model}
+										<option value={model.id}>{model.id}</option>
+									{/each}
+								</select>
+								<svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+							</div>
 							<button
 								on:click={handleFetchModels}
 								disabled={fetchingModels}
@@ -1005,16 +1049,21 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 					<div class="py-4 border-b border-border/50">
 						<label for="ai-embedding-model" class="block font-medium text-foreground mb-2">Embedding Model</label>
 						<div class="flex items-center gap-2">
-							<select
-								id="ai-embedding-model"
-								bind:value={aiSettings.embedding_model}
-								class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-							>
-								<option value="">Select a model</option>
-								{#each embeddingModels as model}
-									<option value={model.id}>{model.id}</option>
-								{/each}
-							</select>
+							<div class="relative flex-1">
+								<select
+									id="ai-embedding-model"
+									bind:value={aiSettings.embedding_model}
+									class="w-full pl-3 pr-9 py-2 bg-muted rounded-lg text-sm text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary"
+								>
+									<option value="">Select a model</option>
+									{#each embeddingModels as model}
+										<option value={model.id}>{model.id}</option>
+									{/each}
+								</select>
+								<svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+							</div>
 							<button
 								on:click={handleFetchModels}
 								disabled={fetchingModels}
@@ -1245,7 +1294,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						{/if}
 					</div>
 				</div>
+				{/if}
 
+				{#if activeTab === 'image-upload'}
 				<!-- Image Upload (Chevereto) Section -->
 				<div id="image-upload" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<h2 class="text-lg font-semibold text-foreground mb-4">Image Upload</h2>
@@ -1392,7 +1443,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						{/if}
 					</div>
 				</div>
+				{/if}
 
+				{#if activeTab === 'data-management'}
 				<!-- Data Management Section -->
 				<div id="data-management" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<h2 class="text-lg font-semibold text-foreground mb-4">Data Management</h2>
@@ -1422,18 +1475,23 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								<!-- Date Range -->
 								<div>
 									<label for="export-date-range" class="block text-sm font-medium text-foreground mb-2">Date Range</label>
-									<select
-										id="export-date-range"
-										bind:value={exportOptions.date_range}
-										class="w-full px-3 py-2 bg-background rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary border border-border/50"
-									>
-										<option value="1m">Past 1 month</option>
-										<option value="3m">Past 3 months</option>
-										<option value="6m">Past 6 months</option>
-										<option value="1y">Past 1 year</option>
-										<option value="all">All time</option>
-										<option value="custom">Custom range</option>
-									</select>
+									<div class="relative">
+										<select
+											id="export-date-range"
+											bind:value={exportOptions.date_range}
+											class="w-full pl-3 pr-9 py-2 bg-background rounded-lg text-sm text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary border border-border/50"
+										>
+											<option value="1m">Past 1 month</option>
+											<option value="3m">Past 3 months</option>
+											<option value="6m">Past 6 months</option>
+											<option value="1y">Past 1 year</option>
+											<option value="all">All time</option>
+											<option value="custom">Custom range</option>
+										</select>
+										<svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+										</svg>
+									</div>
 								</div>
 
 								{#if exportOptions.date_range === 'custom'}
@@ -1634,138 +1692,12 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						{/if}
 					</div>
 				</div>
+				{/if}
 			</div>
 		{/if}
 	</main>
-
-			<!-- Desktop TOC Sidebar -->
-			{#if showDesktopToc}
-				<aside class="hidden lg:block w-56 flex-shrink-0">
-					<div class="sticky top-16 animate-slide-in-right">
-						<div class="bg-card/50 rounded-xl border border-border/50 p-4">
-							<SettingsToc />
-						</div>
-					</div>
-				</aside>
-			{/if}
 		</div>
 	</div>
 
 	<Footer maxWidth="6xl" tagline="Manage your settings" />
 </div>
-
-<!-- Mobile Drawer -->
-{#if showMobileToc}
-	<!-- Backdrop -->
-	<button
-		class="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 lg:hidden"
-		on:click={() => showMobileToc = false}
-		aria-label="Close menu"
-	></button>
-
-	<!-- Drawer Panel -->
-	<div class="fixed inset-y-0 left-0 w-72 bg-card border-r border-border shadow-2xl z-50 lg:hidden animate-slide-in-left">
-		<!-- Drawer Header -->
-		<div class="flex items-center justify-between px-5 py-4 border-b border-border/50">
-			<div class="flex items-center gap-2">
-				<img src="/logo.png" alt="Diarum" class="w-6 h-6" />
-				<span class="font-semibold text-foreground">Settings</span>
-			</div>
-			<button
-				on:click={() => showMobileToc = false}
-				class="p-2 hover:bg-muted rounded-lg transition-colors"
-				aria-label="Close"
-			>
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-				</svg>
-			</button>
-		</div>
-
-		<!-- Drawer Content -->
-		<div class="flex flex-col h-[calc(100%-57px)]">
-			<!-- Actions Section -->
-			<div class="px-3 py-3">
-				<div class="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
-					Quick Actions
-				</div>
-				<div class="space-y-0.5">
-					<a
-						href="/diary"
-						class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/70 transition-all duration-200 group"
-						on:click={() => showMobileToc = false}
-					>
-						<div class="p-1.5 rounded-md bg-green-500/10 text-green-500 group-hover:bg-green-500/20 transition-colors">
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-									d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-							</svg>
-						</div>
-						<div class="min-w-0">
-							<div class="text-xs font-medium text-foreground">Calendar</div>
-							<div class="text-[10px] text-muted-foreground truncate">View all diary entries</div>
-						</div>
-					</a>
-
-					<a
-						href="/assistant"
-						class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/70 transition-all duration-200 group"
-						on:click={() => showMobileToc = false}
-					>
-						<div class="p-1.5 rounded-md bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<rect x="4" y="6" width="16" height="12" rx="2" stroke-width="2"/>
-								<circle cx="9" cy="11" r="1.5" fill="currentColor"/>
-								<circle cx="15" cy="11" r="1.5" fill="currentColor"/>
-							</svg>
-						</div>
-						<div class="min-w-0">
-							<div class="text-xs font-medium text-foreground">AI Assistant</div>
-							<div class="text-[10px] text-muted-foreground truncate">Chat with AI about your diary</div>
-						</div>
-					</a>
-
-					<a
-						href="/search"
-						class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/70 transition-all duration-200 group"
-						on:click={() => showMobileToc = false}
-					>
-						<div class="p-1.5 rounded-md bg-blue-500/10 text-blue-500 group-hover:bg-blue-500/20 transition-colors">
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-							</svg>
-						</div>
-						<div class="min-w-0">
-							<div class="text-xs font-medium text-foreground">Search</div>
-							<div class="text-[10px] text-muted-foreground truncate">Find diary entries</div>
-						</div>
-					</a>
-
-					<a
-						href="/media"
-						class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/70 transition-all duration-200 group"
-						on:click={() => showMobileToc = false}
-					>
-						<div class="p-1.5 rounded-md bg-purple-500/10 text-purple-500 group-hover:bg-purple-500/20 transition-colors">
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-							</svg>
-						</div>
-						<div class="min-w-0">
-							<div class="text-xs font-medium text-foreground">Media</div>
-							<div class="text-[10px] text-muted-foreground truncate">Browse photos & files</div>
-						</div>
-					</a>
-				</div>
-			</div>
-
-			<!-- Divider -->
-			<div class="mx-3 border-t border-border/50"></div>
-
-			<!-- TOC Section -->
-			<div class="flex-1 overflow-y-auto px-3 py-3">
-				<SettingsToc onNavigate={() => showMobileToc = false} />
-			</div>
-		</div>
-	</div>
-{/if}
