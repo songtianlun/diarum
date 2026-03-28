@@ -9,7 +9,6 @@ import {
 	type PersistedEntry
 } from './persistence';
 import { checkOnlineStatus, initOnlineStatus } from './onlineStatus';
-import { syncConfig, getConfig, initSyncConfig } from './syncConfig';
 
 export interface CacheEntry {
 	content: string;
@@ -58,13 +57,13 @@ let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let initialized = false;
 let cleanupOnlineStatus: (() => void) | null = null;
-let unsubscribeSyncConfig: (() => void) | null = null;
 let storageEventHandler: ((e: StorageEvent) => void) | null = null;
 
 // Retry state for offline sync
 let retryCount = 0;
 const MAX_RETRY_INTERVAL = 60000; // Max 60 seconds between retries
 const BASE_RETRY_INTERVAL = 3000; // Start with 3 seconds
+const AUTO_SAVE_DEBOUNCE_INTERVAL = 1000; // Save 1s after user stops typing
 
 // Pending persistence queue
 let pendingPersist: Map<string, PersistedEntry> = new Map();
@@ -110,16 +109,10 @@ export function initDiaryCache(): void {
 	initialized = true;
 
 	// Initialize dependencies
-	initSyncConfig();
 	cleanupOnlineStatus = initOnlineStatus();
 
 	// Load persisted data
 	reloadFromStorage();
-
-	// Subscribe to config changes - save unsubscribe for cleanup
-	unsubscribeSyncConfig = syncConfig.subscribe(() => {
-		// Config changed, timer will use new interval on next schedule
-	});
 
 	// Listen for storage changes from other tabs
 	storageEventHandler = (e: StorageEvent) => {
@@ -147,10 +140,6 @@ export function cleanupDiaryCache(): void {
 	if (cleanupOnlineStatus) {
 		cleanupOnlineStatus();
 		cleanupOnlineStatus = null;
-	}
-	if (unsubscribeSyncConfig) {
-		unsubscribeSyncConfig();
-		unsubscribeSyncConfig = null;
 	}
 	if (storageEventHandler) {
 		window.removeEventListener('storage', storageEventHandler);
@@ -311,8 +300,7 @@ function scheduleSyncToServer(isRetry: boolean = false): void {
 		clearTimeout(syncTimer);
 	}
 
-	const config = getConfig();
-	let interval = config.autoSaveInterval;
+	let interval = AUTO_SAVE_DEBOUNCE_INTERVAL;
 
 	// Use exponential backoff for retries
 	if (isRetry) {

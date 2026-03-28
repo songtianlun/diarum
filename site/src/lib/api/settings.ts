@@ -6,10 +6,6 @@ export interface ApiTokenStatus {
 	token: string;
 }
 
-export interface SyncSettings {
-	autoSaveInterval: number;
-}
-
 /**
  * Get API token status and value
  */
@@ -80,58 +76,3 @@ export async function resetApiToken(): Promise<ApiTokenStatus> {
 	}
 }
 
-/**
- * Get sync settings from backend
- */
-export async function getSyncSettings(): Promise<SyncSettings> {
-	try {
-		const response = await fetch('/api/v1/settings', {
-			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`
-			}
-		});
-
-		if (!response.ok) {
-			throw new Error('Failed to get settings');
-		}
-
-		const data = await response.json();
-		const settings = data.settings || {};
-
-		return {
-			autoSaveInterval: settings['sync.autoSaveInterval'] ?? 3000
-		};
-	} catch (error) {
-		console.error('Error fetching sync settings:', error);
-		return { autoSaveInterval: 3000 };
-	}
-}
-
-/**
- * Save sync settings to backend
- */
-export async function saveSyncSettings(settings: SyncSettings): Promise<boolean> {
-	try {
-		const response = await fetch('/api/v1/settings/batch', {
-			method: 'PUT',
-			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`,
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				settings: {
-					'sync.autoSaveInterval': settings.autoSaveInterval
-				}
-			})
-		});
-
-		if (!response.ok) {
-			throw new Error('Failed to save settings');
-		}
-
-		return true;
-	} catch (error) {
-		console.error('Error saving sync settings:', error);
-		return false;
-	}
-}

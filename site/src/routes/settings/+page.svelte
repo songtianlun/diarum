@@ -10,7 +10,6 @@
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import SettingsToc from '$lib/components/ui/SettingsToc.svelte';
-	import SyncSettings from '$lib/components/ui/SyncSettings.svelte';
 
 	// TOC state
 	let showMobileToc = false;
@@ -1002,15 +1001,6 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							</span>
 						{/if}
 					</div>
-				</div>
-
-				<!-- Sync Section -->
-				<div id="sync-cache" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
-					<h2 class="text-lg font-semibold text-foreground mb-4">Sync</h2>
-					<p class="text-sm text-muted-foreground mb-6">
-						Configure auto-save timing for syncing your edits to the server.
-					</p>
-					<SyncSettings />
 				</div>
 
 				<!-- Data Management Section -->

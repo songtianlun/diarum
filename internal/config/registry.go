@@ -14,7 +14,6 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"api.enabled": {Type: "bool", Default: false, Encrypted: false},
 
 	// Sync settings
-	"sync.autoSaveInterval": {Type: "int", Default: 3000, Encrypted: false},  // milliseconds
 	"sync.cacheDays":        {Type: "int", Default: 30, Encrypted: false},
 
 	// AI settings (unified API key and base URL)
