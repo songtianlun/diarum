@@ -609,18 +609,28 @@
 		<!-- Header -->
 		<header class="glass border-b border-border/50">
 			<div class="max-w-6xl mx-auto px-4 h-11">
-				<div class="flex items-center justify-between h-full">
-					<!-- Left: Brand -->
-					<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
-						<img src="/logo.png" alt="Diarum" class="w-6 h-6" />
-						<span class="hidden sm:inline text-lg font-semibold text-foreground hover:text-primary transition-colors">Diarum</span>
-					</a>
+				<div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 h-full">
+					<div class="flex items-center gap-2 min-w-0">
+						<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Diarum Home">
+							<img src="/logo.png" alt="Diarum" class="w-6 h-6" />
+							<span class="hidden sm:inline text-lg font-semibold text-foreground hover:text-primary transition-colors">Diarum</span>
+						</a>
+					</div>
 
 					<!-- Center: Title -->
-					<div class="text-sm font-medium text-foreground">Settings</div>
+					<div class="text-sm font-medium text-foreground text-center">Settings</div>
 
 					<!-- Right: Actions -->
-					<div class="text-xs text-muted-foreground">5 Sections</div>
+					<a
+						href="/diary"
+						class="justify-self-end p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200"
+						title="Diary"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+								d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+						</svg>
+					</a>
 				</div>
 			</div>
 		</header>
