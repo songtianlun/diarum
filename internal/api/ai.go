@@ -35,6 +35,22 @@ type ModelsResponse struct {
 	Data   []ModelInfo `json:"data"`
 }
 
+const (
+	defaultAIRequestTimeoutSeconds = 300
+	minAIRequestTimeoutSeconds     = 30
+	maxAIRequestTimeoutSeconds     = 3600
+)
+
+func normalizeAIRequestTimeoutSeconds(seconds int) (int, error) {
+	if seconds == 0 {
+		return defaultAIRequestTimeoutSeconds, nil
+	}
+	if seconds < minAIRequestTimeoutSeconds || seconds > maxAIRequestTimeoutSeconds {
+		return 0, fmt.Errorf("AI wait time must be between %d and %d seconds", minAIRequestTimeoutSeconds, maxAIRequestTimeoutSeconds)
+	}
+	return seconds, nil
+}
+
 // RegisterAIRoutes registers AI-related API endpoints
 func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingService *embedding.EmbeddingService) {
 	configService := config.NewConfigService(app)
@@ -52,14 +68,17 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		baseUrl, _ := configService.GetString(userId, "ai.base_url")
 		chatModel, _ := configService.GetString(userId, "ai.chat_model")
 		embeddingModel, _ := configService.GetString(userId, "ai.embedding_model")
+		requestTimeoutSeconds, _ := configService.GetInt(userId, "ai.request_timeout_seconds")
+		requestTimeoutSeconds, _ = normalizeAIRequestTimeoutSeconds(requestTimeoutSeconds)
 		enabled, _ := configService.GetBool(userId, "ai.enabled")
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"api_key":         apiKey,
-			"base_url":        baseUrl,
-			"chat_model":      chatModel,
-			"embedding_model": embeddingModel,
-			"enabled":         enabled,
+			"api_key":                 apiKey,
+			"base_url":                baseUrl,
+			"chat_model":              chatModel,
+			"embedding_model":         embeddingModel,
+			"request_timeout_seconds": requestTimeoutSeconds,
+			"enabled":                 enabled,
 		})
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
@@ -73,14 +92,20 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		userId := authRecord.Id
 
 		var body struct {
-			APIKey         string `json:"api_key"`
-			BaseURL        string `json:"base_url"`
-			ChatModel      string `json:"chat_model"`
-			EmbeddingModel string `json:"embedding_model"`
-			Enabled        bool   `json:"enabled"`
+			APIKey                string `json:"api_key"`
+			BaseURL               string `json:"base_url"`
+			ChatModel             string `json:"chat_model"`
+			EmbeddingModel        string `json:"embedding_model"`
+			RequestTimeoutSeconds int    `json:"request_timeout_seconds"`
+			Enabled               bool   `json:"enabled"`
 		}
 		if err := c.Bind(&body); err != nil {
 			return apis.NewBadRequestError("Invalid request body", err)
+		}
+
+		requestTimeoutSeconds, err := normalizeAIRequestTimeoutSeconds(body.RequestTimeoutSeconds)
+		if err != nil {
+			return apis.NewBadRequestError(err.Error(), nil)
 		}
 
 		// Validate: if enabled is true, all fields must be filled
@@ -91,11 +116,12 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		}
 
 		settings := map[string]any{
-			"ai.api_key":         body.APIKey,
-			"ai.base_url":        body.BaseURL,
-			"ai.chat_model":      body.ChatModel,
-			"ai.embedding_model": body.EmbeddingModel,
-			"ai.enabled":         body.Enabled,
+			"ai.api_key":                 body.APIKey,
+			"ai.base_url":                body.BaseURL,
+			"ai.chat_model":              body.ChatModel,
+			"ai.embedding_model":         body.EmbeddingModel,
+			"ai.request_timeout_seconds": requestTimeoutSeconds,
+			"ai.enabled":                 body.Enabled,
 		}
 
 		if err := configService.SetBatch(userId, settings); err != nil {
@@ -444,7 +470,9 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		// Create stream writer
 		writer := &sseWriter{w: c.Response()}
 
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
+		requestTimeoutSeconds, _ := configService.GetInt(authRecord.Id, "ai.request_timeout_seconds")
+		requestTimeoutSeconds, _ = normalizeAIRequestTimeoutSeconds(requestTimeoutSeconds)
+		ctx, cancel := context.WithTimeout(c.Request().Context(), time.Duration(requestTimeoutSeconds)*time.Second)
 		defer cancel()
 
 		// Generate title first for new conversations (before streaming response)

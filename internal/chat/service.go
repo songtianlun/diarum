@@ -97,6 +97,8 @@ type StreamWriter interface {
 	Flush()
 }
 
+const defaultAIRequestTimeout = 5 * time.Minute
+
 // NewChatService creates a new ChatService
 func NewChatService(app *pocketbase.PocketBase, embeddingService *embedding.EmbeddingService) *ChatService {
 	return &ChatService{
@@ -355,6 +357,8 @@ func (s *ChatService) StreamChat(ctx context.Context, userID, conversationID, me
 		return "", nil, fmt.Errorf("chat model not configured")
 	}
 
+	requestTimeout := s.getRequestTimeout(userID)
+
 	// Build initial messages with system prompt
 	systemPrompt := s.buildAgentSystemPrompt()
 	messages := []ChatMessage{
@@ -377,7 +381,7 @@ func (s *ChatService) StreamChat(ctx context.Context, userID, conversationID, me
 
 	// Call API with tools (first round)
 	var referencedDiaryIDs []string
-	fullResponse, toolCalls, err := s.callAPIWithTools(ctx, baseURL, apiKey, chatModel, messages, tools, writer)
+	fullResponse, toolCalls, err := s.callAPIWithTools(ctx, baseURL, apiKey, chatModel, messages, tools, requestTimeout, writer)
 	if err != nil {
 		return "", nil, err
 	}
@@ -423,7 +427,7 @@ func (s *ChatService) StreamChat(ctx context.Context, userID, conversationID, me
 		}
 
 		// Call API again without tools to get final response
-		fullResponse, _, err = s.callAPIWithTools(ctx, baseURL, apiKey, chatModel, messages, nil, writer)
+		fullResponse, _, err = s.callAPIWithTools(ctx, baseURL, apiKey, chatModel, messages, nil, requestTimeout, writer)
 		if err != nil {
 			return "", nil, err
 		}
@@ -432,8 +436,19 @@ func (s *ChatService) StreamChat(ctx context.Context, userID, conversationID, me
 	return fullResponse, referencedDiaryIDs, nil
 }
 
+func (s *ChatService) getRequestTimeout(userID string) time.Duration {
+	timeoutSeconds, err := s.configService.GetInt(userID, "ai.request_timeout_seconds")
+	if err != nil {
+		return defaultAIRequestTimeout
+	}
+	if timeoutSeconds <= 0 {
+		return defaultAIRequestTimeout
+	}
+	return time.Duration(timeoutSeconds) * time.Second
+}
+
 // callStreamingAPI calls the OpenAI-compatible streaming API
-func (s *ChatService) callStreamingAPI(ctx context.Context, baseURL, apiKey, model string, messages []ChatMessage, writer StreamWriter) (string, error) {
+func (s *ChatService) callStreamingAPI(ctx context.Context, baseURL, apiKey, model string, messages []ChatMessage, timeout time.Duration, writer StreamWriter) (string, error) {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 	url := baseURL + "/v1/chat/completions"
 
@@ -457,7 +472,7 @@ func (s *ChatService) callStreamingAPI(ctx context.Context, baseURL, apiKey, mod
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -473,7 +488,7 @@ func (s *ChatService) callStreamingAPI(ctx context.Context, baseURL, apiKey, mod
 }
 
 // callAPIWithTools calls the API with tool support
-func (s *ChatService) callAPIWithTools(ctx context.Context, baseURL, apiKey, model string, messages []ChatMessage, tools []Tool, writer StreamWriter) (string, []ToolCall, error) {
+func (s *ChatService) callAPIWithTools(ctx context.Context, baseURL, apiKey, model string, messages []ChatMessage, tools []Tool, timeout time.Duration, writer StreamWriter) (string, []ToolCall, error) {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 	url := baseURL + "/v1/chat/completions"
 
@@ -501,7 +516,7 @@ func (s *ChatService) callAPIWithTools(ctx context.Context, baseURL, apiKey, mod
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to send request: %w", err)
@@ -753,6 +768,8 @@ func (s *ChatService) GenerateTitle(ctx context.Context, userID, userMessage, as
 		return "", fmt.Errorf("chat model not configured")
 	}
 
+	requestTimeout := s.getRequestTimeout(userID)
+
 	// Build messages for title generation
 	messages := []ChatMessage{
 		{
@@ -792,7 +809,7 @@ Use the same language as the user's message.`,
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: requestTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)

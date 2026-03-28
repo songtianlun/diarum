@@ -17,12 +17,13 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"sync.cacheDays": {Type: "int", Default: 30, Encrypted: false},
 
 	// AI settings (unified API key and base URL)
-	"ai.enabled":          {Type: "bool", Default: false, Encrypted: false},
-	"ai.api_key":          {Type: "string", Default: "", Encrypted: true},
-	"ai.base_url":         {Type: "string", Default: "", Encrypted: false},
-	"ai.chat_model":       {Type: "string", Default: "", Encrypted: false},
-	"ai.embedding_model":  {Type: "string", Default: "", Encrypted: false},
-	"ai.vectors_built_at": {Type: "string", Default: "", Encrypted: false},
+	"ai.enabled":                 {Type: "bool", Default: false, Encrypted: false},
+	"ai.api_key":                 {Type: "string", Default: "", Encrypted: true},
+	"ai.base_url":                {Type: "string", Default: "", Encrypted: false},
+	"ai.chat_model":              {Type: "string", Default: "", Encrypted: false},
+	"ai.embedding_model":         {Type: "string", Default: "", Encrypted: false},
+	"ai.request_timeout_seconds": {Type: "int", Default: 300, Encrypted: false},
+	"ai.vectors_built_at":        {Type: "string", Default: "", Encrypted: false},
 
 	// Chevereto image hosting settings
 	"chevereto.enabled":  {Type: "bool", Default: false, Encrypted: false},
