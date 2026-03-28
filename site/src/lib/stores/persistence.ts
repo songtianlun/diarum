@@ -59,15 +59,6 @@ export function savePersistedData(data: PersistedData): void {
 }
 
 /**
- * Save a single entry to persistence
- */
-export function persistEntry(entry: PersistedEntry): void {
-	const data = loadPersistedData();
-	data.entries[entry.date] = entry;
-	savePersistedData(data);
-}
-
-/**
  * Save multiple entries to persistence (batch operation)
  */
 export function persistEntries(entries: PersistedEntry[]): void {
@@ -101,42 +92,11 @@ export function removePersistedEntries(dates: string[]): void {
 }
 
 /**
- * Get all persisted entries
- */
-export function getAllPersistedEntries(): { [date: string]: PersistedEntry } {
-	return loadPersistedData().entries;
-}
-
-/**
- * Get a single persisted entry
- */
-export function getPersistedEntry(date: string): PersistedEntry | null {
-	const data = loadPersistedData();
-	return data.entries[date] || null;
-}
-
-/**
  * Clear all persisted data
  */
 export function clearAllPersistedData(): void {
 	if (!browser) return;
 	localStorage.removeItem(STORAGE_KEY);
-}
-
-/**
- * Get count of dirty (unsynced) entries
- */
-export function getDirtyEntryCount(): number {
-	const data = loadPersistedData();
-	return Object.values(data.entries).filter(e => e.isDirty).length;
-}
-
-/**
- * Get all dirty entries
- */
-export function getDirtyPersistedEntries(): PersistedEntry[] {
-	const data = loadPersistedData();
-	return Object.values(data.entries).filter(e => e.isDirty);
 }
 
 /**
@@ -150,35 +110,3 @@ function migrateData(data: PersistedData): PersistedData {
 	};
 }
 
-/**
- * Check if date is within cache range
- */
-export function isInCacheRange(date: string, cacheDays: number): boolean {
-	const entryDate = new Date(date);
-	const now = new Date();
-	const diffTime = now.getTime() - entryDate.getTime();
-	const diffDays = diffTime / (1000 * 60 * 60 * 24);
-	return diffDays <= cacheDays;
-}
-
-/**
- * Clean up entries outside cache range that are already synced
- */
-export function cleanupOldEntries(cacheDays: number): number {
-	const data = loadPersistedData();
-	let removedCount = 0;
-
-	for (const [date, entry] of Object.entries(data.entries)) {
-		// Only remove synced entries outside cache range
-		if (!entry.isDirty && !isInCacheRange(date, cacheDays)) {
-			delete data.entries[date];
-			removedCount++;
-		}
-	}
-
-	if (removedCount > 0) {
-		savePersistedData(data);
-	}
-
-	return removedCount;
-}

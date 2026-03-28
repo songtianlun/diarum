@@ -1004,11 +1004,11 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 					</div>
 				</div>
 
-				<!-- Sync & Cache Section -->
+				<!-- Sync Section -->
 				<div id="sync-cache" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
-					<h2 class="text-lg font-semibold text-foreground mb-4">Sync & Cache</h2>
+					<h2 class="text-lg font-semibold text-foreground mb-4">Sync</h2>
 					<p class="text-sm text-muted-foreground mb-6">
-						Manage offline sync and local cache settings. Your diary entries are automatically saved locally and synced when online.
+						Configure auto-save timing for syncing your edits to the server.
 					</p>
 					<SyncSettings />
 				</div>

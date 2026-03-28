@@ -5,12 +5,10 @@ const STORAGE_KEY = 'diarum_sync_config';
 
 export interface SyncConfig {
 	autoSaveInterval: number;  // milliseconds, default 3000
-	cacheDays: number;         // default 3 days
 }
 
 const DEFAULT_CONFIG: SyncConfig = {
-	autoSaveInterval: 3000,
-	cacheDays: 30
+	autoSaveInterval: 3000
 };
 
 function loadConfig(): SyncConfig {
@@ -75,16 +73,6 @@ export function setAutoSaveInterval(interval: number): void {
 	if (interval > 60000) interval = 60000;  // Maximum 60 seconds
 
 	syncConfig.update(c => ({ ...c, autoSaveInterval: interval }));
-}
-
-/**
- * Update cache days
- */
-export function setCacheDays(days: number): void {
-	if (days < 1) days = 1;  // Minimum 1 day
-	if (days > 30) days = 30;  // Maximum 30 days
-
-	syncConfig.update(c => ({ ...c, cacheDays: days }));
 }
 
 /**

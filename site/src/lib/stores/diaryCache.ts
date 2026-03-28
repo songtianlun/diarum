@@ -3,14 +3,9 @@ import { browser } from '$app/environment';
 import type { Diary } from '$lib/api/client';
 import {
 	loadPersistedData,
-	persistEntry,
 	persistEntries,
 	removePersistedEntry,
 	removePersistedEntries,
-	getAllPersistedEntries,
-	cleanupOldEntries,
-	isInCacheRange,
-	clearAllPersistedData,
 	type PersistedEntry
 } from './persistence';
 import { checkOnlineStatus, initOnlineStatus } from './onlineStatus';
@@ -83,14 +78,24 @@ const STORAGE_KEY = 'diarum_diary_cache';
 function reloadFromStorage(): void {
 	const persisted = loadPersistedData();
 	const cache: DiaryCache = {};
+	const legacySyncedDates: string[] = [];
 
 	for (const [date, entry] of Object.entries(persisted.entries)) {
+		if (!entry.isDirty) {
+			legacySyncedDates.push(date);
+			continue;
+		}
+
 		cache[date] = {
 			content: entry.content,
 			localUpdatedAt: entry.localUpdatedAt,
 			serverUpdatedAt: entry.serverUpdatedAt,
 			isDirty: entry.isDirty
 		};
+	}
+
+	if (legacySyncedDates.length > 0) {
+		removePersistedEntries(legacySyncedDates);
 	}
 
 	diaryCache.set(cache);
@@ -110,10 +115,6 @@ export function initDiaryCache(): void {
 
 	// Load persisted data
 	reloadFromStorage();
-
-	// Clean up old entries on startup
-	const config = getConfig();
-	cleanupOldEntries(config.cacheDays);
 
 	// Subscribe to config changes - save unsubscribe for cleanup
 	unsubscribeSyncConfig = syncConfig.subscribe(() => {
@@ -257,48 +258,20 @@ export function updateFromServer(date: string, diary: Diary | null): void {
 	const cache = get(diaryCache);
 	const existing = cache[date];
 
-	const serverContent = diary?.content || '';
-	const serverUpdated = diary?.updated || null;
-
 	// If local cache exists and is dirty, keep local changes
 	if (existing && existing.isDirty) {
 		return;
 	}
 
-	const entry: CacheEntry = {
-		content: serverContent,
-		localUpdatedAt: Date.now(),
-		serverUpdatedAt: serverUpdated,
-		isDirty: false
-	};
-
-	diaryCache.update(c => ({
-		...c,
-		[date]: entry
-	}));
-
-	// Persist to localStorage (within cache range)
-	const config = getConfig();
-	if (isInCacheRange(date, config.cacheDays)) {
-		persistEntry({
-			date,
-			content: serverContent,
-			localUpdatedAt: entry.localUpdatedAt,
-			serverUpdatedAt: serverUpdated,
-			isDirty: false
-		});
+	// Browser cache is disabled: only keep unsynced local drafts.
+	if (existing && !existing.isDirty) {
+		clearCache(date);
+	}
+	if (!diary) {
+		removePersistedEntry(date);
 	}
 
 	updateCacheStats();
-}
-
-/**
- * Get content to display (prefers local dirty cache)
- */
-export function getDisplayContent(date: string): string {
-	const cache = get(diaryCache);
-	const entry = cache[date];
-	return entry?.content || '';
 }
 
 /**
@@ -320,55 +293,12 @@ export function getDirtyEntries(): { date: string; content: string }[] {
 }
 
 /**
- * Get all unsynced entries with details
- */
-export function getUnsyncedEntries(): PersistedEntry[] {
-	const cache = get(diaryCache);
-	return Object.entries(cache)
-		.filter(([_, entry]) => entry.isDirty)
-		.map(([date, entry]) => ({
-			date,
-			content: entry.content,
-			localUpdatedAt: entry.localUpdatedAt,
-			serverUpdatedAt: entry.serverUpdatedAt,
-			isDirty: true
-		}));
-}
-
-/**
  * Mark entry as synced
  */
 export function markAsSynced(date: string, serverUpdatedAt: string): void {
-	diaryCache.update(cache => {
-		if (!cache[date]) return cache;
-		return {
-			...cache,
-			[date]: {
-				...cache[date],
-				serverUpdatedAt,
-				isDirty: false
-			}
-		};
-	});
-
-	// Update persistence
-	const cache = get(diaryCache);
-	const entry = cache[date];
-	if (entry) {
-		const config = getConfig();
-		if (isInCacheRange(date, config.cacheDays)) {
-			persistEntry({
-				date,
-				content: entry.content,
-				localUpdatedAt: entry.localUpdatedAt,
-				serverUpdatedAt,
-				isDirty: false
-			});
-		} else {
-			// Outside cache range and synced, remove from persistence
-			removePersistedEntry(date);
-		}
-	}
+	void serverUpdatedAt;
+	// Browser cache is disabled: once synced, remove local draft snapshot.
+	clearCache(date);
 
 	updateCacheStats();
 }
@@ -598,181 +528,3 @@ export function clearCache(date: string): void {
 	updateCacheStats();
 }
 
-/**
- * Clear all cache
- */
-export function clearAllCache(): void {
-	diaryCache.set({});
-	clearAllPersistedData();
-	updateCacheStats();
-}
-
-/**
- * Clear only synced entries from cache
- */
-export function clearSyncedCache(): void {
-	const cache = get(diaryCache);
-	const newCache: DiaryCache = {};
-	const datesToRemove: string[] = [];
-
-	for (const [date, entry] of Object.entries(cache)) {
-		if (entry.isDirty) {
-			newCache[date] = entry;
-		} else {
-			datesToRemove.push(date);
-		}
-	}
-
-	removePersistedEntries(datesToRemove);
-	diaryCache.set(newCache);
-	updateCacheStats();
-}
-
-/**
- * Run cache cleanup based on config
- */
-export function runCacheCleanup(): number {
-	const config = getConfig();
-	const removed = cleanupOldEntries(config.cacheDays);
-
-	// Also update in-memory cache
-	const cache = get(diaryCache);
-	const newCache: DiaryCache = {};
-
-	for (const [date, entry] of Object.entries(cache)) {
-		if (entry.isDirty || isInCacheRange(date, config.cacheDays)) {
-			newCache[date] = entry;
-		}
-	}
-
-	diaryCache.set(newCache);
-	updateCacheStats();
-
-	return removed;
-}
-
-// Pre-cache state
-export const preCacheState = writable<{
-	isRunning: boolean;
-	progress: number;
-	total: number;
-	message: string;
-}>({
-	isRunning: false,
-	progress: 0,
-	total: 0,
-	message: ''
-});
-
-/**
- * Pre-cache diaries for the configured cache duration
- */
-export async function preCacheDiaries(): Promise<{ success: boolean; cached: number }> {
-	const config = getConfig();
-	const cacheDays = config.cacheDays;
-
-	// Calculate date range
-	const today = new Date();
-	const startDate = new Date(today);
-	startDate.setDate(startDate.getDate() - cacheDays + 1);
-
-	const formatDate = (d: Date) => d.toISOString().split('T')[0];
-	const start = formatDate(startDate);
-	const end = formatDate(today);
-
-	preCacheState.set({
-		isRunning: true,
-		progress: 0,
-		total: 0,
-		message: 'Fetching diary list...'
-	});
-
-	try {
-		// Check online status
-		const online = await checkOnlineStatus();
-		if (!online) {
-			preCacheState.set({
-				isRunning: false,
-				progress: 0,
-				total: 0,
-				message: 'Offline'
-			});
-			return { success: false, cached: 0 };
-		}
-
-		// Get dates with diaries in range
-		const { getDatesWithDiaries, getDiaryByDate } = await import('$lib/api/diaries');
-		const datesWithDiaries = await getDatesWithDiaries(start, end);
-
-		if (datesWithDiaries.length === 0) {
-			preCacheState.set({
-				isRunning: false,
-				progress: 0,
-				total: 0,
-				message: 'No diaries to cache'
-			});
-			return { success: true, cached: 0 };
-		}
-
-		// Filter out dates already in cache (not dirty)
-		const cache = get(diaryCache);
-		const datesToFetch = datesWithDiaries.filter(date => {
-			const entry = cache[date];
-			return !entry || entry.isDirty === false; // Re-fetch synced entries to ensure fresh
-		});
-
-		preCacheState.set({
-			isRunning: true,
-			progress: 0,
-			total: datesToFetch.length,
-			message: `Caching 0/${datesToFetch.length}...`
-		});
-
-		let cached = 0;
-		for (const date of datesToFetch) {
-			try {
-				const diary = await getDiaryByDate(date);
-				if (diary) {
-					updateFromServer(date, diary);
-					cached++;
-				}
-				preCacheState.set({
-					isRunning: true,
-					progress: cached,
-					total: datesToFetch.length,
-					message: `Caching ${cached}/${datesToFetch.length}...`
-				});
-			} catch (error) {
-				console.error(`Failed to pre-cache diary for ${date}:`, error);
-			}
-		}
-
-		preCacheState.set({
-			isRunning: false,
-			progress: cached,
-			total: datesToFetch.length,
-			message: `Cached ${cached} entries`
-		});
-
-		// Clear message after 3 seconds
-		setTimeout(() => {
-			preCacheState.update(s => {
-				if (!s.isRunning) {
-					return { ...s, message: '' };
-				}
-				return s;
-			});
-		}, 3000);
-
-		return { success: true, cached };
-	} catch (error) {
-		console.error('Pre-cache failed:', error);
-		preCacheState.set({
-			isRunning: false,
-			progress: 0,
-			total: 0,
-			message: 'Pre-cache failed'
-		});
-		return { success: false, cached: 0 };
-	}
-}

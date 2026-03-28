@@ -8,7 +8,6 @@ export interface ApiTokenStatus {
 
 export interface SyncSettings {
 	autoSaveInterval: number;
-	cacheDays: number;
 }
 
 /**
@@ -100,12 +99,11 @@ export async function getSyncSettings(): Promise<SyncSettings> {
 		const settings = data.settings || {};
 
 		return {
-			autoSaveInterval: settings['sync.autoSaveInterval'] ?? 3000,
-			cacheDays: settings['sync.cacheDays'] ?? 30
+			autoSaveInterval: settings['sync.autoSaveInterval'] ?? 3000
 		};
 	} catch (error) {
 		console.error('Error fetching sync settings:', error);
-		return { autoSaveInterval: 3000, cacheDays: 30 };
+		return { autoSaveInterval: 3000 };
 	}
 }
 
@@ -122,8 +120,7 @@ export async function saveSyncSettings(settings: SyncSettings): Promise<boolean>
 			},
 			body: JSON.stringify({
 				settings: {
-					'sync.autoSaveInterval': settings.autoSaveInterval,
-					'sync.cacheDays': settings.cacheDays
+					'sync.autoSaveInterval': settings.autoSaveInterval
 				}
 			})
 		});
