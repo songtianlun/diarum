@@ -448,7 +448,14 @@ async function syncDirtyEntries(): Promise<void> {
 			});
 
 			if (success) {
-				markAsSynced(entry.date, new Date().toISOString());
+				// If content is empty the entry was deleted on the server — clear local cache.
+				// Otherwise mark it as synced.
+				const contentStripped = entry.content.replace(/<[^>]*>/g, '').trim();
+				if (!contentStripped) {
+					clearCache(entry.date);
+				} else {
+					markAsSynced(entry.date, new Date().toISOString());
+				}
 			}
 		} catch (error) {
 			console.error(`Failed to sync diary for ${entry.date}:`, error);
@@ -523,7 +530,14 @@ export async function forceSyncNow(): Promise<boolean> {
 			});
 
 			if (success) {
-				markAsSynced(entry.date, new Date().toISOString());
+				// If content is empty the entry was deleted on the server — clear local cache.
+				// Otherwise mark it as synced.
+				const contentStripped = entry.content.replace(/<[^>]*>/g, '').trim();
+				if (!contentStripped) {
+					clearCache(entry.date);
+				} else {
+					markAsSynced(entry.date, new Date().toISOString());
+				}
 			} else {
 				syncState.set({
 					isSyncing: false,

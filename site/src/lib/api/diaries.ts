@@ -73,7 +73,15 @@ export async function getDiaryByDate(date: string): Promise<Diary | null> {
 }
 
 /**
- * Create or update diary
+ * Check if content is effectively empty (strips HTML tags and whitespace)
+ */
+function isContentEmpty(content: string | undefined | null): boolean {
+	if (!content) return true;
+	return content.replace(/<[^>]*>/g, '').trim().length === 0;
+}
+
+/**
+ * Create or update diary. Deletes the entry if all fields are empty.
  */
 export async function saveDiary(diary: Partial<Diary>): Promise<boolean> {
 	try {
@@ -85,7 +93,23 @@ export async function saveDiary(diary: Partial<Diary>): Promise<boolean> {
 		// Use custom API to get diary by date first
 		const existing = await getDiaryByDate(diary.date!);
 
+		// Use effective values: incoming value takes precedence, fall back to existing record.
+		// This prevents accidentally deleting an entry when only content is synced
+		// but mood/weather still have values on the server.
+		const effectiveContent = diary.content !== undefined ? diary.content : existing?.content;
+		const effectiveMood = diary.mood !== undefined ? diary.mood : existing?.mood;
+		const effectiveWeather = diary.weather !== undefined ? diary.weather : existing?.weather;
+
+		const allEmpty =
+			isContentEmpty(effectiveContent) &&
+			!effectiveMood?.trim() &&
+			!effectiveWeather?.trim();
+
 		if (existing && existing.id) {
+			if (allEmpty) {
+				// All fields are empty — delete the entry instead of saving a blank record
+				return deleteDiary(existing.id);
+			}
 			// Update existing diary
 			await pb.collection('diaries').update(existing.id, {
 				content: diary.content,
@@ -93,6 +117,10 @@ export async function saveDiary(diary: Partial<Diary>): Promise<boolean> {
 				weather: diary.weather
 			});
 		} else {
+			if (allEmpty) {
+				// Nothing to save — skip creating an empty entry
+				return true;
+			}
 			// Create new diary
 			const data: any = {
 				date: diary.date + ' 00:00:00.000Z', // Use full timestamp format
