@@ -106,18 +106,32 @@ func RegisterDiaryRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 			})
 		}
 
+		type calendarEntry struct {
+			Date    string `json:"date"`
+			Mood    string `json:"mood"`
+			Weather string `json:"weather"`
+		}
+
 		// Extract dates (convert from timestamp to YYYY-MM-DD format)
 		dates := make([]string, 0, len(records))
+		entries := make([]calendarEntry, 0, len(records))
 		for _, record := range records {
 			dateTime := record.GetString("date")
 			// Extract just the date part (YYYY-MM-DD) from "YYYY-MM-DD HH:MM:SS.SSSZ"
 			if len(dateTime) >= 10 {
-				dates = append(dates, dateTime[:10])
+				date := dateTime[:10]
+				dates = append(dates, date)
+				entries = append(entries, calendarEntry{
+					Date:    date,
+					Mood:    record.GetString("mood"),
+					Weather: record.GetString("weather"),
+				})
 			}
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"dates": dates,
+			"dates":   dates,
+			"entries": entries,
 		})
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 

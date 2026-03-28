@@ -5,6 +5,12 @@ export type DiaryByDateResult =
 	| { status: 'not_found'; diary: null }
 	| { status: 'error'; diary: null };
 
+export interface CalendarDiaryMeta {
+	date: string;
+	mood?: string;
+	weather?: string;
+}
+
 /**
  * Get diary by ID
  */
@@ -181,7 +187,7 @@ export async function saveDiary(diary: Partial<Diary>): Promise<boolean> {
 /**
  * Get dates with diaries in range
  */
-export async function getDatesWithDiaries(start: string, end: string): Promise<string[]> {
+export async function getDatesWithDiaries(start: string, end: string): Promise<CalendarDiaryMeta[]> {
 	try {
 		const response = await fetch(`/api/diaries/exists?start=${start}&end=${end}`, {
 			headers: {
@@ -194,7 +200,20 @@ export async function getDatesWithDiaries(start: string, end: string): Promise<s
 		}
 
 		const data = await response.json();
-		return data.dates || [];
+		if (Array.isArray(data.entries)) {
+			return data.entries.map((entry: any) => ({
+				date: entry.date,
+				mood: entry.mood || '',
+				weather: entry.weather || ''
+			}));
+		}
+
+		// Backward compatibility for older API responses.
+		if (Array.isArray(data.dates)) {
+			return data.dates.map((date: string) => ({ date, mood: '', weather: '' }));
+		}
+
+		return [];
 	} catch (error) {
 		console.error('Error fetching diary dates:', error);
 		return [];

@@ -5,6 +5,8 @@ const STORAGE_KEY = 'diarum_diary_cache';
 export interface PersistedEntry {
 	date: string;
 	content: string;
+	mood?: string;
+	weather?: string;
 	localUpdatedAt: number;
 	serverUpdatedAt: string | null;
 	isDirty: boolean;
@@ -103,9 +105,17 @@ export function clearAllPersistedData(): void {
  * Migrate data from older versions
  */
 function migrateData(data: PersistedData): PersistedData {
-	// For now, just update version
+	const migratedEntries: PersistedData['entries'] = {};
+	for (const [date, entry] of Object.entries(data.entries || {})) {
+		migratedEntries[date] = {
+			...entry,
+			mood: entry.mood ?? '',
+			weather: entry.weather ?? ''
+		};
+	}
+
 	return {
-		...data,
+		entries: migratedEntries,
 		version: CURRENT_VERSION
 	};
 }

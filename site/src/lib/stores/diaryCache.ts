@@ -12,6 +12,8 @@ import { checkOnlineStatus, initOnlineStatus } from './onlineStatus';
 
 export interface CacheEntry {
 	content: string;
+	mood: string;
+	weather: string;
 	localUpdatedAt: number;
 	serverUpdatedAt: string | null;
 	isDirty: boolean;
@@ -87,6 +89,8 @@ function reloadFromStorage(): void {
 
 		cache[date] = {
 			content: entry.content,
+			mood: entry.mood || '',
+			weather: entry.weather || '',
 			localUpdatedAt: entry.localUpdatedAt,
 			serverUpdatedAt: entry.serverUpdatedAt,
 			isDirty: entry.isDirty
@@ -210,11 +214,16 @@ export function getCachedContent(date: string): CacheEntry | null {
 /**
  * Update local cache with edited content
  */
-export function updateLocalCache(date: string, content: string): void {
+export function updateLocalCache(
+	date: string,
+	updates: { content: string; mood?: string; weather?: string }
+): void {
 	const existing = getCachedContent(date);
 
 	const entry: CacheEntry = {
-		content,
+		content: updates.content,
+		mood: updates.mood ?? existing?.mood ?? '',
+		weather: updates.weather ?? existing?.weather ?? '',
 		localUpdatedAt: Date.now(),
 		serverUpdatedAt: existing?.serverUpdatedAt || null,
 		isDirty: true
@@ -228,7 +237,9 @@ export function updateLocalCache(date: string, content: string): void {
 	// Debounced persist to localStorage
 	debouncedPersist({
 		date,
-		content,
+		content: entry.content,
+		mood: entry.mood,
+		weather: entry.weather,
 		localUpdatedAt: entry.localUpdatedAt,
 		serverUpdatedAt: entry.serverUpdatedAt,
 		isDirty: true
@@ -274,11 +285,16 @@ export function hasDirtyCache(date: string): boolean {
 /**
  * Get all dirty entries
  */
-export function getDirtyEntries(): { date: string; content: string }[] {
+export function getDirtyEntries(): { date: string; content: string; mood: string; weather: string }[] {
 	const cache = get(diaryCache);
 	return Object.entries(cache)
 		.filter(([_, entry]) => entry.isDirty)
-		.map(([date, entry]) => ({ date, content: entry.content }));
+		.map(([date, entry]) => ({
+			date,
+			content: entry.content,
+			mood: entry.mood || '',
+			weather: entry.weather || ''
+		}));
 }
 
 /**
@@ -362,7 +378,9 @@ async function syncDirtyEntries(): Promise<void> {
 		try {
 			const success = await saveDiary({
 				date: entry.date,
-				content: entry.content
+				content: entry.content,
+				mood: entry.mood,
+				weather: entry.weather
 			});
 
 			if (success) {
@@ -464,7 +482,9 @@ export async function forceSyncNow(): Promise<boolean> {
 		try {
 			const success = await saveDiary({
 				date: entry.date,
-				content: entry.content
+				content: entry.content,
+				mood: entry.mood,
+				weather: entry.weather
 			});
 
 			if (success) {

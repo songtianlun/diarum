@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { formatDate, getCalendarDays, getToday } from '$lib/utils/date';
+	import type { CalendarDiaryMeta } from '$lib/api/diaries';
 
 	export let currentYear: number;
 	export let currentMonth: number;
-	export let datesWithDiaries: string[] = [];
+	export let diaryMeta: CalendarDiaryMeta[] = [];
 
 	const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	const monthNames = [
@@ -14,6 +15,7 @@
 
 	$: calendarDays = getCalendarDays(currentYear, currentMonth);
 	$: todayStr = getToday();
+	$: metaByDate = new Map(diaryMeta.map(item => [item.date, item]));
 
 	function isCurrentMonth(date: Date): boolean {
 		return date.getMonth() === currentMonth - 1;
@@ -24,7 +26,11 @@
 	}
 
 	function hasDiary(date: Date): boolean {
-		return datesWithDiaries.includes(formatDate(date));
+		return metaByDate.has(formatDate(date));
+	}
+
+	function getDateMeta(date: Date): CalendarDiaryMeta | undefined {
+		return metaByDate.get(formatDate(date));
 	}
 
 	function handleDateClick(date: Date) {
@@ -112,6 +118,17 @@
 					   {hasDiary(date) && !isToday(date) ? 'hover:bg-amber-500/20 dark:hover:bg-amber-500/30' : ''}"
 				style="animation-delay: {i * 10}ms"
 			>
+				{#if hasDiary(date)}
+					{@const meta = getDateMeta(date)}
+					<div class="absolute top-1.5 right-1.5 flex items-center gap-0.5 text-[11px] leading-none">
+						{#if meta?.weather}
+							<span class="emoji-chip" title={`Weather: ${meta.weather}`}>{meta.weather}</span>
+						{/if}
+						{#if meta?.mood}
+							<span class="emoji-chip" title={`Mood: ${meta.mood}`}>{meta.mood}</span>
+						{/if}
+					</div>
+				{/if}
 				<span class="text-sm">{date.getDate()}</span>
 				{#if hasDiary(date)}
 					<span class="absolute bottom-1 w-1 h-1 bg-amber-500 rounded-full"></span>
@@ -130,5 +147,20 @@
 		.day {
 			font-size: 0.75rem;
 		}
+
+		.emoji-chip {
+			font-size: 0.56rem;
+			padding: 0.08rem 0.2rem;
+		}
+	}
+
+	.emoji-chip {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.1rem 0.25rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--muted) 75%, transparent);
+		backdrop-filter: blur(2px);
 	}
 </style>

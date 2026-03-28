@@ -3,13 +3,13 @@
 	import { goto } from '$app/navigation';
 	import Calendar from '$lib/components/calendar/Calendar.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
-	import { getDatesWithDiaries, getRecentDiaries, getDiaryStats } from '$lib/api/diaries';
+	import { getDatesWithDiaries, getRecentDiaries, getDiaryStats, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getMonthRange, formatDisplayDate } from '$lib/utils/date';
 
 	let currentYear = new Date().getFullYear();
 	let currentMonth = new Date().getMonth() + 1;
-	let datesWithDiaries: string[] = [];
+	let diaryMeta: CalendarDiaryMeta[] = [];
 	let recentDiaries: Array<{ date: string; content: string }> = [];
 	let stats: { streak: number; total: number } | null = null;
 	let loading = true;
@@ -22,9 +22,11 @@
 	async function loadDatesWithDiaries() {
 		loading = true;
 		const range = getMonthRange(currentYear, currentMonth);
-		datesWithDiaries = await getDatesWithDiaries(range.start, range.end);
+		diaryMeta = await getDatesWithDiaries(range.start, range.end);
 		loading = false;
 	}
+	$: datesWithDiaries = diaryMeta.map(item => item.date);
+
 
 	async function loadRecentDiaries() {
 		recentLoading = true;
@@ -143,7 +145,7 @@
 						</div>
 					{:else}
 						<div class="animate-fade-in-only">
-							<Calendar bind:currentYear bind:currentMonth {datesWithDiaries} />
+							<Calendar bind:currentYear bind:currentMonth {diaryMeta} />
 						</div>
 					{/if}
 				</div>
