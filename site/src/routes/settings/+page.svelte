@@ -2,14 +2,26 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { isAuthenticated } from '$lib/api/client';
-	import { getApiToken, toggleApiToken, resetApiToken, type ApiTokenStatus } from '$lib/api/settings';
+	import {
+		getApiToken,
+		toggleApiToken,
+		resetApiToken,
+		getDiaryEmojiSettings,
+		saveDiaryEmojiSettings,
+		type ApiTokenStatus
+	} from '$lib/api/settings';
 	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { getCheveretoSettings, saveCheveretoSettings, testCheveretoConnection, type CheveretoSettings } from '$lib/api/chevereto';
-	import { cheveretoSettings as cheveretoStore, loadCheveretoSettings } from '$lib/stores/chevereto';
-	import PageHeader from '$lib/components/ui/PageHeader.svelte';
+	import { loadCheveretoSettings } from '$lib/stores/chevereto';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import SettingsToc from '$lib/components/ui/SettingsToc.svelte';
+	import {
+		MAX_DIARY_EMOJI_OPTION_LENGTH,
+		countDisplayChars,
+		sanitizeMoodOptions,
+		sanitizeWeatherOptions
+	} from '$lib/utils/diaryEmoji';
 
 	// TOC state
 	let showMobileToc = false;
@@ -27,6 +39,17 @@
 	let copied = false;
 	let resetting = false;
 	let toggling = false;
+
+	// Diary emoji settings
+	let moodOptions: string[] = [];
+	let weatherOptions: string[] = [];
+	let originalMoodOptions: string[] = [];
+	let originalWeatherOptions: string[] = [];
+	let moodInput = '';
+	let weatherInput = '';
+	let emojiSettingsSaving = false;
+	let emojiSettingsError = '';
+	let emojiSettingsSuccess = '';
 
 	// AI Settings
 	let aiSettings: AISettings = {
@@ -89,6 +112,82 @@
 
 	async function loadTokenStatus() {
 		tokenStatus = await getApiToken();
+	}
+
+	async function loadDiaryEmojiSettingsLocal() {
+		const settings = await getDiaryEmojiSettings();
+		moodOptions = [...settings.mood_options];
+		weatherOptions = [...settings.weather_options];
+		originalMoodOptions = [...settings.mood_options];
+		originalWeatherOptions = [...settings.weather_options];
+	}
+
+	function addMoodOption() {
+		emojiSettingsError = '';
+		const value = moodInput.trim();
+		if (!value) return;
+		if (countDisplayChars(value) > MAX_DIARY_EMOJI_OPTION_LENGTH) {
+			emojiSettingsError = `Mood entry must be at most ${MAX_DIARY_EMOJI_OPTION_LENGTH} characters`;
+			return;
+		}
+		if (moodOptions.includes(value)) {
+			emojiSettingsError = 'Mood entry already exists';
+			return;
+		}
+		moodOptions = [...moodOptions, value];
+		moodInput = '';
+	}
+
+	function removeMoodOption(value: string) {
+		emojiSettingsError = '';
+		moodOptions = moodOptions.filter((item) => item !== value);
+	}
+
+	function addWeatherOption() {
+		emojiSettingsError = '';
+		const value = weatherInput.trim();
+		if (!value) return;
+		if (countDisplayChars(value) > MAX_DIARY_EMOJI_OPTION_LENGTH) {
+			emojiSettingsError = `Weather entry must be at most ${MAX_DIARY_EMOJI_OPTION_LENGTH} characters`;
+			return;
+		}
+		if (weatherOptions.includes(value)) {
+			emojiSettingsError = 'Weather entry already exists';
+			return;
+		}
+		weatherOptions = [...weatherOptions, value];
+		weatherInput = '';
+	}
+
+	function removeWeatherOption(value: string) {
+		emojiSettingsError = '';
+		weatherOptions = weatherOptions.filter((item) => item !== value);
+	}
+
+	async function handleSaveEmojiSettings() {
+		emojiSettingsError = '';
+		emojiSettingsSuccess = '';
+
+		emojiSettingsSaving = true;
+		try {
+			const sanitizedMoodOptions = sanitizeMoodOptions(moodOptions);
+			const sanitizedWeatherOptions = sanitizeWeatherOptions(weatherOptions);
+
+			await saveDiaryEmojiSettings({
+				mood_options: sanitizedMoodOptions,
+				weather_options: sanitizedWeatherOptions
+			});
+
+			moodOptions = [...sanitizedMoodOptions];
+			weatherOptions = [...sanitizedWeatherOptions];
+			originalMoodOptions = [...sanitizedMoodOptions];
+			originalWeatherOptions = [...sanitizedWeatherOptions];
+			emojiSettingsSuccess = 'Mood and weather options saved successfully';
+			setTimeout(() => emojiSettingsSuccess = '', 3000);
+		} catch (e) {
+			emojiSettingsError = e instanceof Error ? e.message : 'Failed to save mood/weather options';
+		}
+		emojiSettingsSaving = false;
 	}
 
 	async function handleToggle() {
@@ -223,6 +322,10 @@
 
 	// Check if AI can be enabled
 	$: canEnableAI = aiSettings.api_key && aiSettings.base_url && aiSettings.chat_model && aiSettings.embedding_model;
+
+	$: emojiSettingsChanged =
+		JSON.stringify(moodOptions) !== JSON.stringify(originalMoodOptions) ||
+		JSON.stringify(weatherOptions) !== JSON.stringify(originalWeatherOptions);
 
 	// Check if AI settings have changed
 	$: aiSettingsChanged = aiSettings.api_key !== originalAISettings.api_key ||
@@ -369,7 +472,7 @@
 		window.addEventListener('resize', checkMobile);
 
 		loading = true;
-		await Promise.all([loadTokenStatus(), loadAISettings(), loadCheveretoSettingsLocal()]);
+		await Promise.all([loadTokenStatus(), loadDiaryEmojiSettingsLocal(), loadAISettings(), loadCheveretoSettingsLocal()]);
 		loading = false;
 		// Load vector stats if AI is enabled
 		if (aiSettings.enabled) {
@@ -530,6 +633,140 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							</div>
 						</div>
 					{/if}
+				</div>
+
+				<!-- Mood & Weather Section -->
+				<div id="mood-weather" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
+					<h2 class="text-lg font-semibold text-foreground mb-4">Mood & Weather</h2>
+					<p class="text-sm text-muted-foreground mb-6">
+						Customize the options shown in the diary editor. Add any emoji or short text (up to {MAX_DIARY_EMOJI_OPTION_LENGTH} characters), remove what you do not need, then save.
+					</p>
+
+					{#if emojiSettingsError}
+						<div class="mb-4 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+							{emojiSettingsError}
+						</div>
+					{/if}
+
+					{#if emojiSettingsSuccess}
+						<div class="mb-4 p-3 bg-green-500/10 text-green-600 rounded-lg text-sm">
+							{emojiSettingsSuccess}
+						</div>
+					{/if}
+
+					<div class="py-4 border-b border-border/50">
+						<div class="font-medium text-foreground mb-2">Mood options</div>
+						<div class="flex items-center gap-2 mb-3">
+							<input
+								type="text"
+								bind:value={moodInput}
+								maxlength={MAX_DIARY_EMOJI_OPTION_LENGTH}
+								placeholder="e.g. 😊"
+								class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+								on:keydown={(event) => {
+									if (event.key === 'Enter') {
+										event.preventDefault();
+										addMoodOption();
+									}
+								}}
+							/>
+							<button
+								on:click={addMoodOption}
+								class="px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+							>
+								Add
+							</button>
+						</div>
+						<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option</div>
+						<div class="flex flex-wrap gap-2">
+							{#if moodOptions.length === 0}
+								<div class="text-sm text-muted-foreground">No mood options yet</div>
+							{:else}
+								{#each moodOptions as option}
+									<div class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-muted/70 border border-border/60">
+										<span class="text-base leading-none">{option}</span>
+										<button
+											on:click={() => removeMoodOption(option)}
+											class="text-xs text-muted-foreground hover:text-destructive transition-colors"
+											aria-label={`Remove mood option ${option}`}
+										>
+											Remove
+										</button>
+									</div>
+								{/each}
+							{/if}
+						</div>
+					</div>
+
+					<div class="py-4 border-b border-border/50">
+						<div class="font-medium text-foreground mb-2">Weather options</div>
+						<div class="flex items-center gap-2 mb-3">
+							<input
+								type="text"
+								bind:value={weatherInput}
+								maxlength={MAX_DIARY_EMOJI_OPTION_LENGTH}
+								placeholder="e.g. ☀️"
+								class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+								on:keydown={(event) => {
+									if (event.key === 'Enter') {
+										event.preventDefault();
+										addWeatherOption();
+									}
+								}}
+							/>
+							<button
+								on:click={addWeatherOption}
+								class="px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+							>
+								Add
+							</button>
+						</div>
+						<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option</div>
+						<div class="flex flex-wrap gap-2">
+							{#if weatherOptions.length === 0}
+								<div class="text-sm text-muted-foreground">No weather options yet</div>
+							{:else}
+								{#each weatherOptions as option}
+									<div class="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-muted/70 border border-border/60">
+										<span class="text-base leading-none">{option}</span>
+										<button
+											on:click={() => removeWeatherOption(option)}
+											class="text-xs text-muted-foreground hover:text-destructive transition-colors"
+											aria-label={`Remove weather option ${option}`}
+										>
+											Remove
+										</button>
+									</div>
+								{/each}
+							{/if}
+						</div>
+					</div>
+
+					<div class="pt-4 flex items-center gap-3">
+						<button
+							on:click={handleSaveEmojiSettings}
+							disabled={emojiSettingsSaving || !emojiSettingsChanged}
+							class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+						>
+							{#if emojiSettingsSaving}
+								<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+								Saving...
+							{:else}
+								Save Mood & Weather Settings
+							{/if}
+						</button>
+						{#if emojiSettingsSuccess}
+							<span class="text-sm text-green-600 flex items-center gap-1 animate-fade-in">
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+								</svg>
+								Saved
+							</span>
+						{/if}
+					</div>
 				</div>
 
 				<!-- AI Settings Section -->

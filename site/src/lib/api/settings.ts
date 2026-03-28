@@ -1,9 +1,20 @@
 import { pb } from './client';
+import {
+	DEFAULT_MOOD_OPTIONS,
+	DEFAULT_WEATHER_OPTIONS,
+	sanitizeMoodOptions,
+	sanitizeWeatherOptions
+} from '$lib/utils/diaryEmoji';
 
 export interface ApiTokenStatus {
 	exists: boolean;
 	enabled: boolean;
 	token: string;
+}
+
+export interface DiaryEmojiSettings {
+	mood_options: string[];
+	weather_options: string[];
 }
 
 /**
@@ -74,5 +85,56 @@ export async function resetApiToken(): Promise<ApiTokenStatus> {
 		console.error('Error resetting API token:', error);
 		throw error;
 	}
+}
+
+export async function getDiaryEmojiSettings(): Promise<DiaryEmojiSettings> {
+	try {
+		const response = await fetch('/api/v1/settings', {
+			headers: {
+				'Authorization': `Bearer ${pb.authStore.token}`
+			}
+		});
+
+		if (!response.ok) {
+			throw new Error('Failed to get settings');
+		}
+
+		const data = await response.json();
+		const settings = data?.settings ?? {};
+
+		return {
+			mood_options: sanitizeMoodOptions(settings['diary.mood_options']),
+			weather_options: sanitizeWeatherOptions(settings['diary.weather_options'])
+		};
+	} catch (error) {
+		console.error('Error fetching diary emoji settings:', error);
+		return {
+			mood_options: [...DEFAULT_MOOD_OPTIONS],
+			weather_options: [...DEFAULT_WEATHER_OPTIONS]
+		};
+	}
+}
+
+export async function saveDiaryEmojiSettings(settings: DiaryEmojiSettings): Promise<{ success: boolean }> {
+	const response = await fetch('/api/v1/settings/batch', {
+		method: 'PUT',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			settings: {
+				'diary.mood_options': sanitizeMoodOptions(settings.mood_options),
+				'diary.weather_options': sanitizeWeatherOptions(settings.weather_options)
+			}
+		})
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || 'Failed to save diary emoji settings');
+	}
+
+	return await response.json();
 }
 

@@ -8,6 +8,7 @@
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import { getDiaryByDate } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
+	import { getDiaryEmojiSettings } from '$lib/api/settings';
 	import {
 		formatDisplayDate,
 		formatShortDate,
@@ -29,30 +30,10 @@
 		cleanupDiaryCache
 	} from '$lib/stores/diaryCache';
 	import { onlineState } from '$lib/stores/onlineStatus';
+	import { DEFAULT_MOOD_OPTIONS, DEFAULT_WEATHER_OPTIONS } from '$lib/utils/diaryEmoji';
 
-	type PresetOption = { emoji: string; label: string };
-
-	const moodPresets: PresetOption[] = [
-		{ emoji: '😊', label: 'Happy' },
-		{ emoji: '😌', label: 'Calm' },
-		{ emoji: '🥳', label: 'Excited' },
-		{ emoji: '💪', label: 'Motivated' },
-		{ emoji: '🤔', label: 'Thoughtful' },
-		{ emoji: '😴', label: 'Tired' },
-		{ emoji: '😔', label: 'Low' },
-		{ emoji: '😤', label: 'Stressed' }
-	];
-
-	const weatherPresets: PresetOption[] = [
-		{ emoji: '☀️', label: 'Sunny' },
-		{ emoji: '⛅', label: 'Partly cloudy' },
-		{ emoji: '☁️', label: 'Cloudy' },
-		{ emoji: '🌧️', label: 'Rainy' },
-		{ emoji: '⛈️', label: 'Stormy' },
-		{ emoji: '🌫️', label: 'Foggy' },
-		{ emoji: '❄️', label: 'Snowy' },
-		{ emoji: '🌬️', label: 'Windy' }
-	];
+	let moodPresets: string[] = [...DEFAULT_MOOD_OPTIONS];
+	let weatherPresets: string[] = [...DEFAULT_WEATHER_OPTIONS];
 
 	let content = '';
 	let loading = true;
@@ -148,6 +129,16 @@
 		loading = false;
 	}
 
+	async function loadDiaryEmojiPresets() {
+		try {
+			const settings = await getDiaryEmojiSettings();
+			moodPresets = [...settings.mood_options];
+			weatherPresets = [...settings.weather_options];
+		} catch (error) {
+			console.error('Failed to load mood/weather presets:', error);
+		}
+	}
+
 	function handleContentChange(newContent: string) {
 		content = newContent;
 		updateLocalCache(date, {
@@ -197,6 +188,7 @@
 		// Initialize diary cache (includes online status)
 		initDiaryCache();
 		cacheReady = true;
+		void loadDiaryEmojiPresets();
 
 		window.addEventListener('keydown', handleKeyboard);
 		return () => {
@@ -403,12 +395,12 @@
 						<div class="grid grid-cols-4 gap-2">
 							{#each moodPresets as option}
 								<button
-									on:click={() => handleMoodSelect(option.emoji)}
-									class="emoji-option {selectedMood === option.emoji ? 'emoji-option-active' : ''}"
-									title={option.label}
-									aria-label={`Mood ${option.label}`}
+									on:click={() => handleMoodSelect(option)}
+									class="emoji-option {selectedMood === option ? 'emoji-option-active' : ''}"
+									title={option}
+									aria-label={`Mood ${option}`}
 								>
-									<span class="text-xl leading-none">{option.emoji}</span>
+									<span class="text-xl leading-none">{option}</span>
 								</button>
 							{/each}
 						</div>
@@ -432,12 +424,12 @@
 						<div class="grid grid-cols-4 gap-2">
 							{#each weatherPresets as option}
 								<button
-									on:click={() => handleWeatherSelect(option.emoji)}
-									class="emoji-option {selectedWeather === option.emoji ? 'emoji-option-active' : ''}"
-									title={option.label}
-									aria-label={`Weather ${option.label}`}
+									on:click={() => handleWeatherSelect(option)}
+									class="emoji-option {selectedWeather === option ? 'emoji-option-active' : ''}"
+									title={option}
+									aria-label={`Weather ${option}`}
 								>
-									<span class="text-xl leading-none">{option.emoji}</span>
+									<span class="text-xl leading-none">{option}</span>
 								</button>
 							{/each}
 						</div>
@@ -573,12 +565,12 @@
 					<div class="grid grid-cols-4 gap-1.5">
 						{#each moodPresets as option}
 							<button
-								on:click={() => handleMoodSelect(option.emoji)}
-								class="emoji-option {selectedMood === option.emoji ? 'emoji-option-active' : ''}"
-								title={option.label}
-								aria-label={`Mood ${option.label}`}
+								on:click={() => handleMoodSelect(option)}
+								class="emoji-option {selectedMood === option ? 'emoji-option-active' : ''}"
+								title={option}
+								aria-label={`Mood ${option}`}
 							>
-								<span class="text-lg">{option.emoji}</span>
+								<span class="text-lg">{option}</span>
 							</button>
 						{/each}
 					</div>
@@ -589,12 +581,12 @@
 					<div class="grid grid-cols-4 gap-1.5">
 						{#each weatherPresets as option}
 							<button
-								on:click={() => handleWeatherSelect(option.emoji)}
-								class="emoji-option {selectedWeather === option.emoji ? 'emoji-option-active' : ''}"
-								title={option.label}
-								aria-label={`Weather ${option.label}`}
+								on:click={() => handleWeatherSelect(option)}
+								class="emoji-option {selectedWeather === option ? 'emoji-option-active' : ''}"
+								title={option}
+								aria-label={`Weather ${option}`}
 							>
-								<span class="text-lg">{option.emoji}</span>
+								<span class="text-lg">{option}</span>
 							</button>
 						{/each}
 					</div>

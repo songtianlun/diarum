@@ -12,6 +12,7 @@
 
 	const sections: TocItem[] = [
 		{ id: 'api-access', text: 'API Access', icon: 'M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z' },
+		{ id: 'mood-weather', text: 'Mood & Weather', icon: 'M14.828 14.828a4 4 0 01-5.656 0m-3.172 4.243A8 8 0 1118.9 8.9a8 8 0 01-12.072 10.171zM9 10h.01M15 10h.01' },
 		{ id: 'ai-assistant', text: 'AI Assistant', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
 		{ id: 'image-upload', text: 'Image Upload', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
 		{ id: 'data-management', text: 'Data Management', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' }

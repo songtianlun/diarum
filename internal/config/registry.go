@@ -14,7 +14,7 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"api.enabled": {Type: "bool", Default: false, Encrypted: false},
 
 	// Sync settings
-	"sync.cacheDays":        {Type: "int", Default: 30, Encrypted: false},
+	"sync.cacheDays": {Type: "int", Default: 30, Encrypted: false},
 
 	// AI settings (unified API key and base URL)
 	"ai.enabled":          {Type: "bool", Default: false, Encrypted: false},
@@ -29,6 +29,10 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"chevereto.domain":   {Type: "string", Default: "", Encrypted: false},
 	"chevereto.api_key":  {Type: "string", Default: "", Encrypted: true},
 	"chevereto.album_id": {Type: "string", Default: "", Encrypted: false},
+
+	// Diary editor presets
+	"diary.mood_options":    {Type: "json", Default: []string{"😊", "😌", "🥳", "💪", "🤔", "😴", "😔", "😤"}, Encrypted: false},
+	"diary.weather_options": {Type: "json", Default: []string{"☀️", "⛅", "☁️", "🌧️", "⛈️", "🌫️", "❄️", "🌬️"}, Encrypted: false},
 }
 
 // GetConfigMeta returns the metadata for a configuration key
