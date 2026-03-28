@@ -118,20 +118,22 @@
 					   {hasDiary(date) && !isToday(date) ? 'hover:bg-amber-500/20 dark:hover:bg-amber-500/30' : ''}"
 				style="animation-delay: {i * 10}ms"
 			>
+				<span class="text-sm">{date.getDate()}</span>
+
 				{#if hasDiary(date)}
 					{@const meta = getDateMeta(date)}
-					<div class="absolute top-1.5 right-1.5 flex items-center gap-0.5 text-[11px] leading-none">
-						{#if meta?.weather}
-							<span class="emoji-chip" title={`Weather: ${meta.weather}`}>{meta.weather}</span>
-						{/if}
-						{#if meta?.mood}
-							<span class="emoji-chip" title={`Mood: ${meta.mood}`}>{meta.mood}</span>
-						{/if}
-					</div>
-				{/if}
-				<span class="text-sm">{date.getDate()}</span>
-				{#if hasDiary(date)}
-					<span class="absolute bottom-1 w-1 h-1 bg-amber-500 rounded-full"></span>
+					{#if meta?.weather || meta?.mood}
+						<div class="absolute inset-x-0 top-1.5 flex items-center justify-center gap-1 text-[11px] leading-none">
+							{#if meta?.weather}
+								<span class="emoji-chip" title={`Weather: ${meta.weather}`}>{meta.weather}</span>
+							{/if}
+							{#if meta?.mood}
+								<span class="emoji-chip" title={`Mood: ${meta.mood}`}>{meta.mood}</span>
+							{/if}
+						</div>
+					{:else}
+						<span class="absolute bottom-1 w-1 h-1 bg-amber-500 rounded-full"></span>
+					{/if}
 				{/if}
 			</button>
 		{/each}

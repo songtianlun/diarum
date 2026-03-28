@@ -209,6 +209,27 @@ export async function getDatesWithDiaries(start: string, end: string): Promise<C
 		}
 
 		// Backward compatibility for older API responses.
+		// If custom API doesn't return entries metadata yet, fetch full records directly.
+		if (Array.isArray(data.dates) && data.dates.length > 0) {
+			try {
+				const startTime = `${start} 00:00:00.000Z`;
+				const endTime = `${end} 23:59:59.999Z`;
+				const records = await pb.collection('diaries').getFullList({
+					filter: `date >= \"${startTime}\" && date <= \"${endTime}\"`,
+					fields: 'date,mood,weather',
+					sort: '-date'
+				});
+
+				return records.map((record: any) => ({
+					date: (record.date || '').split(' ')[0],
+					mood: record.mood || '',
+					weather: record.weather || ''
+				}));
+			} catch (fallbackError) {
+				console.error('Error fetching diary metadata fallback:', fallbackError);
+			}
+		}
+
 		if (Array.isArray(data.dates)) {
 			return data.dates.map((date: string) => ({ date, mood: '', weather: '' }));
 		}
