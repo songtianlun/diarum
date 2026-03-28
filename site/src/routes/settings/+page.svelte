@@ -18,6 +18,7 @@
 	import {
 		DEFAULT_MOOD_OPTIONS,
 		DEFAULT_WEATHER_OPTIONS,
+		MAX_DIARY_EMOJI_OPTION_COUNT,
 		MAX_DIARY_EMOJI_OPTION_LENGTH,
 		countDisplayChars,
 		sanitizeMoodOptions,
@@ -145,6 +146,10 @@
 		emojiSettingsError = '';
 		const value = moodInput.trim();
 		if (!value) return;
+		if (moodOptions.length >= MAX_DIARY_EMOJI_OPTION_COUNT) {
+			emojiSettingsError = `You can add up to ${MAX_DIARY_EMOJI_OPTION_COUNT} mood options`;
+			return;
+		}
 		if (countDisplayChars(value) > MAX_DIARY_EMOJI_OPTION_LENGTH) {
 			emojiSettingsError = `Mood entry must be at most ${MAX_DIARY_EMOJI_OPTION_LENGTH} characters`;
 			return;
@@ -159,6 +164,10 @@
 
 	function removeMoodOption(value: string) {
 		emojiSettingsError = '';
+		if (moodOptions.length <= 1) {
+			emojiSettingsError = 'Keep at least one mood option';
+			return;
+		}
 		moodOptions = moodOptions.filter((item) => item !== value);
 	}
 
@@ -166,6 +175,10 @@
 		emojiSettingsError = '';
 		const value = weatherInput.trim();
 		if (!value) return;
+		if (weatherOptions.length >= MAX_DIARY_EMOJI_OPTION_COUNT) {
+			emojiSettingsError = `You can add up to ${MAX_DIARY_EMOJI_OPTION_COUNT} weather options`;
+			return;
+		}
 		if (countDisplayChars(value) > MAX_DIARY_EMOJI_OPTION_LENGTH) {
 			emojiSettingsError = `Weather entry must be at most ${MAX_DIARY_EMOJI_OPTION_LENGTH} characters`;
 			return;
@@ -180,6 +193,10 @@
 
 	function removeWeatherOption(value: string) {
 		emojiSettingsError = '';
+		if (weatherOptions.length <= 1) {
+			emojiSettingsError = 'Keep at least one weather option';
+			return;
+		}
 		weatherOptions = weatherOptions.filter((item) => item !== value);
 	}
 
@@ -268,6 +285,11 @@
 	async function handleSaveEmojiSettings() {
 		emojiSettingsError = '';
 		emojiSettingsSuccess = '';
+
+		if (moodOptions.length < 1 || weatherOptions.length < 1) {
+			emojiSettingsError = 'Mood and weather must each keep at least one option';
+			return;
+		}
 
 		emojiSettingsSaving = true;
 		try {
@@ -783,11 +805,11 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						</button>
 					</div>
 					<p class="text-sm text-muted-foreground mb-6">
-						Customize the options shown in the diary editor. Add any emoji or short text (up to {MAX_DIARY_EMOJI_OPTION_LENGTH} characters), drag to reorder, remove what you do not need, then save.
+						Customize the options shown in the diary editor. Add any emoji or short text up to {MAX_DIARY_EMOJI_OPTION_LENGTH} characters, keep at least 1 and at most {MAX_DIARY_EMOJI_OPTION_COUNT} items in each list, then drag to reorder and save.
 					</p>
 
 					{#if emojiSettingsError}
-						<div class="mb-4 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+						<div class="mb-4 p-3 bg-red-500/10 text-red-600 rounded-lg text-sm">
 							{emojiSettingsError}
 						</div>
 					{/if}
@@ -830,7 +852,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									Add
 								</button>
 							</div>
-							<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option. Drag chips to reorder.</div>
+							<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option, up to {MAX_DIARY_EMOJI_OPTION_COUNT} mood options total. Keep at least one. Drag chips to reorder.</div>
 							<div class="flex flex-wrap gap-2">
 								{#if moodOptions.length === 0}
 									<div class="text-sm text-muted-foreground">No mood options yet</div>
@@ -901,7 +923,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									Add
 								</button>
 							</div>
-							<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option. Drag chips to reorder.</div>
+							<div class="text-xs text-muted-foreground mb-3">Maximum {MAX_DIARY_EMOJI_OPTION_LENGTH} characters per option, up to {MAX_DIARY_EMOJI_OPTION_COUNT} weather options total. Keep at least one. Drag chips to reorder.</div>
 							<div class="flex flex-wrap gap-2">
 								{#if weatherOptions.length === 0}
 									<div class="text-sm text-muted-foreground">No weather options yet</div>

@@ -1,4 +1,5 @@
 export const MAX_DIARY_EMOJI_OPTION_LENGTH = 2;
+export const MAX_DIARY_EMOJI_OPTION_COUNT = 12;
 
 export const DEFAULT_MOOD_OPTIONS = [
 	'😊',
@@ -40,6 +41,7 @@ function sanitizeOptions(input: unknown, defaults: string[]): string[] {
 		if (!value) continue;
 		if (countDisplayChars(value) > MAX_DIARY_EMOJI_OPTION_LENGTH) continue;
 		if (seen.has(value)) continue;
+		if (cleaned.length >= MAX_DIARY_EMOJI_OPTION_COUNT) break;
 		seen.add(value);
 		cleaned.push(value);
 	}
