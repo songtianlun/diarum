@@ -41,6 +41,7 @@
 	let shareSelectedContent = '';
 	let shareOpenedByMouse = false;
 	let date = getToday();
+	let cacheReady = false;
 
 	function captureShareSelection() {
 		shareSelectedContent = selectedContent;
@@ -139,6 +140,7 @@
 
 		// Initialize diary cache (includes online status)
 		initDiaryCache();
+		cacheReady = true;
 
 		window.addEventListener('keydown', handleKeyboard);
 		return () => {
@@ -148,7 +150,7 @@
 	});
 
 	// Load diary only in browser (not during SSR)
-	$: if (date && date !== previousDate && typeof window !== 'undefined') {
+	$: if (cacheReady && date && date !== previousDate && typeof window !== 'undefined') {
 		previousDate = date;
 		loadDiary(date);
 	}
