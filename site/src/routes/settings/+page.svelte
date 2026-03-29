@@ -28,14 +28,14 @@
 	type SettingsTab = 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'data-management';
 
 	const settingsTabs: { id: SettingsTab; label: string }[] = [
-		{ id: 'api-access', label: 'API Access' },
-		{ id: 'mood-weather', label: 'Mood & Weather' },
 		{ id: 'ai-assistant', label: 'AI Assistant' },
+		{ id: 'mood-weather', label: 'Mood & Weather' },
+		{ id: 'api-access', label: 'API Access' },
 		{ id: 'image-upload', label: 'Image Upload' },
 		{ id: 'data-management', label: 'Data Management' }
 	];
 
-	let activeTab: SettingsTab = 'api-access';
+	let activeTab: SettingsTab = 'ai-assistant';
 
 	function isSettingsTab(value: string): value is SettingsTab {
 		return settingsTabs.some((tab) => tab.id === value);
