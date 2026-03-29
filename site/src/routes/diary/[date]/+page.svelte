@@ -363,11 +363,10 @@
 			<!-- Desktop Right Sidebar -->
 			<aside class="hidden lg:block w-[19rem] flex-shrink-0">
 				<div class="sticky top-11 space-y-3 animate-slide-in-right">
-					<div class="rounded-2xl border border-orange-500/25 bg-gradient-to-br from-orange-50/80 via-card to-rose-100/60 dark:from-orange-950/20 dark:via-card dark:to-rose-950/10 p-4 shadow-sm">
+					<div class="bg-card/50 rounded-xl border border-border/50 p-4 shadow-sm">
 						<div class="flex items-center justify-between mb-2">
 							<div>
-								<div class="text-xs uppercase tracking-[0.14em] text-muted-foreground">Today's mood</div>
-								<div class="text-sm font-semibold text-foreground">How are you feeling?</div>
+								<div class="text-sm font-semibold text-foreground">Mood</div>
 							</div>
 							{#if selectedMood}
 								<button
@@ -392,11 +391,10 @@
 						</div>
 					</div>
 
-					<div class="rounded-2xl border border-cyan-500/25 bg-gradient-to-br from-cyan-50/80 via-card to-blue-100/60 dark:from-cyan-950/20 dark:via-card dark:to-blue-950/10 p-4 shadow-sm">
+					<div class="bg-card/50 rounded-xl border border-border/50 p-4 shadow-sm">
 						<div class="flex items-center justify-between mb-2">
 							<div>
-								<div class="text-xs uppercase tracking-[0.14em] text-muted-foreground">Today's weather</div>
-								<div class="text-sm font-semibold text-foreground">What's outside?</div>
+								<div class="text-sm font-semibold text-foreground">Weather</div>
 							</div>
 							{#if selectedWeather}
 								<button
