@@ -361,71 +361,71 @@
 			</main>
 
 			<!-- Desktop Right Sidebar -->
-			<aside class="hidden lg:block w-[19rem] flex-shrink-0">
-				<div class="sticky top-11 space-y-3 animate-slide-in-right">
-					<div class="bg-card/50 rounded-xl border border-border/50 p-4 shadow-sm">
-						<div class="flex items-center justify-between mb-2">
-							<div>
-								<div class="text-sm font-semibold text-foreground">Mood</div>
+			{#if showDesktopToc}
+				<aside class="hidden lg:block w-[19rem] flex-shrink-0">
+					<div class="sticky top-11 space-y-3 animate-slide-in-right">
+						<div class="bg-card/50 rounded-xl border border-border/50 p-4 shadow-sm">
+							<div class="flex items-center justify-between mb-2">
+								<div>
+									<div class="text-sm font-semibold text-foreground">Mood</div>
+								</div>
+								{#if selectedMood}
+									<button
+										on:click={() => handleMoodSelect(selectedMood)}
+										class="text-[11px] px-2 py-1 rounded-full bg-background/70 hover:bg-background border border-border/70 transition-colors"
+									>
+										Clear
+									</button>
+								{/if}
 							</div>
-							{#if selectedMood}
-								<button
-									on:click={() => handleMoodSelect(selectedMood)}
-									class="text-[11px] px-2 py-1 rounded-full bg-background/70 hover:bg-background border border-border/70 transition-colors"
-								>
-									Clear
-								</button>
-							{/if}
-						</div>
-						<div class="grid grid-cols-4 gap-2">
-							{#each moodPresets as option}
-								<button
-									on:click={() => handleMoodSelect(option)}
-									class="emoji-option {selectedMood === option ? 'emoji-option-active' : ''}"
-									title={option}
-									aria-label={`Mood ${option}`}
-								>
-									<span class="text-xl leading-none">{option}</span>
-								</button>
-							{/each}
-						</div>
-					</div>
-
-					<div class="bg-card/50 rounded-xl border border-border/50 p-4 shadow-sm">
-						<div class="flex items-center justify-between mb-2">
-							<div>
-								<div class="text-sm font-semibold text-foreground">Weather</div>
+							<div class="grid grid-cols-4 gap-2">
+								{#each moodPresets as option}
+									<button
+										on:click={() => handleMoodSelect(option)}
+										class="emoji-option {selectedMood === option ? 'emoji-option-active' : ''}"
+										title={option}
+										aria-label={`Mood ${option}`}
+									>
+										<span class="text-xl leading-none">{option}</span>
+									</button>
+								{/each}
 							</div>
-							{#if selectedWeather}
-								<button
-									on:click={() => handleWeatherSelect(selectedWeather)}
-									class="text-[11px] px-2 py-1 rounded-full bg-background/70 hover:bg-background border border-border/70 transition-colors"
-								>
-									Clear
-								</button>
-							{/if}
 						</div>
-						<div class="grid grid-cols-4 gap-2">
-							{#each weatherPresets as option}
-								<button
-									on:click={() => handleWeatherSelect(option)}
-									class="emoji-option {selectedWeather === option ? 'emoji-option-active' : ''}"
-									title={option}
-									aria-label={`Weather ${option}`}
-								>
-									<span class="text-xl leading-none">{option}</span>
-								</button>
-							{/each}
-						</div>
-					</div>
 
-					{#if showDesktopToc}
+						<div class="bg-card/50 rounded-xl border border-border/50 p-4 shadow-sm">
+							<div class="flex items-center justify-between mb-2">
+								<div>
+									<div class="text-sm font-semibold text-foreground">Weather</div>
+								</div>
+								{#if selectedWeather}
+									<button
+										on:click={() => handleWeatherSelect(selectedWeather)}
+										class="text-[11px] px-2 py-1 rounded-full bg-background/70 hover:bg-background border border-border/70 transition-colors"
+									>
+										Clear
+									</button>
+								{/if}
+							</div>
+							<div class="grid grid-cols-4 gap-2">
+								{#each weatherPresets as option}
+									<button
+										on:click={() => handleWeatherSelect(option)}
+										class="emoji-option {selectedWeather === option ? 'emoji-option-active' : ''}"
+										title={option}
+										aria-label={`Weather ${option}`}
+									>
+										<span class="text-xl leading-none">{option}</span>
+									</button>
+								{/each}
+							</div>
+						</div>
+
 						<div class="bg-card/50 rounded-xl border border-border/50 p-4">
 							<TableOfContents {content} />
 						</div>
-					{/if}
-				</div>
-			</aside>
+					</div>
+				</aside>
+			{/if}
 		</div>
 	</div>
 
