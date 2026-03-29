@@ -336,9 +336,9 @@
 
 	<!-- Main Content -->
 	<div class="px-4 py-6">
-		<div class="flex gap-6 mx-auto transition-all duration-300" style="max-width: {showDesktopToc ? 'calc(48rem + 19rem + 1.5rem)' : '48rem'}">
+		<div class="diary-layout flex gap-6 mx-auto transition-all duration-300" class:with-desktop-sidebar={showDesktopToc}>
 			<!-- Editor -->
-			<main class="w-[48rem] flex-shrink-0">
+			<main class="w-full lg:w-[48rem] flex-shrink-0 min-w-0">
 				{#if loading}
 					<div class="flex flex-col items-center justify-center py-20 gap-3 animate-fade-in">
 						<svg class="w-6 h-6 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
@@ -431,7 +431,7 @@
 	</div>
 
 	<!-- Footer -->
-	<Footer maxWidth="6xl" tagline="Ctrl+S or ⌘S to save" />
+	<Footer tagline="Ctrl+S or ⌘S to save" dynamicMaxWidth="48rem" dynamicMaxWidthDesktop={showDesktopToc ? 'calc(48rem + 19rem + 1.5rem)' : '48rem'} />
 </div>
 
 <!-- Left Drawer -->
@@ -617,6 +617,16 @@
 		border-color: hsl(var(--primary) / 0.65);
 		background: hsl(var(--primary) / 0.12);
 		box-shadow: 0 8px 16px hsl(var(--primary) / 0.12);
+	}
+
+	.diary-layout {
+		max-width: 48rem;
+	}
+
+	@media (min-width: 1024px) {
+		.diary-layout.with-desktop-sidebar {
+			max-width: calc(48rem + 19rem + 1.5rem);
+		}
 	}
 </style>
 

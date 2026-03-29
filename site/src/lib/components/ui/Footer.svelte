@@ -1,8 +1,18 @@
 <script lang="ts">
-	import { onMount, type Snippet } from 'svelte';
+	import { onMount } from 'svelte';
 	import ThemeToggle from './ThemeToggle.svelte';
 
-	let { maxWidth = '6xl', tagline = '' }: { maxWidth?: string; tagline?: string } = $props();
+	let {
+		maxWidth = '6xl',
+		tagline = '',
+		dynamicMaxWidth = '',
+		dynamicMaxWidthDesktop = ''
+	}: {
+		maxWidth?: string;
+		tagline?: string;
+		dynamicMaxWidth?: string;
+		dynamicMaxWidthDesktop?: string;
+	} = $props();
 
 	let version = $state('');
 
@@ -22,16 +32,21 @@
 		}
 	}
 
-	const maxWidthClasses: Record<string, string> = {
-		'md': 'max-w-md',
-		'3xl': 'max-w-3xl',
-		'6xl': 'max-w-6xl'
+	const maxWidthValues: Record<string, string> = {
+		'md': '28rem',
+		'3xl': '48rem',
+		'6xl': '72rem'
 	};
-	let maxWidthClass = $derived(maxWidthClasses[maxWidth] || 'max-w-6xl');
+	let fallbackMaxWidth = $derived(maxWidthValues[maxWidth] || '72rem');
+	let mobileMaxWidth = $derived(dynamicMaxWidth || fallbackMaxWidth);
+	let desktopMaxWidth = $derived(dynamicMaxWidthDesktop || dynamicMaxWidth || fallbackMaxWidth);
 </script>
 
 <footer class="border-t border-border/50 mt-auto">
-	<div class="{maxWidthClass} mx-auto px-4 py-3">
+	<div
+		class="footer-inner mx-auto px-4 py-3 transition-all duration-300"
+		style={`--footer-mobile-max-width: ${mobileMaxWidth}; --footer-desktop-max-width: ${desktopMaxWidth};`}
+	>
 		<div class="flex flex-row items-center justify-center sm:justify-between gap-2 sm:gap-4 flex-wrap">
 			<div class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
 				{#if tagline}
@@ -46,3 +61,15 @@
 		</div>
 	</div>
 </footer>
+
+<style>
+	.footer-inner {
+		max-width: var(--footer-mobile-max-width);
+	}
+
+	@media (min-width: 1024px) {
+		.footer-inner {
+			max-width: var(--footer-desktop-max-width);
+		}
+	}
+</style>
