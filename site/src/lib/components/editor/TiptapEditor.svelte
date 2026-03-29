@@ -339,11 +339,16 @@
 <div class="tiptap-editor">
 	<div bind:this={editorElement} class="editor-container"></div>
 	{#if emptyStatePrompt && !content && !isFocused}
-		<div class="empty-state-overlay" on:click={() => editor?.commands.focus()}>
+		<button
+			type="button"
+			class="empty-state-overlay"
+			on:click={() => editor?.commands.focus()}
+			aria-label="Focus editor"
+		>
 			<div class="text-center text-muted-foreground">
 				<p class="text-sm">{emptyStatePrompt}</p>
 			</div>
-		</div>
+		</button>
 	{/if}
 	{#if showAddButton}
 		<button
@@ -439,6 +444,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		width: 100%;
+		background: transparent;
+		border: 0;
+		padding: 0;
 		cursor: text;
 		pointer-events: auto;
 	}

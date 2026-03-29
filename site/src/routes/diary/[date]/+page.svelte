@@ -338,7 +338,7 @@
 	<div class="px-4 py-6">
 		<div class="diary-layout flex gap-6 mx-auto transition-all duration-300" class:with-desktop-sidebar={showDesktopToc}>
 			<!-- Editor -->
-			<main class="w-full lg:w-[48rem] flex-shrink-0 min-w-0">
+			<main class="diary-main w-full min-w-0">
 				{#if loading}
 					<div class="flex flex-col items-center justify-center py-20 gap-3 animate-fade-in">
 						<svg class="w-6 h-6 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
@@ -621,6 +621,13 @@
 
 	.diary-layout {
 		max-width: 48rem;
+	}
+
+	@media (min-width: 1024px) {
+		.diary-main {
+			flex: 1 1 auto;
+			max-width: 48rem;
+		}
 	}
 
 	@media (min-width: 1024px) {
