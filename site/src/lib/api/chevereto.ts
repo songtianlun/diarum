@@ -9,7 +9,7 @@ export interface CheveretoSettings {
 
 export async function getCheveretoSettings(): Promise<CheveretoSettings> {
 	try {
-		const response = await fetch('/api/chevereto/settings', {
+		const response = await fetch('/api/v1/chevereto/settings', {
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`
 			}
@@ -32,7 +32,7 @@ export async function getCheveretoSettings(): Promise<CheveretoSettings> {
 }
 
 export async function saveCheveretoSettings(settings: CheveretoSettings): Promise<{ success: boolean }> {
-	const response = await fetch('/api/chevereto/settings', {
+	const response = await fetch('/api/v1/chevereto/settings', {
 		method: 'PUT',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -50,7 +50,7 @@ export async function saveCheveretoSettings(settings: CheveretoSettings): Promis
 }
 
 export async function testCheveretoConnection(domain: string, apiKey: string): Promise<{ success: boolean; message: string }> {
-	const response = await fetch('/api/chevereto/test', {
+	const response = await fetch('/api/v1/chevereto/test', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -71,7 +71,7 @@ export async function uploadToChevereto(file: File): Promise<{ url: string }> {
 	const formData = new FormData();
 	formData.append('source', file);
 
-	const response = await fetch('/api/chevereto/upload', {
+	const response = await fetch('/api/v1/chevereto/upload', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`

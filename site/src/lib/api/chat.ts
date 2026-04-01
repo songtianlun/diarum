@@ -25,7 +25,7 @@ export interface ConversationDetail {
  * Get all conversations for the current user
  */
 export async function getConversations(): Promise<Conversation[]> {
-	const response = await fetch('/api/ai/conversations', {
+	const response = await fetch('/api/v1/ai/conversations', {
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`
 		}
@@ -42,7 +42,7 @@ export async function getConversations(): Promise<Conversation[]> {
  * Create a new conversation
  */
 export async function createConversation(title?: string): Promise<Conversation> {
-	const response = await fetch('/api/ai/conversations', {
+	const response = await fetch('/api/v1/ai/conversations', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -62,7 +62,7 @@ export async function createConversation(title?: string): Promise<Conversation> 
  * Get conversation with messages
  */
 export async function getConversation(id: string): Promise<ConversationDetail> {
-	const response = await fetch(`/api/ai/conversations/${id}`, {
+	const response = await fetch(`/api/v1/ai/conversations/${id}`, {
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`
 		}
@@ -79,7 +79,7 @@ export async function getConversation(id: string): Promise<ConversationDetail> {
  * Delete a conversation
  */
 export async function deleteConversation(id: string): Promise<void> {
-	const response = await fetch(`/api/ai/conversations/${id}`, {
+	const response = await fetch(`/api/v1/ai/conversations/${id}`, {
 		method: 'DELETE',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`
@@ -95,7 +95,7 @@ export async function deleteConversation(id: string): Promise<void> {
  * Update conversation title
  */
 export async function updateConversationTitle(id: string, title: string): Promise<Conversation> {
-	const response = await fetch(`/api/ai/conversations/${id}`, {
+	const response = await fetch(`/api/v1/ai/conversations/${id}`, {
 		method: 'PUT',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -126,7 +126,7 @@ export async function* streamChat(
 	conversationId: string,
 	content: string
 ): AsyncGenerator<StreamChunk> {
-	const response = await fetch('/api/ai/chat', {
+	const response = await fetch('/api/v1/ai/chat', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,

@@ -37,7 +37,7 @@ async function getSettingValue(key: string): Promise<unknown> {
  */
 export async function getApiToken(): Promise<ApiTokenStatus> {
 	try {
-		const response = await fetch('/api/settings/api-token', {
+		const response = await fetch('/api/v1/settings/api-token', {
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`
 			}
@@ -59,7 +59,7 @@ export async function getApiToken(): Promise<ApiTokenStatus> {
  */
 export async function toggleApiToken(): Promise<ApiTokenStatus> {
 	try {
-		const response = await fetch('/api/settings/api-token/toggle', {
+		const response = await fetch('/api/v1/settings/api-token/toggle', {
 			method: 'POST',
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`
@@ -83,7 +83,7 @@ export async function toggleApiToken(): Promise<ApiTokenStatus> {
  */
 export async function resetApiToken(): Promise<ApiTokenStatus> {
 	try {
-		const response = await fetch('/api/settings/api-token/reset', {
+		const response = await fetch('/api/v1/settings/api-token/reset', {
 			method: 'POST',
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`

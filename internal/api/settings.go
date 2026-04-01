@@ -29,7 +29,7 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	configService := config.NewConfigService(app)
 
 	// Get API token status and value
-	e.Router.GET("/api/settings/api-token", func(c echo.Context) error {
+	e.Router.GET("/api/v1/settings/api-token", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -39,11 +39,11 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 
 		token, err := configService.GetString(userId, "api.token")
 		if err != nil {
-			logger.Debug("[GET /api/settings/api-token] error getting token: %v", err)
+			logger.Debug("[GET /api/v1/settings/api-token] error getting token: %v", err)
 		}
 		enabled, err := configService.GetBool(userId, "api.enabled")
 		if err != nil {
-			logger.Debug("[GET /api/settings/api-token] error getting enabled: %v", err)
+			logger.Debug("[GET /api/v1/settings/api-token] error getting enabled: %v", err)
 		}
 
 		if token == "" {
@@ -62,7 +62,7 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Toggle API token enabled/disabled
-	e.Router.POST("/api/settings/api-token/toggle", func(c echo.Context) error {
+	e.Router.POST("/api/v1/settings/api-token/toggle", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -72,11 +72,11 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 
 		token, err := configService.GetString(userId, "api.token")
 		if err != nil {
-			logger.Debug("[POST /api/settings/api-token/toggle] error getting token: %v", err)
+			logger.Debug("[POST /api/v1/settings/api-token/toggle] error getting token: %v", err)
 		}
 		enabled, err := configService.GetBool(userId, "api.enabled")
 		if err != nil {
-			logger.Debug("[POST /api/settings/api-token/toggle] error getting enabled: %v", err)
+			logger.Debug("[POST /api/v1/settings/api-token/toggle] error getting enabled: %v", err)
 		}
 
 		if token == "" {
@@ -112,7 +112,7 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Reset API token (generate new one)
-	e.Router.POST("/api/settings/api-token/reset", func(c echo.Context) error {
+	e.Router.POST("/api/v1/settings/api-token/reset", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -134,11 +134,11 @@ func RegisterSettingsRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 		// Ensure enabled is set (default to true for reset)
 		enabled, err := configService.GetBool(userId, "api.enabled")
 		if err != nil {
-			logger.Debug("[POST /api/settings/api-token/reset] error getting enabled: %v", err)
+			logger.Debug("[POST /api/v1/settings/api-token/reset] error getting enabled: %v", err)
 		}
 		if !enabled {
 			if err := configService.Set(userId, "api.enabled", true); err != nil {
-				logger.Debug("[POST /api/settings/api-token/reset] error setting enabled: %v", err)
+				logger.Debug("[POST /api/v1/settings/api-token/reset] error setting enabled: %v", err)
 			}
 			enabled = true
 		}

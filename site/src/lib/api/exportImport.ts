@@ -61,7 +61,7 @@ export async function exportDiaries(options?: ExportOptions): Promise<ExportStat
 		include_conversations: true
 	};
 
-	const response = await fetch('/api/export', {
+	const response = await fetch('/api/v1/export', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -119,7 +119,7 @@ export async function importDiaries(file: File): Promise<ImportStats> {
 	const formData = new FormData();
 	formData.append('file', file);
 
-	const response = await fetch('/api/import', {
+	const response = await fetch('/api/v1/import', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`

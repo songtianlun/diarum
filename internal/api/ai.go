@@ -40,7 +40,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	configService := config.NewConfigService(app)
 
 	// Get AI settings
-	e.Router.GET("/api/ai/settings", func(c echo.Context) error {
+	e.Router.GET("/api/v1/ai/settings", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -64,7 +64,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Save AI settings
-	e.Router.PUT("/api/ai/settings", func(c echo.Context) error {
+	e.Router.PUT("/api/v1/ai/settings", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -108,7 +108,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Fetch models from OpenAI-compatible API
-	e.Router.POST("/api/ai/models", func(c echo.Context) error {
+	e.Router.POST("/api/v1/ai/models", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -128,7 +128,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 
 		models, err := fetchModels(body.BaseURL, body.APIKey)
 		if err != nil {
-			logger.Error("[POST /api/ai/models] error fetching models: %v", err)
+			logger.Error("[POST /api/v1/ai/models] error fetching models: %v", err)
 			return apis.NewBadRequestError("Failed to fetch models: "+err.Error(), nil)
 		}
 
@@ -138,7 +138,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Build all vectors for user's diaries
-	e.Router.POST("/api/ai/vectors/build", func(c echo.Context) error {
+	e.Router.POST("/api/v1/ai/vectors/build", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -156,7 +156,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 
 		result, err := embeddingService.BuildAllVectors(ctx, userId)
 		if err != nil {
-			logger.Error("[POST /api/ai/vectors/build] error building vectors: %v", err)
+			logger.Error("[POST /api/v1/ai/vectors/build] error building vectors: %v", err)
 			return apis.NewBadRequestError("Failed to build vectors: "+err.Error(), nil)
 		}
 
@@ -167,7 +167,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	chatService := chat.NewChatService(app, embeddingService)
 
 	// Incremental build vectors (only new and outdated)
-	e.Router.POST("/api/ai/vectors/build-incremental", func(c echo.Context) error {
+	e.Router.POST("/api/v1/ai/vectors/build-incremental", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -184,7 +184,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 
 		result, err := embeddingService.BuildIncrementalVectors(ctx, userId)
 		if err != nil {
-			logger.Error("[POST /api/ai/vectors/build-incremental] error: %v", err)
+			logger.Error("[POST /api/v1/ai/vectors/build-incremental] error: %v", err)
 			return apis.NewBadRequestError("Failed to build vectors: "+err.Error(), nil)
 		}
 
@@ -192,7 +192,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Get vector stats for user's diaries
-	e.Router.GET("/api/ai/vectors/stats", func(c echo.Context) error {
+	e.Router.GET("/api/v1/ai/vectors/stats", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -206,7 +206,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 
 		stats, err := embeddingService.GetVectorStats(c.Request().Context(), userId)
 		if err != nil {
-			logger.Error("[GET /api/ai/vectors/stats] error getting stats: %v", err)
+			logger.Error("[GET /api/v1/ai/vectors/stats] error getting stats: %v", err)
 			return apis.NewBadRequestError("Failed to get vector stats: "+err.Error(), nil)
 		}
 
@@ -214,7 +214,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Get all conversations for user
-	e.Router.GET("/api/ai/conversations", func(c echo.Context) error {
+	e.Router.GET("/api/v1/ai/conversations", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -249,7 +249,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Create new conversation
-	e.Router.POST("/api/ai/conversations", func(c echo.Context) error {
+	e.Router.POST("/api/v1/ai/conversations", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -282,7 +282,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Get conversation with messages
-	e.Router.GET("/api/ai/conversations/:id", func(c echo.Context) error {
+	e.Router.GET("/api/v1/ai/conversations/:id", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -333,7 +333,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Delete conversation
-	e.Router.DELETE("/api/ai/conversations/:id", func(c echo.Context) error {
+	e.Router.DELETE("/api/v1/ai/conversations/:id", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -357,7 +357,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Update conversation title
-	e.Router.PUT("/api/ai/conversations/:id", func(c echo.Context) error {
+	e.Router.PUT("/api/v1/ai/conversations/:id", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -393,7 +393,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Streaming chat endpoint
-	e.Router.POST("/api/ai/chat", func(c echo.Context) error {
+	e.Router.POST("/api/v1/ai/chat", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -424,15 +424,15 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		messageCount, _ := chatService.GetConversationMessageCount(body.ConversationID)
 		isFirstMessage := messageCount == 0
 		currentTitle := conv.GetString("title")
-		logger.Info("[POST /api/ai/chat] conversation=%s, messageCount=%d, isFirstMessage=%v, currentTitle=%s",
+		logger.Info("[POST /api/v1/ai/chat] conversation=%s, messageCount=%d, isFirstMessage=%v, currentTitle=%s",
 			body.ConversationID, messageCount, isFirstMessage, currentTitle)
 
 		// Save user message first
 		userMsg, err := chatService.SaveMessage(authRecord.Id, body.ConversationID, "user", body.Content, nil)
 		if err != nil {
-			logger.Error("[POST /api/ai/chat] failed to save user message: %v", err)
+			logger.Error("[POST /api/v1/ai/chat] failed to save user message: %v", err)
 		} else {
-			logger.Info("[POST /api/ai/chat] saved user message: %s", userMsg.Id)
+			logger.Info("[POST /api/v1/ai/chat] saved user message: %s", userMsg.Id)
 		}
 
 		// Set SSE headers
@@ -450,15 +450,15 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		// Generate title first for new conversations (before streaming response)
 		var newTitle string
 		if isFirstMessage && currentTitle == "" {
-			logger.Info("[POST /api/ai/chat] generating title for conversation=%s (before streaming)", body.ConversationID)
+			logger.Info("[POST /api/v1/ai/chat] generating title for conversation=%s (before streaming)", body.ConversationID)
 			title, err := chatService.GenerateTitleFromUserMessage(ctx, authRecord.Id, body.Content)
 			if err != nil {
-				logger.Error("[POST /api/ai/chat] failed to generate title: %v", err)
+				logger.Error("[POST /api/v1/ai/chat] failed to generate title: %v", err)
 			} else {
 				newTitle = title
-				logger.Info("[POST /api/ai/chat] generated title: %s", title)
+				logger.Info("[POST /api/v1/ai/chat] generated title: %s", title)
 				if err := chatService.UpdateConversationTitle(body.ConversationID, title); err != nil {
-					logger.Error("[POST /api/ai/chat] failed to update title: %v", err)
+					logger.Error("[POST /api/v1/ai/chat] failed to update title: %v", err)
 				} else {
 					// Send title event immediately
 					titleData, _ := json.Marshal(map[string]any{
@@ -473,7 +473,7 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		// Stream chat response
 		fullResponse, referencedDiaries, err := chatService.StreamChat(ctx, authRecord.Id, body.ConversationID, body.Content, writer)
 		if err != nil {
-			logger.Error("[POST /api/ai/chat] stream chat error: %v", err)
+			logger.Error("[POST /api/v1/ai/chat] stream chat error: %v", err)
 			errData, _ := json.Marshal(map[string]string{"error": err.Error()})
 			writer.Write([]byte("data: " + string(errData) + "\n\n"))
 			writer.Flush()
@@ -483,9 +483,9 @@ func RegisterAIRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingS
 		// Save assistant message
 		assistantMsg, err := chatService.SaveMessage(authRecord.Id, body.ConversationID, "assistant", fullResponse, referencedDiaries)
 		if err != nil {
-			logger.Error("[POST /api/ai/chat] failed to save assistant message: %v", err)
+			logger.Error("[POST /api/v1/ai/chat] failed to save assistant message: %v", err)
 		} else {
-			logger.Info("[POST /api/ai/chat] saved assistant message: %s", assistantMsg.Id)
+			logger.Info("[POST /api/v1/ai/chat] saved assistant message: %s", assistantMsg.Id)
 		}
 
 		// Send done event

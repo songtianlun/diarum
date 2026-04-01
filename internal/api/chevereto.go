@@ -24,7 +24,7 @@ func RegisterCheveretoRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	configService := config.NewConfigService(app)
 
 	// Get Chevereto settings
-	e.Router.GET("/api/chevereto/settings", func(c echo.Context) error {
+	e.Router.GET("/api/v1/chevereto/settings", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -46,7 +46,7 @@ func RegisterCheveretoRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Save Chevereto settings
-	e.Router.PUT("/api/chevereto/settings", func(c echo.Context) error {
+	e.Router.PUT("/api/v1/chevereto/settings", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -91,7 +91,7 @@ func RegisterCheveretoRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Test Chevereto connection
-	e.Router.POST("/api/chevereto/test", func(c echo.Context) error {
+	e.Router.POST("/api/v1/chevereto/test", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
@@ -159,7 +159,7 @@ func RegisterCheveretoRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Proxy upload to Chevereto (avoids CORS issues)
-	e.Router.POST("/api/chevereto/upload", func(c echo.Context) error {
+	e.Router.POST("/api/v1/chevereto/upload", func(c echo.Context) error {
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
 			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)

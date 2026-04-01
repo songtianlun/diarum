@@ -16,17 +16,17 @@ export interface CalendarDiaryMeta {
  */
 export async function getDiaryById(id: string): Promise<Diary | null> {
 	try {
-		const record = await pb.collection('diaries').getOne(id);
-		return {
-			id: record.id,
-			date: record.date.split(' ')[0],
-			content: record.content || '',
-			mood: record.mood,
-			weather: record.weather,
-			owner: record.owner,
-			created: record.created,
-			updated: record.updated
-		};
+		const response = await fetch(`/api/v1/diaries/${encodeURIComponent(id)}`, {
+			headers: {
+				'Authorization': `Bearer ${pb.authStore.token}`
+			}
+		});
+
+		if (!response.ok) {
+			return null;
+		}
+
+		return await response.json();
 	} catch (error) {
 		console.error('Error fetching diary by ID:', error);
 		return null;
@@ -39,21 +39,21 @@ export async function getDiaryById(id: string): Promise<Diary | null> {
 export async function getDiariesByIds(ids: string[]): Promise<Diary[]> {
 	try {
 		if (ids.length === 0) return [];
-		const filter = ids.map(id => `id="${id}"`).join(' || ');
-		const records = await pb.collection('diaries').getFullList({
-			filter,
-			sort: '-date'
+		const response = await fetch('/api/v1/diaries/by-ids', {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${pb.authStore.token}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ ids })
 		});
-		return records.map((record: any) => ({
-			id: record.id,
-			date: record.date.split(' ')[0],
-			content: record.content || '',
-			mood: record.mood,
-			weather: record.weather,
-			owner: record.owner,
-			created: record.created,
-			updated: record.updated
-		}));
+
+		if (!response.ok) {
+			return [];
+		}
+
+		const data = await response.json();
+		return data.diaries || [];
 	} catch (error) {
 		console.error('Error fetching diaries by IDs:', error);
 		return [];
@@ -65,7 +65,7 @@ export async function getDiariesByIds(ids: string[]): Promise<Diary[]> {
  */
 export async function getDiaryByDateResult(date: string): Promise<DiaryByDateResult> {
 	try {
-		const response = await fetch(`/api/diaries/by-date/${date}`, {
+		const response = await fetch(`/api/v1/diaries/by-date/${date}`, {
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`
 			}
@@ -122,8 +122,7 @@ function isContentEmpty(content: string | undefined | null): boolean {
  */
 export async function saveDiary(diary: Partial<Diary>): Promise<boolean> {
 	try {
-		const userId = pb.authStore.model?.id;
-		if (!userId) {
+		if (!pb.authStore.model?.id) {
 			throw new Error('Not authenticated');
 		}
 
@@ -152,29 +151,29 @@ export async function saveDiary(diary: Partial<Diary>): Promise<boolean> {
 				// All fields are empty — delete the entry instead of saving a blank record
 				return deleteDiary(existing.id);
 			}
-			// Update existing diary
-			await pb.collection('diaries').update(existing.id, {
-				content: diary.content,
-				mood: diary.mood,
-				weather: diary.weather
-			});
 		} else {
 			if (allEmpty) {
 				// Nothing to save — skip creating an empty entry
 				return true;
 			}
-			// Create new diary
-			const data: any = {
-				date: diary.date + ' 00:00:00.000Z', // Use full timestamp format
-				content: diary.content || '',
-				owner: userId
-			};
+		}
 
-			// Only add optional fields if they have values
-			if (diary.mood) data.mood = diary.mood;
-			if (diary.weather) data.weather = diary.weather;
+		const response = await fetch('/api/v1/diaries/upsert', {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${pb.authStore.token}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				date: diary.date,
+				content: diary.content ?? existing?.content ?? '',
+				mood: diary.mood ?? existing?.mood ?? '',
+				weather: diary.weather ?? existing?.weather ?? ''
+			})
+		});
 
-			await pb.collection('diaries').create(data);
+		if (!response.ok) {
+			return false;
 		}
 
 		return true;
@@ -189,7 +188,7 @@ export async function saveDiary(diary: Partial<Diary>): Promise<boolean> {
  */
 export async function getDatesWithDiaries(start: string, end: string): Promise<CalendarDiaryMeta[]> {
 	try {
-		const response = await fetch(`/api/diaries/exists?start=${start}&end=${end}`, {
+		const response = await fetch(`/api/v1/diaries/exists?start=${start}&end=${end}`, {
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`
 			}
@@ -208,28 +207,6 @@ export async function getDatesWithDiaries(start: string, end: string): Promise<C
 			}));
 		}
 
-		// Backward compatibility for older API responses.
-		// If custom API doesn't return entries metadata yet, fetch full records directly.
-		if (Array.isArray(data.dates) && data.dates.length > 0) {
-			try {
-				const startTime = `${start} 00:00:00.000Z`;
-				const endTime = `${end} 23:59:59.999Z`;
-				const records = await pb.collection('diaries').getFullList({
-					filter: `date >= \"${startTime}\" && date <= \"${endTime}\"`,
-					fields: 'date,mood,weather',
-					sort: '-date'
-				});
-
-				return records.map((record: any) => ({
-					date: (record.date || '').split(' ')[0],
-					mood: record.mood || '',
-					weather: record.weather || ''
-				}));
-			} catch (fallbackError) {
-				console.error('Error fetching diary metadata fallback:', fallbackError);
-			}
-		}
-
 		if (Array.isArray(data.dates)) {
 			return data.dates.map((date: string) => ({ date, mood: '', weather: '' }));
 		}
@@ -246,13 +223,21 @@ export async function getDatesWithDiaries(start: string, end: string): Promise<C
  */
 export async function getRecentDiaries(limit: number = 5): Promise<Array<{ date: string; content: string }>> {
 	try {
-		const records = await pb.collection('diaries').getList(1, limit, {
-			sort: '-date',
-			fields: 'date,content'
+		const response = await fetch(`/api/v1/diaries/recent?limit=${encodeURIComponent(String(limit))}`, {
+			headers: {
+				'Authorization': `Bearer ${pb.authStore.token}`
+			}
 		});
 
-		return records.items.map((item: any) => ({
-			date: item.date.split(' ')[0],
+		if (!response.ok) {
+			return [];
+		}
+
+		const data = await response.json();
+		const records = data.diaries || [];
+
+		return records.map((item: any) => ({
+			date: item.date,
 			content: item.content || ''
 		}));
 	} catch (error) {
@@ -266,7 +251,7 @@ export async function getRecentDiaries(limit: number = 5): Promise<Array<{ date:
  */
 export async function searchDiaries(query: string) {
 	try {
-		const response = await fetch(`/api/diaries/search?q=${encodeURIComponent(query)}`, {
+		const response = await fetch(`/api/v1/diaries/search?q=${encodeURIComponent(query)}`, {
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`
 			}
@@ -291,7 +276,7 @@ export async function getDiaryStats(): Promise<{ streak: number; total: number }
 	try {
 		// Get user's timezone
 		const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-		const url = `/api/diaries/stats?tz=${encodeURIComponent(tz)}`;
+		const url = `/api/v1/diaries/stats?tz=${encodeURIComponent(tz)}`;
 
 		const response = await fetch(url, {
 			headers: {
@@ -319,7 +304,17 @@ export async function getDiaryStats(): Promise<{ streak: number; total: number }
  */
 export async function deleteDiary(id: string): Promise<boolean> {
 	try {
-		await pb.collection('diaries').delete(id);
+		const response = await fetch(`/api/v1/diaries/${encodeURIComponent(id)}`, {
+			method: 'DELETE',
+			headers: {
+				'Authorization': `Bearer ${pb.authStore.token}`
+			}
+		});
+
+		if (!response.ok) {
+			return false;
+		}
+
 		return true;
 	} catch (error) {
 		console.error('Error deleting diary:', error);

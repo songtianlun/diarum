@@ -35,7 +35,7 @@ export interface VectorStats {
  */
 export async function getAISettings(): Promise<AISettings> {
 	try {
-		const response = await fetch('/api/ai/settings', {
+		const response = await fetch('/api/v1/ai/settings', {
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`
 			}
@@ -62,7 +62,7 @@ export async function getAISettings(): Promise<AISettings> {
  * Save AI settings
  */
 export async function saveAISettings(settings: AISettings): Promise<{ success: boolean }> {
-	const response = await fetch('/api/ai/settings', {
+	const response = await fetch('/api/v1/ai/settings', {
 		method: 'PUT',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -83,7 +83,7 @@ export async function saveAISettings(settings: AISettings): Promise<{ success: b
  * Fetch available models from OpenAI-compatible API
  */
 export async function fetchModels(apiKey: string, baseUrl: string): Promise<ModelInfo[]> {
-	const response = await fetch('/api/ai/models', {
+	const response = await fetch('/api/v1/ai/models', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -108,7 +108,7 @@ export async function fetchModels(apiKey: string, baseUrl: string): Promise<Mode
  * Build vectors for all diaries (full rebuild)
  */
 export async function buildVectors(): Promise<BuildVectorsResult> {
-	const response = await fetch('/api/ai/vectors/build', {
+	const response = await fetch('/api/v1/ai/vectors/build', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -128,7 +128,7 @@ export async function buildVectors(): Promise<BuildVectorsResult> {
  * Build vectors incrementally (only new and outdated)
  */
 export async function buildVectorsIncremental(): Promise<BuildVectorsResult> {
-	const response = await fetch('/api/ai/vectors/build-incremental', {
+	const response = await fetch('/api/v1/ai/vectors/build-incremental', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
@@ -148,7 +148,7 @@ export async function buildVectorsIncremental(): Promise<BuildVectorsResult> {
  * Get vector stats
  */
 export async function getVectorStats(): Promise<VectorStats> {
-	const response = await fetch('/api/ai/vectors/stats', {
+	const response = await fetch('/api/v1/ai/vectors/stats', {
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`
 		}

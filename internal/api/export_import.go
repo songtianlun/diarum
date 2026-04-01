@@ -44,10 +44,10 @@ type ExportRequest struct {
 // ---------- Export/Import 数据结构 ----------
 
 type exportData struct {
-	Version      int                `json:"version"`
-	ExportedAt   string             `json:"exported_at"`
-	Diaries      []exportDiary      `json:"diaries"`
-	Media        []exportMedia      `json:"media"`
+	Version       int                  `json:"version"`
+	ExportedAt    string               `json:"exported_at"`
+	Diaries       []exportDiary        `json:"diaries"`
+	Media         []exportMedia        `json:"media"`
 	Conversations []exportConversation `json:"conversations"`
 }
 
@@ -74,10 +74,10 @@ type exportConversation struct {
 }
 
 type exportMessage struct {
-	ID                 string   `json:"id"`
-	Role               string   `json:"role"`
-	Content            string   `json:"content"`
-	ReferencedDiaries  []string `json:"referenced_diaries,omitempty"`
+	ID                string   `json:"id"`
+	Role              string   `json:"role"`
+	Content           string   `json:"content"`
+	ReferencedDiaries []string `json:"referenced_diaries,omitempty"`
 }
 
 type exportStats struct {
@@ -113,7 +113,7 @@ type importStats struct {
 }
 
 type importCounters struct {
-	Total   int `json:"total"`
+	Total    int `json:"total"`
 	Imported int `json:"imported"`
 	Skipped  int `json:"skipped"`
 	Failed   int `json:"failed"`
@@ -122,11 +122,11 @@ type importCounters struct {
 // ---------- Route Registration ----------
 
 func RegisterExportImportRoutes(app *pocketbase.PocketBase, e *core.ServeEvent, embeddingService *embedding.EmbeddingService) {
-	e.Router.POST("/api/export", func(c echo.Context) error {
+	e.Router.POST("/api/v1/export", func(c echo.Context) error {
 		return handleExport(c, app)
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
-	e.Router.POST("/api/import", func(c echo.Context) error {
+	e.Router.POST("/api/v1/import", func(c echo.Context) error {
 		return handleImport(c, app, embeddingService)
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 }

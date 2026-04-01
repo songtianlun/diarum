@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -13,8 +14,91 @@ import (
 
 // RegisterDiaryRoutes registers custom API endpoints for diary operations
 func RegisterDiaryRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
+	// Upsert diary by date (create if missing, update if exists)
+	e.Router.POST("/api/v1/diaries/upsert", func(c echo.Context) error {
+		// Get authenticated user
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		userId := authRecord.Id
+
+		type upsertBody struct {
+			Date    string `json:"date"`
+			Content string `json:"content"`
+			Mood    string `json:"mood"`
+			Weather string `json:"weather"`
+		}
+
+		var body upsertBody
+		if err := c.Bind(&body); err != nil {
+			return apis.NewBadRequestError("Invalid request body", err)
+		}
+
+		if body.Date == "" {
+			return apis.NewBadRequestError("date is required", nil)
+		}
+
+		startTime := body.Date + " 00:00:00.000Z"
+		endTime := body.Date + " 23:59:59.999Z"
+
+		// Try update existing record of the same user/date first.
+		existing, findErr := app.Dao().FindFirstRecordByFilter(
+			"diaries",
+			"date >= {:start} && date <= {:end} && owner = {:owner}",
+			map[string]any{
+				"start": startTime,
+				"end":   endTime,
+				"owner": userId,
+			},
+		)
+
+		if findErr == nil && existing != nil {
+			existing.Set("content", body.Content)
+			existing.Set("mood", body.Mood)
+			existing.Set("weather", body.Weather)
+			if err := app.Dao().SaveRecord(existing); err != nil {
+				return apis.NewBadRequestError("Failed to update diary", err)
+			}
+			return c.JSON(http.StatusOK, map[string]any{
+				"id":      existing.GetId(),
+				"date":    body.Date,
+				"content": existing.GetString("content"),
+				"mood":    existing.GetString("mood"),
+				"weather": existing.GetString("weather"),
+				"updated": existing.Updated.String(),
+			})
+		}
+
+		diariesCollection, err := app.Dao().FindCollectionByNameOrId("diaries")
+		if err != nil {
+			return apis.NewBadRequestError("Failed to find diaries collection", err)
+		}
+
+		record := models.NewRecord(diariesCollection)
+		record.Set("date", startTime)
+		record.Set("content", body.Content)
+		record.Set("mood", body.Mood)
+		record.Set("weather", body.Weather)
+		record.Set("owner", userId)
+
+		if err := app.Dao().SaveRecord(record); err != nil {
+			return apis.NewBadRequestError("Failed to create diary", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"id":      record.GetId(),
+			"date":    body.Date,
+			"content": record.GetString("content"),
+			"mood":    record.GetString("mood"),
+			"weather": record.GetString("weather"),
+			"updated": record.Updated.String(),
+		})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
 	// Get diary by date
-	e.Router.GET("/api/diaries/by-date/:date", func(c echo.Context) error {
+	e.Router.GET("/api/v1/diaries/by-date/:date", func(c echo.Context) error {
 		dateStr := c.PathParam("date")
 
 		// Get authenticated user
@@ -62,7 +146,7 @@ func RegisterDiaryRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Check which dates have diaries
-	e.Router.GET("/api/diaries/exists", func(c echo.Context) error {
+	e.Router.GET("/api/v1/diaries/exists", func(c echo.Context) error {
 		start := c.QueryParam("start")
 		end := c.QueryParam("end")
 
@@ -136,7 +220,7 @@ func RegisterDiaryRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Get diary stats (streak and total)
-	e.Router.GET("/api/diaries/stats", func(c echo.Context) error {
+	e.Router.GET("/api/v1/diaries/stats", func(c echo.Context) error {
 		// Get authenticated user
 		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
 		if authRecord == nil {
@@ -221,7 +305,7 @@ func RegisterDiaryRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 
 	// Search diaries
-	e.Router.GET("/api/diaries/search", func(c echo.Context) error {
+	e.Router.GET("/api/v1/diaries/search", func(c echo.Context) error {
 		query := c.QueryParam("q")
 
 		// Get authenticated user
@@ -285,5 +369,160 @@ func RegisterDiaryRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 			"results": results,
 			"total":   len(results),
 		})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Get diary by id
+	e.Router.GET("/api/v1/diaries/:id", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		record, err := app.Dao().FindRecordById("diaries", c.PathParam("id"))
+		if err != nil {
+			return apis.NewNotFoundError("Diary not found", err)
+		}
+
+		if record.GetString("owner") != authRecord.Id {
+			return apis.NewForbiddenError("Access denied", nil)
+		}
+
+		dateTime := record.GetString("date")
+		dateStr := dateTime
+		if len(dateTime) >= 10 {
+			dateStr = dateTime[:10]
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"id":      record.GetId(),
+			"date":    dateStr,
+			"content": record.GetString("content"),
+			"mood":    record.GetString("mood"),
+			"weather": record.GetString("weather"),
+			"owner":   record.GetString("owner"),
+			"created": record.Created.String(),
+			"updated": record.Updated.String(),
+		})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Get multiple diaries by ids
+	e.Router.POST("/api/v1/diaries/by-ids", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		var body struct {
+			IDs []string `json:"ids"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return apis.NewBadRequestError("Invalid request body", err)
+		}
+
+		if len(body.IDs) == 0 {
+			return c.JSON(http.StatusOK, map[string]any{"diaries": []map[string]any{}})
+		}
+
+		records := make([]map[string]any, 0, len(body.IDs))
+		for _, id := range body.IDs {
+			record, err := app.Dao().FindRecordById("diaries", id)
+			if err != nil {
+				continue
+			}
+			if record.GetString("owner") != authRecord.Id {
+				continue
+			}
+
+			dateTime := record.GetString("date")
+			dateStr := dateTime
+			if len(dateTime) >= 10 {
+				dateStr = dateTime[:10]
+			}
+
+			records = append(records, map[string]any{
+				"id":      record.GetId(),
+				"date":    dateStr,
+				"content": record.GetString("content"),
+				"mood":    record.GetString("mood"),
+				"weather": record.GetString("weather"),
+				"owner":   record.GetString("owner"),
+				"created": record.Created.String(),
+				"updated": record.Updated.String(),
+			})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"diaries": records})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Get recent diaries
+	e.Router.GET("/api/v1/diaries/recent", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		limit := 5
+		if v := c.QueryParam("limit"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil {
+				limit = parsed
+			}
+		}
+		if limit <= 0 {
+			limit = 5
+		}
+		if limit > 100 {
+			limit = 100
+		}
+
+		records, err := app.Dao().FindRecordsByFilter(
+			"diaries",
+			"owner = {:owner}",
+			"-date",
+			limit,
+			0,
+			map[string]any{"owner": authRecord.Id},
+		)
+		if err != nil {
+			return apis.NewBadRequestError("Failed to fetch recent diaries", err)
+		}
+
+		result := make([]map[string]any, 0, len(records))
+		for _, item := range records {
+			dateTime := item.GetString("date")
+			dateStr := dateTime
+			if len(dateTime) >= 10 {
+				dateStr = dateTime[:10]
+			}
+			result = append(result, map[string]any{
+				"id":      item.GetId(),
+				"date":    dateStr,
+				"content": item.GetString("content"),
+			})
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"diaries": result})
+	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+
+	// Delete diary by id
+	e.Router.DELETE("/api/v1/diaries/:id", func(c echo.Context) error {
+		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
+		if authRecord == nil {
+			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
+		}
+
+		record, err := app.Dao().FindRecordById("diaries", c.PathParam("id"))
+		if err != nil {
+			return apis.NewNotFoundError("Diary not found", err)
+		}
+
+		if record.GetString("owner") != authRecord.Id {
+			return apis.NewForbiddenError("Access denied", nil)
+		}
+
+		if err := app.Dao().DeleteRecord(record); err != nil {
+			return apis.NewBadRequestError("Failed to delete diary", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{"success": true})
 	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
 }
