@@ -10,7 +10,7 @@ import { uploadToChevereto } from '$lib/api/chevereto';
 export async function getOrCreateDiaryId(date: string): Promise<string | undefined> {
 	try {
 		// Try to find existing diary
-		const response = await fetch(`/api/diaries/by-date/${date}`, {
+		const response = await fetch(`/api/v1/diaries/by-date/${date}`, {
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`
 			}
@@ -23,15 +23,26 @@ export async function getOrCreateDiaryId(date: string): Promise<string | undefin
 			}
 		}
 
-		// Create new diary if not exists
-		const userId = pb.authStore.model?.id;
-		if (!userId) return undefined;
-
-		const newDiary = await pb.collection('diaries').create({
-			date: date + ' 00:00:00.000Z',
-			content: '',
-			owner: userId
+		// Create new diary if not exists via business API
+		const createResponse = await fetch('/api/v1/diaries/upsert', {
+			method: 'POST',
+			headers: {
+				'Authorization': `Bearer ${pb.authStore.token}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				date,
+				content: '',
+				mood: '',
+				weather: ''
+			})
 		});
+
+		if (!createResponse.ok) {
+			return undefined;
+		}
+
+		const newDiary = await createResponse.json();
 
 		return newDiary.id;
 	} catch (error) {

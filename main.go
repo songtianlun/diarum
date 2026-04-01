@@ -225,6 +225,7 @@ func main() {
 		})
 
 		// Register API routes
+		api.RegisterAuthRoutes(app, e)
 		api.RegisterDiaryRoutes(app, e)
 		api.RegisterSettingsRoutes(app, e)
 		api.RegisterAIRoutes(app, e, embeddingService)
