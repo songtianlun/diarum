@@ -12,7 +12,7 @@
 	let viewMode: ViewMode = 'month';
 	export let yearViewActive = false;
 	$: yearViewActive = viewMode === 'year';
-	let yearDiaryMeta: CalendarDiaryMeta[] = [];
+	export let yearDiaryMeta: CalendarDiaryMeta[] = [];
 	let yearLoading = false;
 	let loadedYear: number | null = null;
 	let transitionDirection: 'forward' | 'backward' = 'forward';
@@ -160,10 +160,9 @@
 		return currentYear === today.getFullYear() && month === today.getMonth();
 	}
 
-	function handleMiniDayClick(e: Event, month: number, day: number) {
+	function handleMiniDayClick(e: Event, month: number, _day: number) {
 		e.stopPropagation();
-		const dateStr = `${currentYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-		goto(`/diary/${dateStr}`);
+		exitYearView(month + 1);
 	}
 
 	function handleYearWheel(e: WheelEvent) {
