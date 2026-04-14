@@ -91,6 +91,16 @@ export function getMonthRange(year: number, month: number): { start: string; end
 }
 
 /**
+ * Get start and end of year
+ */
+export function getYearRange(year: number): { start: string; end: string } {
+	return {
+		start: `${year}-01-01`,
+		end: `${year}-12-31`
+	};
+}
+
+/**
  * Get calendar days for a month (including padding days)
  */
 export function getCalendarDays(year: number, month: number): Date[] {

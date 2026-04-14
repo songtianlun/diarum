@@ -18,6 +18,7 @@
 	let mounted = false;
 	let prevYear = currentYear;
 	let prevMonth = currentMonth;
+	let yearViewActive = false;
 
 	async function loadDatesWithDiaries() {
 		loading = true;
@@ -64,7 +65,9 @@
 		if (mounted && (currentYear !== prevYear || currentMonth !== prevMonth)) {
 			prevYear = currentYear;
 			prevMonth = currentMonth;
-			loadDatesWithDiaries();
+			if (!yearViewActive) {
+				loadDatesWithDiaries();
+			}
 		}
 	}
 </script>
@@ -141,7 +144,7 @@
 						</div>
 					{:else}
 						<div class="animate-fade-in-only">
-							<Calendar bind:currentYear bind:currentMonth {diaryMeta} />
+							<Calendar bind:currentYear bind:currentMonth bind:yearViewActive {diaryMeta} on:monthchange={loadDatesWithDiaries} />
 						</div>
 					{/if}
 				</div>
