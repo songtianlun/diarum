@@ -87,6 +87,7 @@
 		base_url: '',
 		chat_model: '',
 		embedding_model: '',
+		request_timeout_seconds: 300,
 		enabled: false
 	};
 	let originalAISettings: AISettings = { ...aiSettings };
@@ -404,6 +405,11 @@
 			}
 		}
 
+		if (aiSettings.request_timeout_seconds < 30 || aiSettings.request_timeout_seconds > 3600) {
+			aiError = 'AI wait time must be between 30 and 3600 seconds';
+			return;
+		}
+
 		aiSaving = true;
 		try {
 			await saveAISettings(aiSettings);
@@ -465,6 +471,7 @@
 		aiSettings.base_url !== originalAISettings.base_url ||
 		aiSettings.chat_model !== originalAISettings.chat_model ||
 		aiSettings.embedding_model !== originalAISettings.embedding_model ||
+		aiSettings.request_timeout_seconds !== originalAISettings.request_timeout_seconds ||
 		aiSettings.enabled !== originalAISettings.enabled;
 
 	// Embedding model keywords for sorting
@@ -1113,6 +1120,23 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						</div>
 						<p class="text-xs text-muted-foreground mt-1">Model for text vectorization, e.g. text-embedding-3-small</p>
 					</div>
+
+						<!-- Request Timeout -->
+						<div class="py-4 border-b border-border/50">
+							<label for="ai-request-timeout" class="block font-medium text-foreground mb-2">AI Wait Time (seconds)</label>
+							<input
+								id="ai-request-timeout"
+								type="number"
+								bind:value={aiSettings.request_timeout_seconds}
+								min="30"
+								max="3600"
+								step="10"
+								placeholder="Default: 300"
+								class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+							/>
+							<p class="text-xs text-muted-foreground mt-1">Default: 300 seconds. Range: 30 to 3600 seconds.</p>
+							<p class="text-xs text-muted-foreground mt-1">How long the app waits for AI replies before aborting. Useful for slower local models like Ollama.</p>
+						</div>
 
 					<!-- Enable AI Toggle -->
 					<div class="py-4 border-b border-border/50">

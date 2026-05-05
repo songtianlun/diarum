@@ -5,6 +5,7 @@ export interface AISettings {
 	base_url: string;
 	chat_model: string;
 	embedding_model: string;
+	request_timeout_seconds: number;
 	enabled: boolean;
 }
 
@@ -53,6 +54,7 @@ export async function getAISettings(): Promise<AISettings> {
 			base_url: '',
 			chat_model: '',
 			embedding_model: '',
+			request_timeout_seconds: 300,
 			enabled: false
 		};
 	}

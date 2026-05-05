@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"strconv"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/daos"
@@ -111,6 +112,57 @@ func (s *ConfigService) GetBool(userId, key string) (bool, error) {
 		return v == "true", nil
 	}
 	return false, nil
+}
+
+// GetInt retrieves an integer configuration value.
+func (s *ConfigService) GetInt(userId, key string) (int, error) {
+	value, err := s.Get(userId, key)
+	if err != nil {
+		return 0, err
+	}
+	if value == nil {
+		return 0, nil
+	}
+
+	if raw, ok := value.(types.JsonRaw); ok {
+		var intValue int
+		if err := json.Unmarshal(raw, &intValue); err == nil {
+			return intValue, nil
+		}
+
+		var floatValue float64
+		if err := json.Unmarshal(raw, &floatValue); err == nil {
+			return int(floatValue), nil
+		}
+
+		var stringValue string
+		if err := json.Unmarshal(raw, &stringValue); err == nil {
+			parsed, parseErr := strconv.Atoi(stringValue)
+			if parseErr == nil {
+				return parsed, nil
+			}
+		}
+
+		return 0, nil
+	}
+
+	switch v := value.(type) {
+	case int:
+		return v, nil
+	case int32:
+		return int(v), nil
+	case int64:
+		return int(v), nil
+	case float64:
+		return int(v), nil
+	case string:
+		parsed, parseErr := strconv.Atoi(v)
+		if parseErr == nil {
+			return parsed, nil
+		}
+	}
+
+	return 0, nil
 }
 
 // Set stores a configuration value for a user
