@@ -1,8 +1,10 @@
-.PHONY: help build dev run clean test frontend backend docker version
+.PHONY: help build dev run clean test frontend backend docker version install-air
 
 # Get version from git
 VERSION ?= $(shell git describe --dirty --always --tags --abbrev=7 2>/dev/null || echo "dev")
 LDFLAGS := -X main.Version=$(VERSION)
+AIR_VERSION ?= latest
+AIR := $(CURDIR)/.tmp/bin/air
 
 # Default target
 help:
@@ -52,9 +54,16 @@ dev-backend:
 	@echo "Installing backend dependencies..."
 	@go mod download
 	@mkdir -p .tmp
-	@go build -o .tmp/diarum-dev .
-	@echo "Starting backend server..."
-	exec env LOG_LEVEL=DEBUG ./.tmp/diarum-dev serve
+	@$(MAKE) install-air
+	@echo "Starting backend server with air..."
+	exec $(AIR) -c .air.toml
+
+install-air: $(AIR)
+
+$(AIR):
+	@echo "Installing air..."
+	@mkdir -p .tmp/bin
+	@GOBIN=$(CURDIR)/.tmp/bin go install github.com/air-verse/air@$(AIR_VERSION)
 
 # Run the built application
 run:

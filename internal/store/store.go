@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/songtianlun/diarum/internal/logger"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -116,14 +118,20 @@ func Open(dataDir string) (*Store, error) {
 			return nil, err
 		}
 		if oldExists {
-			if err := backupLegacyData(dataDir, oldPath); err != nil {
+			logger.Info("[Store] legacy database detected, starting migration: source=%s target=%s", oldPath, newPath)
+			backupDir, err := backupLegacyData(dataDir, oldPath)
+			if err != nil {
+				logger.Error("[Store] legacy database backup failed: source=%s err=%v", oldPath, err)
 				db.Close()
 				return nil, err
 			}
+			logger.Info("[Store] legacy database backup completed: path=%s", backupDir)
 			if err := migrateLegacyData(db, oldPath); err != nil {
+				logger.Error("[Store] legacy database migration failed: source=%s target=%s err=%v", oldPath, newPath, err)
 				db.Close()
 				return nil, err
 			}
+			logger.Info("[Store] legacy database migration completed: source=%s target=%s", oldPath, newPath)
 		}
 		if err := ensureRuntimeMetadata(db, oldPath); err != nil {
 			db.Close()
@@ -277,12 +285,13 @@ func createSchema(db *sql.DB) error {
 
 func migrateLegacyData(db *sql.DB, oldPath string) error {
 	if !isLegacyDataDB(oldPath) {
+		logger.Warn("[Store] legacy migration skipped: source is not a legacy database: path=%s", oldPath)
 		return nil
 	}
 
 	quotedPath := strings.ReplaceAll(oldPath, "'", "''")
 	if _, err := db.Exec("ATTACH DATABASE '" + quotedPath + "' AS legacy"); err != nil {
-		return err
+		return fmt.Errorf("attach legacy database: %w", err)
 	}
 	defer db.Exec("DETACH DATABASE legacy")
 
@@ -292,26 +301,45 @@ func migrateLegacyData(db *sql.DB, oldPath string) error {
 	}
 	defer tx.Rollback()
 
-	copyStatements := []string{
-		`INSERT OR IGNORE INTO users(avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified)
+	copyStatements := []struct {
+		table     string
+		statement string
+	}{
+		{"users", `INSERT OR IGNORE INTO users(avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified)
 		 SELECT avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified FROM legacy.users`,
-		`INSERT OR IGNORE INTO diaries(content, created, date, id, mood, owner, updated, weather, tags)
+		},
+		{"diaries", `INSERT OR IGNORE INTO diaries(content, created, date, id, mood, owner, updated, weather, tags)
 		 SELECT content, created, date, id, mood, owner, updated, weather, COALESCE(tags, '[]') FROM legacy.diaries`,
-		`INSERT OR IGNORE INTO tags(created, id, name, owner, updated)
+		},
+		{"tags", `INSERT OR IGNORE INTO tags(created, id, name, owner, updated)
 		 SELECT created, id, name, owner, updated FROM legacy.tags`,
-		`INSERT OR IGNORE INTO media(alt, created, file, id, name, owner, updated, diary)
+		},
+		{"media", `INSERT OR IGNORE INTO media(alt, created, file, id, name, owner, updated, diary)
 		 SELECT alt, created, file, id, name, owner, updated, COALESCE(diary, '[]') FROM legacy.media`,
-		`INSERT OR IGNORE INTO user_settings(created, encrypted, id, key, updated, user, value)
+		},
+		{"user_settings", `INSERT OR IGNORE INTO user_settings(created, encrypted, id, key, updated, user, value)
 		 SELECT created, encrypted, id, key, updated, user, value FROM legacy.user_settings`,
-		`INSERT OR IGNORE INTO ai_conversations(created, id, owner, title, updated)
+		},
+		{"ai_conversations", `INSERT OR IGNORE INTO ai_conversations(created, id, owner, title, updated)
 		 SELECT created, id, owner, title, updated FROM legacy.ai_conversations`,
-		`INSERT OR IGNORE INTO ai_messages(content, conversation, created, id, owner, referenced_diaries, role, updated)
+		},
+		{"ai_messages", `INSERT OR IGNORE INTO ai_messages(content, conversation, created, id, owner, referenced_diaries, role, updated)
 		 SELECT content, conversation, created, id, owner, referenced_diaries, role, updated FROM legacy.ai_messages`,
+		},
 	}
-	for _, statement := range copyStatements {
-		if _, err := tx.Exec(statement); err != nil && !isMissingLegacyTableError(err) {
-			return err
+	totalCopied := int64(0)
+	for _, copyStatement := range copyStatements {
+		result, err := tx.Exec(copyStatement.statement)
+		if err != nil {
+			if isMissingLegacyTableError(err) {
+				logger.Warn("[Store] legacy migration skipped table: table=%s err=%v", copyStatement.table, err)
+				continue
+			}
+			return fmt.Errorf("copy legacy %s: %w", copyStatement.table, err)
 		}
+		rowsCopied, _ := result.RowsAffected()
+		totalCopied += rowsCopied
+		logger.Info("[Store] legacy migration copied rows: table=%s rows=%d", copyStatement.table, rowsCopied)
 	}
 
 	mediaCollectionID := lookupLegacyCollectionID(tx, "media")
@@ -328,7 +356,11 @@ func migrateLegacyData(db *sql.DB, oldPath string) error {
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit legacy migration: %w", err)
+	}
+	logger.Info("[Store] legacy migration committed: rows=%d mediaCollectionID=%s", totalCopied, mediaCollectionID)
+	return nil
 }
 
 func lookupLegacyCollectionID(tx *sql.Tx, name string) string {
@@ -371,19 +403,19 @@ func ensureRuntimeMetadata(db *sql.DB, oldPath string) error {
 	return nil
 }
 
-func backupLegacyData(dataDir, oldPath string) error {
+func backupLegacyData(dataDir, oldPath string) (string, error) {
 	backupDir := filepath.Join(dataDir, "backups", "pre-native-migration-"+time.Now().UTC().Format("20060102-150405"))
 	if err := os.MkdirAll(backupDir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	if err := copyFile(oldPath, filepath.Join(backupDir, LegacyDatabaseName)); err != nil {
-		return err
+		return "", err
 	}
 	logsPath := filepath.Join(dataDir, "logs.db")
 	if fileExists(logsPath) {
 		_ = copyFile(logsPath, filepath.Join(backupDir, "logs.db"))
 	}
-	return nil
+	return backupDir, nil
 }
 
 func copyFile(src, dst string) error {
