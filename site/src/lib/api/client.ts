@@ -145,7 +145,7 @@ function shouldHandleUnauthorized(input: RequestInfo | URL): boolean {
 }
 
 export function installUnauthorizedApiHandler(onUnauthorized: () => void): () => void {
-    if (typeof window === 'undefined') return () => {};
+    if (typeof window === 'undefined') return () => { };
     if (restoreFetchInterceptor) return restoreFetchInterceptor;
 
     const originalFetch = window.fetch.bind(window);
