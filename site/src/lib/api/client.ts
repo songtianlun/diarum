@@ -120,3 +120,56 @@ pb.authStore.onChange(() => {
 
 export const currentUser = writable(pb.authStore.model);
 export const isAuthenticated = writable(pb.authStore.isValid);
+
+let restoreFetchInterceptor: (() => void) | null = null;
+
+function getRequestUrl(input: RequestInfo | URL): URL | null {
+    if (typeof window === 'undefined') return null;
+
+    try {
+        if (typeof input === 'string' || input instanceof URL) {
+            return new URL(input.toString(), window.location.origin);
+        }
+
+        return new URL(input.url, window.location.origin);
+    } catch {
+        return null;
+    }
+}
+
+function shouldHandleUnauthorized(input: RequestInfo | URL): boolean {
+    const url = getRequestUrl(input);
+    if (!url || url.origin !== window.location.origin) return false;
+    if (!url.pathname.startsWith('/api/v1/')) return false;
+    return !['/api/v1/auth/login', '/api/v1/auth/register'].includes(url.pathname);
+}
+
+export function installUnauthorizedApiHandler(onUnauthorized: () => void): () => void {
+    if (typeof window === 'undefined') return () => {};
+    if (restoreFetchInterceptor) return restoreFetchInterceptor;
+
+    const originalFetch = window.fetch.bind(window);
+    let handlingUnauthorized = false;
+
+    window.fetch = async (input, init) => {
+        const response = await originalFetch(input, init);
+
+        if (response.status === 401 && shouldHandleUnauthorized(input) && !handlingUnauthorized) {
+            handlingUnauthorized = true;
+            pb.authStore.clear();
+            onUnauthorized();
+            queueMicrotask(() => {
+                handlingUnauthorized = false;
+            });
+        }
+
+        return response;
+    };
+
+    restoreFetchInterceptor = () => {
+        window.fetch = originalFetch;
+        restoreFetchInterceptor = null;
+    };
+
+    return restoreFetchInterceptor;
+}
