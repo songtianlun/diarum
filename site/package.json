@@ -4,7 +4,7 @@
 	"private": true,
 	"scripts": {
 		"prepare": "svelte-kit sync",
-		"dev": "vite dev --port 5173",
+		"dev": "vite dev --host 127.0.0.1 --port 5173 --strictPort",
 		"build": "vite build",
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -46,8 +46,7 @@
 		"@tiptap/suggestion": "^2.11.5",
 		"html-to-image": "^1.11.13",
 		"lowlight": "^3.2.0",
-		"marked": "^17.0.1",
-		"pocketbase": "^0.21.5"
+		"marked": "^17.0.1"
 	},
 	"type": "module"
 }

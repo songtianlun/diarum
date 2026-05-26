@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,71 +13,48 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
+
 	"github.com/songtianlun/diarum/internal/api"
+	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/logger"
-	_ "github.com/songtianlun/diarum/internal/migrations"
 	"github.com/songtianlun/diarum/internal/static"
-
-	"github.com/labstack/echo/v5"
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/plugins/migratecmd"
-	"github.com/spf13/cobra"
+	"github.com/songtianlun/diarum/internal/store"
 )
 
-// getDataDir returns the data directory path
-// Priority: command line flag > environment variable > default value
 func getDataDir() string {
-	// Check new environment variable first
 	if dataDir := os.Getenv("DIARUM_DATA_PATH"); dataDir != "" {
 		return dataDir
 	}
-	// Fallback to legacy environment variable for backwards compatibility
 	if dataDir := os.Getenv("DIARIA_DATA_PATH"); dataDir != "" {
 		return dataDir
 	}
-	// Default value
 	return "./diarum_data"
 }
 
-// serveSPA serves the SPA with fallback to index.html for client-side routing
 func serveSPA(c echo.Context, fsys fs.FS) error {
 	path := c.Request().URL.Path
-
-	// Skip API routes and PocketBase admin routes
-	if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/_/") {
+	if strings.HasPrefix(path, "/api/") {
 		return echo.ErrNotFound
 	}
-
-	// Clean the path
 	path = filepath.Clean(path)
 	if path == "." {
 		path = "/"
 	}
-
-	// Remove leading slash for fs.FS
-	if strings.HasPrefix(path, "/") {
-		path = path[1:]
-	}
-
-	// Try to serve the requested file
+	path = strings.TrimPrefix(path, "/")
 	file, err := fsys.Open(path)
 	if err == nil {
 		defer file.Close()
-
-		// Get file info to check if it's a directory
 		stat, err := file.Stat()
 		if err != nil {
 			return err
 		}
-
-		// If it's a directory, try index.html
 		if stat.IsDir() {
-			indexPath := filepath.Join(path, "index.html")
 			file.Close()
-			file, err = fsys.Open(indexPath)
+			file, err = fsys.Open(filepath.Join(path, "index.html"))
 			if err == nil {
 				defer file.Close()
 				stat, err = file.Stat()
@@ -85,175 +63,115 @@ func serveSPA(c echo.Context, fsys fs.FS) error {
 				}
 			}
 		}
-
-		// Serve the file
 		if err == nil {
 			http.ServeContent(c.Response(), c.Request(), stat.Name(), stat.ModTime(), file.(io.ReadSeeker))
 			return nil
 		}
 	}
-
-	// If file not found, serve index.html for SPA routing
 	indexFile, err := fsys.Open("index.html")
 	if err != nil {
 		return echo.ErrNotFound
 	}
 	defer indexFile.Close()
-
 	stat, err := indexFile.Stat()
 	if err != nil {
 		return err
 	}
-
 	http.ServeContent(c.Response(), c.Request(), "index.html", stat.ModTime(), indexFile.(io.ReadSeeker))
 	return nil
 }
 
 func main() {
-	// Get data directory from environment or default
-	defaultDataDir := getDataDir()
+	command := "serve"
+	args := os.Args[1:]
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		command = args[0]
+		args = args[1:]
+	}
+	if command == "version" {
+		fmt.Printf("%s version %s\n", Name, Version)
+		return
+	}
+	if command != "serve" {
+		log.Fatalf("unknown command: %s", command)
+	}
 
-	app := pocketbase.NewWithConfig(pocketbase.Config{
-		DefaultDataDir: defaultDataDir,
-	})
+	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
+	dataDir := serveFlags.String("data-dir", getDataDir(), "the directory to store application data")
+	httpAddr := serveFlags.String("http", ":8090", "HTTP listen address")
+	if err := serveFlags.Parse(args); err != nil {
+		log.Fatal(err)
+	}
 
-	// Add data-dir flag to serve command
-	var dataDirFlag string
-	app.RootCmd.PersistentFlags().StringVar(
-		&dataDirFlag,
-		"data-dir",
-		defaultDataDir,
-		"the directory to store application data",
-	)
+	appStore, err := store.Open(*dataDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer appStore.Close()
 
-	// Register migrations
-	migratecmd.MustRegister(app, app.RootCmd, migratecmd.Config{
-		Automigrate: true, // Auto-run migrations on startup
-	})
+	absDataDir, err := filepath.Abs(appStore.DataDir)
+	if err != nil {
+		log.Printf("Data directory: %s", appStore.DataDir)
+	} else {
+		log.Printf("Data directory: %s", absDataDir)
+	}
 
-	// Add version command
-	app.RootCmd.AddCommand(&cobra.Command{
-		Use:   "version",
-		Short: "Print the version number",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("%s version %s\n", Name, Version)
-		},
-	})
+	vectorDB, err := embedding.NewVectorDB(appStore.DataDir)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize vector database: %v", err)
+	}
+	var embeddingService *embedding.EmbeddingService
+	if vectorDB != nil {
+		embeddingService = embedding.NewEmbeddingService(appStore, vectorDB)
+	}
 
-	// Register custom routes and serve embedded frontend
-	app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
-		// Print data directory information
-		absDataDir, err := filepath.Abs(app.DataDir())
-		if err != nil {
-			log.Printf("Data directory: %s", app.DataDir())
-		} else {
-			log.Printf("Data directory: %s", absDataDir)
+	configService := config.NewConfigService(appStore)
+	authService := auth.NewService(appStore)
+	e := echo.New()
+	e.Use(middleware.Recover())
+	e.Use(middleware.Logger())
+
+	authMiddleware := authService.Middleware
+	onDiaryChanged := func(userID string) {
+		enabled, _ := configService.GetBool(userID, "ai.enabled")
+		if !enabled || embeddingService == nil {
+			return
 		}
-
-		// Initialize vector database and embedding service
-		vectorDB, err := embedding.NewVectorDB(app.DataDir())
-		if err != nil {
-			log.Printf("Warning: Failed to initialize vector database: %v", err)
-		}
-
-		var embeddingService *embedding.EmbeddingService
-		if vectorDB != nil {
-			embeddingService = embedding.NewEmbeddingService(app, vectorDB)
-		}
-
-		// Initialize config service for checking AI settings
-		configService := config.NewConfigService(app)
-
-		// Add diary create hook for auto vector build
-		app.OnRecordAfterCreateRequest("diaries").Add(func(e *core.RecordCreateEvent) error {
-			userID := e.Record.GetString("owner")
-			if userID == "" {
-				return nil
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			logger.Info("[AutoVectorBuild] triggered for user: %s", userID)
+			result, err := embeddingService.BuildIncrementalVectors(ctx, userID)
+			if err != nil {
+				logger.Error("[AutoVectorBuild] failed for user %s: %v", userID, err)
+				return
 			}
+			logger.Info("[AutoVectorBuild] completed for user %s: %d built, %d failed", userID, result.Success, result.Failed)
+		}()
+	}
 
-			// Check if AI is enabled for this user
-			enabled, _ := configService.GetBool(userID, "ai.enabled")
-			if !enabled || embeddingService == nil {
-				return nil
-			}
+	api.RegisterAuthRoutes(e, appStore, authService)
+	api.RegisterDiaryRoutes(e, appStore, authMiddleware, onDiaryChanged)
+	api.RegisterMediaRoutes(e, appStore, authMiddleware)
+	api.RegisterSettingsRoutes(e, appStore, authMiddleware)
+	api.RegisterAIRoutes(e, appStore, authMiddleware, embeddingService)
+	api.RegisterExportImportRoutes(e, appStore, authMiddleware, embeddingService)
+	api.RegisterCheveretoRoutes(e, appStore, authMiddleware)
+	api.RegisterPublicRoutes(e, appStore)
+	api.RegisterVersionRoutes(e, Version, Name)
+	if logger.GetLevel() <= logger.LevelDebug {
+		api.RegisterOpenAPIRoutes(e, Version, Name)
+		logger.Info("[Docs] OpenAPI docs enabled in debug mode at /api/docs and /api/v1/docs")
+	}
 
-			// Run incremental vector build in background
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				defer cancel()
+	staticFS, err := static.GetFS()
+	if err != nil {
+		log.Printf("Warning: Failed to get embedded static files: %v", err)
+	} else {
+		e.GET("/*", func(c echo.Context) error { return serveSPA(c, staticFS) })
+	}
 
-				logger.Info("[AutoVectorBuild] triggered by diary create for user: %s", userID)
-				result, err := embeddingService.BuildIncrementalVectors(ctx, userID)
-				if err != nil {
-					logger.Error("[AutoVectorBuild] failed for user %s: %v", userID, err)
-					return
-				}
-				logger.Info("[AutoVectorBuild] completed for user %s: %d built, %d failed", userID, result.Success, result.Failed)
-			}()
-
-			return nil
-		})
-
-		// Add diary update hook for auto vector build
-		app.OnRecordAfterUpdateRequest("diaries").Add(func(e *core.RecordUpdateEvent) error {
-			userID := e.Record.GetString("owner")
-			if userID == "" {
-				return nil
-			}
-
-			// Check if AI is enabled for this user
-			enabled, _ := configService.GetBool(userID, "ai.enabled")
-			if !enabled || embeddingService == nil {
-				return nil
-			}
-
-			// Run incremental vector build in background
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				defer cancel()
-
-				logger.Info("[AutoVectorBuild] triggered by diary update for user: %s", userID)
-				result, err := embeddingService.BuildIncrementalVectors(ctx, userID)
-				if err != nil {
-					logger.Error("[AutoVectorBuild] failed for user %s: %v", userID, err)
-					return
-				}
-				logger.Info("[AutoVectorBuild] completed for user %s: %d built, %d failed", userID, result.Success, result.Failed)
-			}()
-
-			return nil
-		})
-
-		// Register API routes
-		api.RegisterAuthRoutes(app, e)
-		api.RegisterDiaryRoutes(app, e)
-		api.RegisterSettingsRoutes(app, e)
-		api.RegisterAIRoutes(app, e, embeddingService)
-		api.RegisterExportImportRoutes(app, e, embeddingService)
-		api.RegisterCheveretoRoutes(app, e)
-		api.RegisterPublicRoutes(app, e)
-		api.RegisterVersionRoutes(e, Version, Name)
-		if logger.GetLevel() <= logger.LevelDebug {
-			api.RegisterOpenAPIRoutes(e, Version, Name)
-			logger.Info("[Docs] OpenAPI docs enabled in debug mode at /api/docs and /api/v1/docs")
-		}
-
-		// Serve embedded frontend static files with SPA fallback
-		staticFS, err := static.GetFS()
-		if err != nil {
-			log.Printf("Warning: Failed to get embedded static files: %v", err)
-		} else {
-			// Add SPA handler for all routes (with lowest priority)
-			e.Router.GET("/*", func(c echo.Context) error {
-				return serveSPA(c, staticFS)
-			})
-		}
-
-		return nil
-	})
-
-	// Start the application
-	if err := app.Start(); err != nil {
+	if err := e.Start(*httpAddr); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

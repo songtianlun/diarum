@@ -1,113 +1,95 @@
 import { pb, type Media, type Diary } from './client';
 
 export interface MediaWithDiary extends Media {
-	expand?: {
-		diary?: Diary[];
-	};
+    expand?: {
+        diary?: Diary[];
+    };
 }
 
-/**
- * Get all media for current user, sorted by creation time
- */
 export async function getAllMedia(page: number = 1, perPage: number = 50): Promise<{
-	items: MediaWithDiary[];
-	totalPages: number;
-	totalItems: number;
+    items: MediaWithDiary[];
+    totalPages: number;
+    totalItems: number;
 }> {
-	try {
-		const result = await pb.collection('media').getList<MediaWithDiary>(page, perPage, {
-			sort: '-created',
-			expand: 'diary'
-		});
-		return {
-			items: result.items,
-			totalPages: result.totalPages,
-			totalItems: result.totalItems
-		};
-	} catch (error) {
-		console.error('Error fetching media:', error);
-		return { items: [], totalPages: 0, totalItems: 0 };
-	}
+    try {
+        const response = await fetch(`/api/v1/media?page=${page}&perPage=${perPage}`, {
+            headers: { Authorization: `Bearer ${pb.authStore.token}` }
+        });
+        if (!response.ok) return { items: [], totalPages: 0, totalItems: 0 };
+        const result = await response.json();
+        return { items: result.items || [], totalPages: result.totalPages || 0, totalItems: result.totalItems || 0 };
+    } catch (error) {
+        console.error('Error fetching media:', error);
+        return { items: [], totalPages: 0, totalItems: 0 };
+    }
 }
 
-/**
- * Get media by ID with diary info
- */
 export async function getMediaById(id: string): Promise<MediaWithDiary | null> {
-	try {
-		return await pb.collection('media').getOne<MediaWithDiary>(id, {
-			expand: 'diary'
-		});
-	} catch (error) {
-		console.error('Error fetching media:', error);
-		return null;
-	}
+    try {
+        const response = await fetch(`/api/v1/media/${encodeURIComponent(id)}`, {
+            headers: { Authorization: `Bearer ${pb.authStore.token}` }
+        });
+        if (!response.ok) return null;
+        return await response.json();
+    } catch (error) {
+        console.error('Error fetching media:', error);
+        return null;
+    }
 }
 
-/**
- * Add diary association to media (supports multiple diaries)
- */
 export async function addMediaDiary(mediaId: string, diaryId: string): Promise<boolean> {
-	try {
-		// Get current media to check existing diary associations
-		const media = await pb.collection('media').getOne<Media>(mediaId);
-
-		// Handle both old format (string) and new format (array)
-		let currentDiaries: string[] = [];
-		if (Array.isArray(media.diary)) {
-			currentDiaries = media.diary;
-		} else if (typeof media.diary === 'string' && media.diary) {
-			currentDiaries = [media.diary];
-		}
-
-		// Check if already associated
-		if (currentDiaries.includes(diaryId)) {
-			return true;
-		}
-
-		// Add new diary to the list
-		await pb.collection('media').update(mediaId, {
-			diary: [...currentDiaries, diaryId]
-		});
-		return true;
-	} catch (error) {
-		console.error('Error adding diary to media:', error);
-		return false;
-	}
+    try {
+        const media = await getMediaById(mediaId);
+        if (!media) return false;
+        const currentDiaries = Array.isArray(media.diary) ? media.diary : [];
+        if (currentDiaries.includes(diaryId)) return true;
+        const response = await fetch(`/api/v1/media/${encodeURIComponent(mediaId)}`, {
+            method: 'PATCH',
+            headers: {
+                Authorization: `Bearer ${pb.authStore.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ diary: [...currentDiaries, diaryId] })
+        });
+        return response.ok;
+    } catch (error) {
+        console.error('Error adding diary to media:', error);
+        return false;
+    }
 }
 
-/**
- * Update media diary association (replace all)
- */
 export async function updateMediaDiary(mediaId: string, diaryId: string): Promise<boolean> {
-	try {
-		await pb.collection('media').update(mediaId, { diary: [diaryId] });
-		return true;
-	} catch (error) {
-		console.error('Error updating media:', error);
-		return false;
-	}
+    try {
+        const response = await fetch(`/api/v1/media/${encodeURIComponent(mediaId)}`, {
+            method: 'PATCH',
+            headers: {
+                Authorization: `Bearer ${pb.authStore.token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ diary: [diaryId] })
+        });
+        return response.ok;
+    } catch (error) {
+        console.error('Error updating media:', error);
+        return false;
+    }
 }
 
-/**
- * Delete media by ID
- */
 export async function deleteMediaById(id: string): Promise<boolean> {
-	try {
-		await pb.collection('media').delete(id);
-		return true;
-	} catch (error) {
-		console.error('Error deleting media:', error);
-		return false;
-	}
+    try {
+        const response = await fetch(`/api/v1/media/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${pb.authStore.token}` }
+        });
+        return response.ok;
+    } catch (error) {
+        console.error('Error deleting media:', error);
+        return false;
+    }
 }
 
-/**
- * Get media URL with optional thumbnail
- */
 export function getMediaFileUrl(media: Media, thumb?: string): string {
-	if (!media.id || !media.file) {
-		return '';
-	}
-	return pb.files.getUrl(media as any, media.file, { thumb });
+    if (!media.id || !media.file) return '';
+    const url = `/api/v1/files/media/${encodeURIComponent(media.id)}/${encodeURIComponent(media.file)}`;
+    return thumb ? `${url}?thumb=${encodeURIComponent(thumb)}` : url;
 }

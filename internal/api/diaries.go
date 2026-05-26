@@ -6,464 +6,155 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/apis"
-	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/models"
+
+	"github.com/songtianlun/diarum/internal/auth"
+	"github.com/songtianlun/diarum/internal/store"
 )
 
-// RegisterDiaryRoutes registers custom API endpoints for diary operations
-func RegisterDiaryRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
-	// Upsert diary by date (create if missing, update if exists)
-	e.Router.POST("/api/v1/diaries/upsert", func(c echo.Context) error {
-		// Get authenticated user
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
+// RegisterDiaryRoutes registers custom API endpoints for diary operations.
+func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.MiddlewareFunc, onDiaryChanged func(string)) {
+	group := e.Group("/api/v1/diaries", authMiddleware)
 
-		userId := authRecord.Id
-
-		type upsertBody struct {
+	group.POST("/upsert", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		var body struct {
 			Date    string `json:"date"`
 			Content string `json:"content"`
 			Mood    string `json:"mood"`
 			Weather string `json:"weather"`
 		}
-
-		var body upsertBody
 		if err := c.Bind(&body); err != nil {
-			return apis.NewBadRequestError("Invalid request body", err)
+			return badRequest("Invalid request body", err)
 		}
-
 		if body.Date == "" {
-			return apis.NewBadRequestError("date is required", nil)
+			return badRequest("date is required", nil)
 		}
 
-		startTime := body.Date + " 00:00:00.000Z"
-		endTime := body.Date + " 23:59:59.999Z"
-
-		// Try update existing record of the same user/date first.
-		existing, findErr := app.Dao().FindFirstRecordByFilter(
-			"diaries",
-			"date >= {:start} && date <= {:end} && owner = {:owner}",
-			map[string]any{
-				"start": startTime,
-				"end":   endTime,
-				"owner": userId,
-			},
-		)
-
-		if findErr == nil && existing != nil {
-			existing.Set("content", body.Content)
-			existing.Set("mood", body.Mood)
-			existing.Set("weather", body.Weather)
-			if err := app.Dao().SaveRecord(existing); err != nil {
-				return apis.NewBadRequestError("Failed to update diary", err)
-			}
-			return c.JSON(http.StatusOK, map[string]any{
-				"id":      existing.GetId(),
-				"date":    body.Date,
-				"content": existing.GetString("content"),
-				"mood":    existing.GetString("mood"),
-				"weather": existing.GetString("weather"),
-				"updated": existing.Updated.String(),
-			})
-		}
-
-		diariesCollection, err := app.Dao().FindCollectionByNameOrId("diaries")
+		diary, _, err := s.UpsertDiary(user.ID, body.Date, body.Content, body.Mood, body.Weather)
 		if err != nil {
-			return apis.NewBadRequestError("Failed to find diaries collection", err)
+			return badRequest("Failed to save diary", err)
 		}
-
-		record := models.NewRecord(diariesCollection)
-		record.Set("date", startTime)
-		record.Set("content", body.Content)
-		record.Set("mood", body.Mood)
-		record.Set("weather", body.Weather)
-		record.Set("owner", userId)
-
-		if err := app.Dao().SaveRecord(record); err != nil {
-			return apis.NewBadRequestError("Failed to create diary", err)
+		if onDiaryChanged != nil {
+			onDiaryChanged(user.ID)
 		}
+		return c.JSON(http.StatusOK, diaryResponse(diary, body.Date, true))
+	})
 
-		return c.JSON(http.StatusOK, map[string]any{
-			"id":      record.GetId(),
-			"date":    body.Date,
-			"content": record.GetString("content"),
-			"mood":    record.GetString("mood"),
-			"weather": record.GetString("weather"),
-			"updated": record.Updated.String(),
-		})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
-
-	// Get diary by date
-	e.Router.GET("/api/v1/diaries/by-date/:date", func(c echo.Context) error {
+	group.GET("/by-date/:date", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
 		dateStr := c.PathParam("date")
-
-		// Get authenticated user
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
-
-		userId := authRecord.Id
-
-		// Parse date and create time range for the entire day
-		// Input format: "2026-01-28"
-		// Create range: "2026-01-28 00:00:00" to "2026-01-28 23:59:59"
-		startTime := dateStr + " 00:00:00.000Z"
-		endTime := dateStr + " 23:59:59.999Z"
-
-		// Query diary by date range and owner
-		record, err := app.Dao().FindFirstRecordByFilter(
-			"diaries",
-			"date >= {:start} && date <= {:end} && owner = {:owner}",
-			map[string]any{
-				"start": startTime,
-				"end":   endTime,
-				"owner": userId,
-			},
-		)
-
+		start, end := dateStr+" 00:00:00.000Z", dateStr+" 23:59:59.999Z"
+		diary, err := s.GetDiaryByDate(user.ID, start, end)
 		if err != nil {
-			// Return empty diary if not found
-			return c.JSON(http.StatusOK, map[string]any{
-				"date":    dateStr,
-				"content": "",
-				"exists":  false,
-			})
+			return c.JSON(http.StatusOK, map[string]any{"date": dateStr, "content": "", "exists": false})
 		}
+		return c.JSON(http.StatusOK, diaryResponse(diary, dateStr, true))
+	})
 
-		return c.JSON(http.StatusOK, map[string]any{
-			"id":      record.GetId(),
-			"date":    dateStr, // Return original date format
-			"content": record.GetString("content"),
-			"mood":    record.GetString("mood"),
-			"weather": record.GetString("weather"),
-			"exists":  true,
-		})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
-
-	// Check which dates have diaries
-	e.Router.GET("/api/v1/diaries/exists", func(c echo.Context) error {
+	group.GET("/exists", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
 		start := c.QueryParam("start")
 		end := c.QueryParam("end")
-
-		// Get authenticated user
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
-
-		userId := authRecord.Id
-
-		// Parse date range
 		if start == "" || end == "" {
-			// Default to current month
 			now := time.Now()
 			start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 			end = time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 		}
-
-		// Convert to full timestamp range
-		startTime := start + " 00:00:00.000Z"
-		endTime := end + " 23:59:59.999Z"
-
-		// Query all diaries in date range
-		records, err := app.Dao().FindRecordsByFilter(
-			"diaries",
-			"date >= {:start} && date <= {:end} && owner = {:owner}",
-			"-date",
-			-1,
-			0,
-			map[string]any{
-				"start": startTime,
-				"end":   endTime,
-				"owner": userId,
-			},
-		)
-
+		diaries, err := s.ListDiaries(user.ID, start+" 00:00:00.000Z", end+" 23:59:59.999Z", "-date", 0)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "Failed to query diaries",
-			})
+			return serverError("Failed to query diaries", err)
 		}
-
-		type calendarEntry struct {
-			Date    string `json:"date"`
-			Mood    string `json:"mood"`
-			Weather string `json:"weather"`
+		dates := make([]string, 0, len(diaries))
+		entries := make([]map[string]string, 0, len(diaries))
+		for _, diary := range diaries {
+			date := store.DateOnly(diary.Date)
+			dates = append(dates, date)
+			entries = append(entries, map[string]string{"date": date, "mood": diary.Mood, "weather": diary.Weather})
 		}
+		return c.JSON(http.StatusOK, map[string]any{"dates": dates, "entries": entries})
+	})
 
-		// Extract dates (convert from timestamp to YYYY-MM-DD format)
-		dates := make([]string, 0, len(records))
-		entries := make([]calendarEntry, 0, len(records))
-		for _, record := range records {
-			dateTime := record.GetString("date")
-			// Extract just the date part (YYYY-MM-DD) from "YYYY-MM-DD HH:MM:SS.SSSZ"
-			if len(dateTime) >= 10 {
-				date := dateTime[:10]
-				dates = append(dates, date)
-				entries = append(entries, calendarEntry{
-					Date:    date,
-					Mood:    record.GetString("mood"),
-					Weather: record.GetString("weather"),
-				})
-			}
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			"dates":   dates,
-			"entries": entries,
-		})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
-
-	// Get diary stats (streak and total)
-	e.Router.GET("/api/v1/diaries/stats", func(c echo.Context) error {
-		// Get authenticated user
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
-
-		userId := authRecord.Id
-
-		// Get timezone from query param, default to UTC
+	group.GET("/stats", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
 		tz := c.QueryParam("tz")
 		loc := time.UTC
 		if tz != "" {
-			if parsedLoc, err := time.LoadLocation(tz); err == nil {
-				loc = parsedLoc
+			if parsed, err := time.LoadLocation(tz); err == nil {
+				loc = parsed
 			}
 		}
-
-		// Get total count using COUNT query for better performance
-		var total int
-		err := app.Dao().DB().
-			NewQuery("SELECT COUNT(*) FROM diaries WHERE owner = {:owner}").
-			Bind(map[string]any{"owner": userId}).
-			Row(&total)
-		if err != nil {
-			total = 0
-		}
-
-		// Calculate streak - only fetch recent records (last 365 days max)
-		streak := 0
+		total := s.CountDiaries(user.ID)
 		now := time.Now().In(loc)
-		today := now.Format("2006-01-02")
 		oneYearAgo := now.AddDate(-1, 0, 0).Format("2006-01-02")
-
-		records, err := app.Dao().FindRecordsByFilter(
-			"diaries",
-			"owner = {:owner} && date >= {:start}",
-			"-date",
-			365,
-			0,
-			map[string]any{
-				"owner": userId,
-				"start": oneYearAgo + " 00:00:00.000Z",
-			},
-		)
-
-		if err == nil && len(records) > 0 {
-			// Create a set of dates for quick lookup
-			dateSet := make(map[string]bool)
-			for _, record := range records {
-				dateTime := record.GetString("date")
-				if len(dateTime) >= 10 {
-					dateSet[dateTime[:10]] = true
-				}
-			}
-
-			// Start counting from today or yesterday
-			yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
-			var checkDate time.Time
-			if dateSet[today] {
-				checkDate = now
-			} else if dateSet[yesterday] {
-				checkDate = now.AddDate(0, 0, -1)
-			}
-
-			if !checkDate.IsZero() {
-				for {
-					dateStr := checkDate.Format("2006-01-02")
-					if dateSet[dateStr] {
-						streak++
-						checkDate = checkDate.AddDate(0, 0, -1)
-					} else {
-						break
-					}
-				}
-			}
+		diaries, _ := s.ListDiaries(user.ID, oneYearAgo+" 00:00:00.000Z", "", "-date", 365)
+		dateSet := make(map[string]bool, len(diaries))
+		for _, diary := range diaries {
+			dateSet[store.DateOnly(diary.Date)] = true
 		}
+		streak := 0
+		today := now.Format("2006-01-02")
+		yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+		var checkDate time.Time
+		if dateSet[today] {
+			checkDate = now
+		} else if dateSet[yesterday] {
+			checkDate = now.AddDate(0, 0, -1)
+		}
+		for !checkDate.IsZero() {
+			if !dateSet[checkDate.Format("2006-01-02")] {
+				break
+			}
+			streak++
+			checkDate = checkDate.AddDate(0, 0, -1)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"total": total, "streak": streak})
+	})
 
-		return c.JSON(http.StatusOK, map[string]any{
-			"total":  total,
-			"streak": streak,
-		})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
-
-	// Search diaries
-	e.Router.GET("/api/v1/diaries/search", func(c echo.Context) error {
+	group.GET("/search", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
 		query := c.QueryParam("q")
-
-		// Get authenticated user
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
-
 		if query == "" {
-			return apis.NewBadRequestError("Query parameter 'q' is required", nil)
+			return badRequest("Query parameter 'q' is required", nil)
 		}
-
-		userId := authRecord.Id
-
-		// Search in content
-		records, err := app.Dao().FindRecordsByFilter(
-			"diaries",
-			"content ~ {:query} && owner = {:owner}",
-			"-date",
-			50, // Limit to 50 results
-			0,
-			map[string]any{
-				"query": query,
-				"owner": userId,
-			},
-		)
-
+		diaries, err := s.SearchDiaries(user.ID, query, 50)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "Search failed",
-			})
+			return serverError("Search failed", err)
 		}
-
-		// Format results
-		results := make([]map[string]any, 0, len(records))
-		for _, record := range records {
-			content := record.GetString("content")
-			// Get snippet (first 200 chars)
-			snippet := content
-			if len(content) > 200 {
-				snippet = content[:200] + "..."
+		results := make([]map[string]any, 0, len(diaries))
+		for _, diary := range diaries {
+			snippet := diary.Content
+			if len(snippet) > 200 {
+				snippet = snippet[:200] + "..."
 			}
-
-			// Extract date part from timestamp
-			dateTime := record.GetString("date")
-			dateStr := dateTime
-			if len(dateTime) >= 10 {
-				dateStr = dateTime[:10]
-			}
-
-			results = append(results, map[string]any{
-				"id":      record.GetId(),
-				"date":    dateStr,
-				"snippet": snippet,
-				"mood":    record.GetString("mood"),
-				"weather": record.GetString("weather"),
-			})
+			results = append(results, map[string]any{"id": diary.ID, "date": store.DateOnly(diary.Date), "snippet": snippet, "mood": diary.Mood, "weather": diary.Weather})
 		}
+		return c.JSON(http.StatusOK, map[string]any{"results": results, "total": len(results)})
+	})
 
-		return c.JSON(http.StatusOK, map[string]any{
-			"results": results,
-			"total":   len(results),
-		})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
-
-	// Get diary by id
-	e.Router.GET("/api/v1/diaries/:id", func(c echo.Context) error {
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
-
-		record, err := app.Dao().FindRecordById("diaries", c.PathParam("id"))
-		if err != nil {
-			return apis.NewNotFoundError("Diary not found", err)
-		}
-
-		if record.GetString("owner") != authRecord.Id {
-			return apis.NewForbiddenError("Access denied", nil)
-		}
-
-		dateTime := record.GetString("date")
-		dateStr := dateTime
-		if len(dateTime) >= 10 {
-			dateStr = dateTime[:10]
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			"id":      record.GetId(),
-			"date":    dateStr,
-			"content": record.GetString("content"),
-			"mood":    record.GetString("mood"),
-			"weather": record.GetString("weather"),
-			"owner":   record.GetString("owner"),
-			"created": record.Created.String(),
-			"updated": record.Updated.String(),
-		})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
-
-	// Get multiple diaries by ids
-	e.Router.POST("/api/v1/diaries/by-ids", func(c echo.Context) error {
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
-
+	group.POST("/by-ids", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
 		var body struct {
 			IDs []string `json:"ids"`
 		}
 		if err := c.Bind(&body); err != nil {
-			return apis.NewBadRequestError("Invalid request body", err)
+			return badRequest("Invalid request body", err)
 		}
-
-		if len(body.IDs) == 0 {
-			return c.JSON(http.StatusOK, map[string]any{"diaries": []map[string]any{}})
-		}
-
-		records := make([]map[string]any, 0, len(body.IDs))
+		result := make([]map[string]any, 0, len(body.IDs))
 		for _, id := range body.IDs {
-			record, err := app.Dao().FindRecordById("diaries", id)
-			if err != nil {
+			diary, err := s.GetDiaryByID(id)
+			if err != nil || diary.Owner != user.ID {
 				continue
 			}
-			if record.GetString("owner") != authRecord.Id {
-				continue
-			}
-
-			dateTime := record.GetString("date")
-			dateStr := dateTime
-			if len(dateTime) >= 10 {
-				dateStr = dateTime[:10]
-			}
-
-			records = append(records, map[string]any{
-				"id":      record.GetId(),
-				"date":    dateStr,
-				"content": record.GetString("content"),
-				"mood":    record.GetString("mood"),
-				"weather": record.GetString("weather"),
-				"owner":   record.GetString("owner"),
-				"created": record.Created.String(),
-				"updated": record.Updated.String(),
-			})
+			result = append(result, diaryResponse(diary, store.DateOnly(diary.Date), true))
 		}
+		return c.JSON(http.StatusOK, map[string]any{"diaries": result})
+	})
 
-		return c.JSON(http.StatusOK, map[string]any{"diaries": records})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
-
-	// Get recent diaries
-	e.Router.GET("/api/v1/diaries/recent", func(c echo.Context) error {
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
-
+	group.GET("/recent", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
 		limit := 5
-		if v := c.QueryParam("limit"); v != "" {
-			if parsed, err := strconv.Atoi(v); err == nil {
+		if raw := c.QueryParam("limit"); raw != "" {
+			if parsed, err := strconv.Atoi(raw); err == nil {
 				limit = parsed
 			}
 		}
@@ -473,56 +164,51 @@ func RegisterDiaryRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
 		if limit > 100 {
 			limit = 100
 		}
-
-		records, err := app.Dao().FindRecordsByFilter(
-			"diaries",
-			"owner = {:owner}",
-			"-date",
-			limit,
-			0,
-			map[string]any{"owner": authRecord.Id},
-		)
+		diaries, err := s.ListDiaries(user.ID, "", "", "-date", limit)
 		if err != nil {
-			return apis.NewBadRequestError("Failed to fetch recent diaries", err)
+			return badRequest("Failed to fetch recent diaries", err)
 		}
-
-		result := make([]map[string]any, 0, len(records))
-		for _, item := range records {
-			dateTime := item.GetString("date")
-			dateStr := dateTime
-			if len(dateTime) >= 10 {
-				dateStr = dateTime[:10]
-			}
-			result = append(result, map[string]any{
-				"id":      item.GetId(),
-				"date":    dateStr,
-				"content": item.GetString("content"),
-			})
+		result := make([]map[string]any, 0, len(diaries))
+		for _, diary := range diaries {
+			result = append(result, map[string]any{"id": diary.ID, "date": store.DateOnly(diary.Date), "content": diary.Content})
 		}
-
 		return c.JSON(http.StatusOK, map[string]any{"diaries": result})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+	})
 
-	// Delete diary by id
-	e.Router.DELETE("/api/v1/diaries/:id", func(c echo.Context) error {
-		authRecord, _ := c.Get(apis.ContextAuthRecordKey).(*models.Record)
-		if authRecord == nil {
-			return apis.NewUnauthorizedError("The request requires valid authorization token.", nil)
-		}
-
-		record, err := app.Dao().FindRecordById("diaries", c.PathParam("id"))
+	group.GET("/:id", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		diary, err := s.GetDiaryByID(c.PathParam("id"))
 		if err != nil {
-			return apis.NewNotFoundError("Diary not found", err)
+			return notFound("Diary not found")
 		}
-
-		if record.GetString("owner") != authRecord.Id {
-			return apis.NewForbiddenError("Access denied", nil)
+		if diary.Owner != user.ID {
+			return forbidden("Access denied")
 		}
+		return c.JSON(http.StatusOK, diaryResponse(diary, store.DateOnly(diary.Date), true))
+	})
 
-		if err := app.Dao().DeleteRecord(record); err != nil {
-			return apis.NewBadRequestError("Failed to delete diary", err)
+	group.DELETE("/:id", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		if err := s.DeleteDiary(c.PathParam("id"), user.ID); err != nil {
+			return notFound("Diary not found")
 		}
-
+		if onDiaryChanged != nil {
+			onDiaryChanged(user.ID)
+		}
 		return c.JSON(http.StatusOK, map[string]any{"success": true})
-	}, apis.ActivityLogger(app), apis.RequireRecordAuth())
+	})
+}
+
+func diaryResponse(diary *store.Diary, date string, exists bool) map[string]any {
+	return map[string]any{
+		"id":      diary.ID,
+		"date":    date,
+		"content": diary.Content,
+		"mood":    diary.Mood,
+		"weather": diary.Weather,
+		"owner":   diary.Owner,
+		"created": diary.Created,
+		"updated": diary.Updated,
+		"exists":  exists,
+	}
 }

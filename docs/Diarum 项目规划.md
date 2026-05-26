@@ -36,7 +36,7 @@
 | | 日历跳转 | 提供一个日历视图，可以快速跳转到任意指定日期。 |
 | **数据管理** | 基础搜索 | 支持对所有日记内容进行关键词全文检索。 |
 | **开放性** | 基础 API | 提供稳定的 CRUD (Create, Read, Update, Delete) API 用于日记条目。 |
-| **部署** | 一键部署 | 提供 `docker-compose.yml` 文件，整合 Go 后端和 PocketBase，实现单命令启动。 |
+| **部署** | 一键部署 | 提供 `docker-compose.yml` 文件，整合 Go 后端、SQLite 与嵌入式前端，实现单命令启动。 |
 
 #### V2 - 核心功能完善
 
@@ -48,7 +48,7 @@
 | | 日记漫游 | 提供一个"随机漫游"按钮，随机跳转到过去的一篇日记。 |
 | **组织方式** | 标签系统 | 支持为每篇日记打上多个标签，并提供按标签筛选日记的功能。 |
 | **丰富维度** | 心情与天气 | （可选）在日记中记录当天的心情和天气情况。 |
-| **编辑器** | 图片上传 | 支持在日记中上传图片，图片存储于 PocketBase。 |
+| **编辑器** | 图片上传 | 支持在日记中上传图片，图片存储于本地媒体目录。 |
 
 #### V3 - AI 智能与高级功能
 
@@ -76,7 +76,7 @@
 
 ### 2.1. 架构设计
 
-Diarum 将采用**单体应用 (Monolithic) 架构**，将 Go 后端与 PocketBase 数据库后端打包成一个独立的二进制文件。前端是一个独立的单页应用 (SPA)，通过 API 与后端通信。这种架构旨在实现极致的部署简洁性，符合自托管应用的核心理念。
+Diarum 将采用**单体应用 (Monolithic) 架构**，将 Go 后端、SQLite 数据库访问层与前端静态资源打包成一个独立的二进制文件。前端是一个独立的单页应用 (SPA)，通过 API 与后端通信。这种架构旨在实现极致的部署简洁性，符合自托管应用的核心理念。
 
 #### 架构图
 
@@ -88,7 +88,7 @@ graph TD
 
     subgraph Server["服务器 - Docker 容器"]
         B["Go 后端服务"]
-        C["PocketBase as Library"]
+        C["Native Store Layer"]
         D["SQLite 数据库"]
 
         B -- "调用" --> C
@@ -103,30 +103,30 @@ graph TD
 1.  用户通过浏览器访问 Diarum 的 Web 前端。
 2.  前端静态资源（HTML/CSS/JS）由 Go 后端提供服务。
 3.  前端应用通过 RESTful API 向 Go 后端发起数据请求（如获取、保存日记）。
-4.  Go 后端接收到 API 请求，调用嵌入的 PocketBase Go 库来执行相应的数据库操作。
-5.  PocketBase 操作底层的 SQLite 数据库文件 (`data.db`)。
-6.  Go 后端将从 PocketBase 获取的数据格式化为 JSON，返回给前端。
+4.  Go 后端接收到 API 请求，调用原生 store 层来执行相应的数据库操作。
+5.  Store 层操作底层的 SQLite 数据库文件 (`diarum.db`) 和本地媒体目录。
+6.  Go 后端将查询结果格式化为 JSON，返回给前端。
 
 ### 2.2. 技术栈选型
 
 | 分层 | 技术 | 选型理由 |
 | :--- | :--- | :--- |
 | **后端** | **Go** | 高性能、静态编译、跨平台，适合构建单一二进制文件，简化部署。 |
-| | **PocketBase (Go Library)** | 作为核心的"后端即服务"，提供了数据库、用户认证、文件存储和实时 API 的能力，极大简化了开发。 |
+| | **Native Go Store** | 提供数据库、用户认证、文件存储和 API 所需的数据访问能力，减少外部运行时依赖。 |
 | | **Gin Web Framework** | 一个轻量级且高性能的 Go Web 框架，用于快速构建 RESTful API 路由。 |
 | **前端** | **SvelteKit** | 一个现代、高性能的前端框架。其编译时优化的特性与项目的"极简、性能"理念高度契合。 |
 | | **Tailwind CSS** | 提供原子化的 CSS 类，可以快速构建现代化且高度可定制的 UI，而无需编写大量自定义 CSS。 |
 | | **shadcn-svelte** | 一个基于 Tailwind CSS 的组件库，提供美观、可访问的基础 UI 组件，加速开发。 |
 | | **Milkdown** | 一个插件驱动的所见即所得 Markdown 编辑器，提供优秀的编辑体验和高度的可扩展性。 |
-| **数据库** | **SQLite** | 轻量、零配置、文件即数据库，完美契合自托管和单体应用的场景。由 PocketBase 内置管理。 |
+| **数据库** | **SQLite** | 轻量、零配置、文件即数据库，完美契合自托管和单体应用的场景。由 Diarum 原生 store 层管理。 |
 | **部署** | **Docker & Docker Compose** | 实现环境隔离和一键部署，是现代自托管应用的最佳实践。 |
 | **CI/CD** | **GitHub Actions** | 自动化构建、测试和发布 Docker 镜像的流程。 |
 
-### 2.3. 数据库设计 (PocketBase Collections)
+### 2.3. 数据库设计 (SQLite Tables)
 
 #### `users` 集合
 
-此集合由 PocketBase 自动创建和管理，用于存储用户信息和处理认证。
+此表由 Diarum 自动创建和管理，用于存储用户信息和处理认证。
 
 #### `diaries` 集合
 
@@ -194,7 +194,7 @@ services:
     ports:
       - "8090:8090" # 假设应用监听 8090 端口
     volumes:
-      - ./diarum_data:/app/pb_data # 将 PocketBase 的数据目录挂载到宿主机
+      - ./diarum_data:/app/data # 将 Diarum 的数据目录挂载到宿主机
 ```
 
 用户只需执行 `docker-compose up -d` 即可完成部署。所有数据（包括 SQLite 数据库文件和上传的图片）都将持久化在 `diarum_data` 目录中。

@@ -1337,7 +1337,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 				<div id="image-upload" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<h2 class="text-lg font-semibold text-foreground mb-4">Image Upload</h2>
 					<p class="text-sm text-muted-foreground mb-6">
-						Configure Chevereto as an external image hosting backend. When enabled, images inserted into diary entries will be uploaded to your Chevereto instance instead of PocketBase.
+						Configure Chevereto as an external image hosting backend. When enabled, images inserted into diary entries will be uploaded to your Chevereto instance instead of local Diarum storage.
 					</p>
 
 					{#if cheveretoError}

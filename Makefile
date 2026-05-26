@@ -51,8 +51,10 @@ dev-frontend:
 dev-backend:
 	@echo "Installing backend dependencies..."
 	@go mod download
+	@mkdir -p .tmp
+	@go build -o .tmp/diarum-dev .
 	@echo "Starting backend server..."
-	LOG_LEVEL=DEBUG go run . serve
+	exec env LOG_LEVEL=DEBUG ./.tmp/diarum-dev serve
 
 # Run the built application
 run:
@@ -62,6 +64,7 @@ run:
 clean:
 	@echo "Cleaning..."
 	rm -f diarum
+	rm -rf .tmp
 	rm -rf site/build site/node_modules site/.svelte-kit
 	rm -rf dist
 

@@ -5,12 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/daos"
-	"github.com/pocketbase/pocketbase/models"
-	"github.com/pocketbase/pocketbase/tools/types"
-
 	"github.com/songtianlun/diarum/internal/logger"
+	"github.com/songtianlun/diarum/internal/store"
 )
 
 // ErrUnknownKey is returned when trying to set an unregistered configuration key
@@ -21,26 +17,19 @@ var ErrAPIDisabled = errors.New("API is disabled for this user")
 
 // ConfigService provides methods to manage user settings
 type ConfigService struct {
-	app *pocketbase.PocketBase
+	store *store.Store
 }
 
 // NewConfigService creates a new ConfigService instance
-func NewConfigService(app *pocketbase.PocketBase) *ConfigService {
-	return &ConfigService{app: app}
+func NewConfigService(store *store.Store) *ConfigService {
+	return &ConfigService{store: store}
 }
 
 // Get retrieves a single configuration value for a user
 func (s *ConfigService) Get(userId, key string) (any, error) {
 	logger.Debug("[ConfigService.Get] userId=%s, key=%s", userId, key)
 
-	record, err := s.app.Dao().FindFirstRecordByFilter(
-		"user_settings",
-		"user = {:user} && key = {:key}",
-		map[string]any{
-			"user": userId,
-			"key":  key,
-		},
-	)
+	value, err := s.store.GetSetting(userId, key)
 
 	if err != nil {
 		logger.Debug("[ConfigService.Get] Error finding record: %v", err)
@@ -48,7 +37,6 @@ func (s *ConfigService) Get(userId, key string) (any, error) {
 		return GetDefault(key), nil
 	}
 
-	value := record.Get("value")
 	if isSensitiveKey(key) {
 		logger.Debug("[ConfigService.Get] Found value: %s (type: %T)", maskSensitiveValue(s.parseStringValue(value)), value)
 	} else {
@@ -67,15 +55,6 @@ func (s *ConfigService) GetString(userId, key string) (string, error) {
 		return "", nil
 	}
 
-	// Handle types.JsonRaw
-	if raw, ok := value.(types.JsonRaw); ok {
-		var str string
-		if err := json.Unmarshal(raw, &str); err != nil {
-			return "", nil
-		}
-		return str, nil
-	}
-
 	if str, ok := value.(string); ok {
 		return str, nil
 	}
@@ -90,15 +69,6 @@ func (s *ConfigService) GetBool(userId, key string) (bool, error) {
 	}
 	if value == nil {
 		return false, nil
-	}
-
-	// Handle types.JsonRaw
-	if raw, ok := value.(types.JsonRaw); ok {
-		var b bool
-		if err := json.Unmarshal(raw, &b); err != nil {
-			return false, nil
-		}
-		return b, nil
 	}
 
 	// Handle different types that JSON might return
@@ -120,53 +90,15 @@ func (s *ConfigService) Set(userId, key string, value any) error {
 		return ErrUnknownKey
 	}
 
-	// Find existing record
-	record, err := s.app.Dao().FindFirstRecordByFilter(
-		"user_settings",
-		"user = {:user} && key = {:key}",
-		map[string]any{
-			"user": userId,
-			"key":  key,
-		},
-	)
-
-	if err != nil {
-		// Create new record
-		collection, err := s.app.Dao().FindCollectionByNameOrId("user_settings")
-		if err != nil {
-			return err
-		}
-
-		record = models.NewRecord(collection)
-		record.Set("user", userId)
-		record.Set("key", key)
-	}
-
-	record.Set("value", value)
-	record.Set("encrypted", IsEncrypted(key))
-
-	return s.app.Dao().SaveRecord(record)
+	return s.store.SetSetting(userId, key, value, IsEncrypted(key))
 }
 
 // GetBatch retrieves all configuration values for a user
 func (s *ConfigService) GetBatch(userId string) (map[string]any, error) {
-	records, err := s.app.Dao().FindRecordsByFilter(
-		"user_settings",
-		"user = {:user}",
-		"",
-		-1,
-		0,
-		map[string]any{"user": userId},
-	)
+	result, err := s.store.GetSettings(userId)
 
 	if err != nil {
 		return make(map[string]any), nil
-	}
-
-	result := make(map[string]any)
-	for _, record := range records {
-		key := record.GetString("key")
-		result[key] = record.Get("value")
 	}
 
 	return result, nil
@@ -174,62 +106,22 @@ func (s *ConfigService) GetBatch(userId string) (map[string]any, error) {
 
 // SetBatch stores multiple configuration values for a user atomically
 func (s *ConfigService) SetBatch(userId string, settings map[string]any) error {
-	return s.app.Dao().RunInTransaction(func(txDao *daos.Dao) error {
-		for key, value := range settings {
-			// Skip unknown keys with warning log
-			if _, ok := GetConfigMeta(key); !ok {
-				logger.Warn("[ConfigService.SetBatch] unknown key: %s, skipping", key)
-				continue
-			}
-			// Find existing record
-			record, err := txDao.FindFirstRecordByFilter(
-				"user_settings",
-				"user = {:user} && key = {:key}",
-				map[string]any{
-					"user": userId,
-					"key":  key,
-				},
-			)
-
-			if err != nil {
-				// Create new record
-				collection, err := txDao.FindCollectionByNameOrId("user_settings")
-				if err != nil {
-					return err
-				}
-
-				record = models.NewRecord(collection)
-				record.Set("user", userId)
-				record.Set("key", key)
-			}
-
-			record.Set("value", value)
-			record.Set("encrypted", IsEncrypted(key))
-
-			if err := txDao.SaveRecord(record); err != nil {
-				return err
-			}
+	for key, value := range settings {
+		// Skip unknown keys with warning log
+		if _, ok := GetConfigMeta(key); !ok {
+			logger.Warn("[ConfigService.SetBatch] unknown key: %s, skipping", key)
+			continue
 		}
-		return nil
-	})
+		if err := s.store.SetSetting(userId, key, value, IsEncrypted(key)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Delete removes a configuration value for a user
 func (s *ConfigService) Delete(userId, key string) error {
-	record, err := s.app.Dao().FindFirstRecordByFilter(
-		"user_settings",
-		"user = {:user} && key = {:key}",
-		map[string]any{
-			"user": userId,
-			"key":  key,
-		},
-	)
-
-	if err != nil {
-		return nil // Not found, nothing to delete
-	}
-
-	return s.app.Dao().DeleteRecord(record)
+	return s.store.DeleteSetting(userId, key)
 }
 
 // maskSensitiveValue returns a masked version of sensitive values for safe logging
@@ -249,20 +141,16 @@ func isSensitiveKey(key string) bool {
 func (s *ConfigService) ValidateTokenAndGetUser(token string) (string, error) {
 	logger.Debug("[ValidateTokenAndGetUser] validating token: %s", maskSensitiveValue(token))
 
-	// Direct query by token value using index on key field
-	record, err := s.app.Dao().FindFirstRecordByFilter(
-		"user_settings",
-		"key = 'api.token' && value = {:token}",
-		map[string]any{"token": token},
-	)
-
-	if err != nil {
+	userId, err := s.store.ValidateAPIToken(token)
+	if err != nil && err.Error() == "api disabled" {
+		return "", ErrAPIDisabled
+	}
+	if err != nil || userId == "" {
 		logger.Debug("[ValidateTokenAndGetUser] no matching token found: %v", err)
 		return "", nil
 	}
 
-	userId := record.GetString("user")
-	storedToken := s.parseStringValue(record.Get("value"))
+	storedToken, _ := s.GetString(userId, "api.token")
 
 	// Use constant-time comparison to prevent timing attacks
 	if subtle.ConstantTimeCompare([]byte(storedToken), []byte(token)) != 1 {
@@ -291,17 +179,15 @@ func (s *ConfigService) parseStringValue(value any) string {
 		return ""
 	}
 
-	// Handle types.JsonRaw
-	if raw, ok := value.(types.JsonRaw); ok {
-		var str string
-		if err := json.Unmarshal(raw, &str); err != nil {
-			return ""
-		}
-		return str
-	}
-
 	if str, ok := value.(string); ok {
 		return str
+	}
+	bytes, err := json.Marshal(value)
+	if err == nil {
+		var str string
+		if json.Unmarshal(bytes, &str) == nil {
+			return str
+		}
 	}
 	return ""
 }

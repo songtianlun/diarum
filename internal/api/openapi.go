@@ -6,14 +6,13 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
-	"github.com/pocketbase/pocketbase/core"
 )
 
 // RegisterOpenAPIRoutes registers debug-only OpenAPI routes.
 // The spec is generated from currently registered Echo routes at request time.
-func RegisterOpenAPIRoutes(e *core.ServeEvent, version, name string) {
+func RegisterOpenAPIRoutes(e *echo.Echo, version, name string) {
 	handler := func(c echo.Context) error {
-		spec := buildOpenAPISpec(e.Router.Router().Routes(), version, name)
+		spec := buildOpenAPISpec(e.Router().Routes(), version, name)
 		return c.JSON(http.StatusOK, spec)
 	}
 
@@ -48,10 +47,10 @@ func RegisterOpenAPIRoutes(e *core.ServeEvent, version, name string) {
 	}
 
 	// Keep both v1 and legacy aliases for convenience in local dev.
-	e.Router.GET("/api/v1/openapi.json", handler)
-	e.Router.GET("/api/openapi.json", handler)
-	e.Router.GET("/api/v1/docs", docsHandler)
-	e.Router.GET("/api/docs", docsHandler)
+	e.GET("/api/v1/openapi.json", handler)
+	e.GET("/api/openapi.json", handler)
+	e.GET("/api/v1/docs", docsHandler)
+	e.GET("/api/docs", docsHandler)
 }
 
 func buildOpenAPISpec(routes echo.Routes, version, name string) map[string]any {

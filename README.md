@@ -16,7 +16,7 @@
 
 ### About
 
-**Diarum** (Chinese: 吾身) - One entry a day. Open, write, done. A simple, elegant, and self-hosted diary application built with PocketBase and modern web technologies. One diary per day — no more, no less — so you can write freely without anxiety.
+**Diarum** (Chinese: 吾身) - One entry a day. Open, write, done. A simple, elegant, and self-hosted diary application built with Go, SQLite, and modern web technologies. One diary per day — no more, no less — so you can write freely without anxiety.
 
 ### Online Demo
 
@@ -47,7 +47,7 @@ Try Diarum without installation:
 - 🔄 **Offline & Auto Sync** - Work offline seamlessly with automatic cache synchronization and real-time sync status monitoring
 - 🔒 **Self-Hosted** - Complete control over your personal data
 - 🚀 **Easy Deployment** - Single binary with embedded frontend, deploy anywhere
-- 💾 **PocketBase Backend** - Reliable database with built-in admin panel
+- 💾 **Native SQLite Backend** - Built-in user system, local media storage, and automatic legacy data migration
 - 🔧 **Configurable** - Flexible data directory configuration via environment variables or CLI flags
 
 ### Quick Start
@@ -171,13 +171,9 @@ make docker-build
 make test
 ```
 
-### Admin Panel
+### Data Storage
 
-Access the PocketBase admin panel at `http://localhost:8090/_/` to:
-- Manage database collections
-- Configure authentication
-- View logs
-- Customize settings
+Diarum stores application data in `diarum.db` under the configured data directory. On startup, if an older `data.db` exists and `diarum.db` does not, Diarum automatically creates the new database and migrates users, diaries, media metadata, settings, and AI conversation data while leaving the old database untouched.
 
 ---
 
@@ -196,7 +192,7 @@ Access the PocketBase admin panel at `http://localhost:8090/_/` to:
  - 年终总结
  - 等等
 
-基于 PocketBase 和现代 Web 技术构建，简洁、优雅、可自托管。
+基于 Go、SQLite 和现代 Web 技术构建，简洁、优雅、可自托管。
 
 ### 在线演示
 
@@ -233,7 +229,7 @@ Access the PocketBase admin panel at `http://localhost:8090/_/` to:
 - 🔄 **离线与自动同步** - 完整离线支持，自动缓存同步，实时查看数据同步状态
 - 🔒 **自托管** - 完全掌控你的个人数据
 - 🚀 **易于部署** - 单一二进制文件，内嵌前端，随处部署
-- 💾 **PocketBase 后端** - 可靠的数据库和内置管理面板
+- 💾 **原生 SQLite 后端** - 内置用户体系、本地媒体存储与旧数据自动迁移
 - 🔧 **可配置** - 通过环境变量或命令行参数灵活配置数据目录
 
 ### 快速开始
@@ -341,13 +337,9 @@ make dev-frontend
 make dev-backend
 ```
 
-### 管理面板
+### 数据存储
 
-访问 `http://localhost:8090/_/` 打开 PocketBase 管理面板，可以：
-- 管理数据库集合
-- 配置身份验证
-- 查看日志
-- 自定义设置
+Diarum 会在配置的数据目录下使用 `diarum.db` 保存应用数据。启动时如果检测到旧版 `data.db` 且尚不存在 `diarum.db`，会自动创建新数据库并迁移用户、日记、媒体元数据、设置和 AI 对话数据，同时保留旧数据库不变。
 
 ## 加入交流群
 
