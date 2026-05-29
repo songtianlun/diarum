@@ -109,12 +109,17 @@ func Open(dataDir string) (*Store, error) {
 	oldExists := fileExists(oldPath)
 
 	if !newExists {
-		db, err := openSQLite(newPath)
+		tempPath := filepath.Join(dataDir, DatabaseName+".tmp")
+		// Remove any leftover temp file from a previous failed attempt.
+		_ = os.Remove(tempPath)
+
+		db, err := openSQLite(tempPath)
 		if err != nil {
 			return nil, err
 		}
 		if err := createSchema(db); err != nil {
 			db.Close()
+			_ = os.Remove(tempPath)
 			return nil, err
 		}
 		if oldExists {
@@ -123,21 +128,31 @@ func Open(dataDir string) (*Store, error) {
 			if err != nil {
 				logger.Error("[Store] legacy database backup failed: source=%s err=%v", oldPath, err)
 				db.Close()
+				_ = os.Remove(tempPath)
 				return nil, err
 			}
 			logger.Info("[Store] legacy database backup completed: path=%s", backupDir)
 			if err := migrateLegacyData(db, oldPath); err != nil {
 				logger.Error("[Store] legacy database migration failed: source=%s target=%s err=%v", oldPath, newPath, err)
 				db.Close()
+				_ = os.Remove(tempPath)
 				return nil, err
 			}
 			logger.Info("[Store] legacy database migration completed: source=%s target=%s", oldPath, newPath)
 		}
 		if err := ensureRuntimeMetadata(db, oldPath); err != nil {
 			db.Close()
+			_ = os.Remove(tempPath)
 			return nil, err
 		}
-		db.Close()
+		if err := db.Close(); err != nil {
+			_ = os.Remove(tempPath)
+			return nil, err
+		}
+		if err := os.Rename(tempPath, newPath); err != nil {
+			_ = os.Remove(tempPath)
+			return nil, err
+		}
 	}
 
 	db, err := openSQLite(newPath)
