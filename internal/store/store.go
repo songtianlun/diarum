@@ -110,7 +110,6 @@ func Open(dataDir string) (*Store, error) {
 
 	if !newExists {
 		tempPath := filepath.Join(dataDir, DatabaseName+".tmp")
-		// Remove any leftover temp file from a previous failed attempt.
 		_ = os.Remove(tempPath)
 
 		db, err := openSQLite(tempPath)
@@ -817,24 +816,48 @@ func (s *Store) ListMedia(owner string, page, perPage int) ([]MediaWithExpand, i
 	}
 	defer rows.Close()
 	items := make([]MediaWithExpand, 0)
+	diaryIDs := make(map[string]struct{})
 	for rows.Next() {
 		media, err := scanMediaRow(rows)
 		if err != nil {
 			return nil, 0, err
 		}
 		item := MediaWithExpand{Media: *media}
-		if len(media.Diary) > 0 {
-			diaries := make([]Diary, 0, len(media.Diary))
-			for _, diaryID := range media.Diary {
-				if diary, err := s.GetDiaryByID(diaryID); err == nil && diary.Owner == owner {
-					diaries = append(diaries, *diary)
-				}
-			}
-			item.Expand = map[string]any{"diary": diaries}
+		for _, diaryID := range media.Diary {
+			diaryIDs[diaryID] = struct{}{}
 		}
 		items = append(items, item)
 	}
-	return items, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, err
+	}
+
+	diariesByID := make(map[string]Diary, len(diaryIDs))
+	for diaryID := range diaryIDs {
+		diary, err := s.GetDiaryByID(diaryID)
+		if err != nil || diary.Owner != owner {
+			continue
+		}
+		diariesByID[diaryID] = *diary
+	}
+
+	for i := range items {
+		if len(items[i].Diary) == 0 {
+			continue
+		}
+		diaries := make([]Diary, 0, len(items[i].Diary))
+		for _, diaryID := range items[i].Diary {
+			if diary, ok := diariesByID[diaryID]; ok {
+				diaries = append(diaries, diary)
+			}
+		}
+		items[i].Expand = map[string]any{"diary": diaries}
+	}
+
+	return items, total, nil
 }
 
 func (s *Store) GetMedia(id, owner string) (*Media, error) {
@@ -853,8 +876,15 @@ func (s *Store) CreateMedia(owner, file, name, alt string, diary []string) (*Med
 	if err != nil {
 		return nil, err
 	}
+	return s.InsertImportedMedia(owner, id, file, name, alt, diary)
+}
+
+func (s *Store) InsertImportedMedia(owner, id, file, name, alt string, diary []string) (*Media, error) {
+	if id == "" {
+		return nil, fmt.Errorf("media id is required")
+	}
 	now := nowString()
-	_, err = s.DB.Exec(`INSERT INTO media(alt, created, file, id, name, owner, updated, diary) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, alt, now, file, id, name, owner, now, encodeJSON(diary))
+	_, err := s.DB.Exec(`INSERT INTO media(alt, created, file, id, name, owner, updated, diary) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, alt, now, file, id, name, owner, now, encodeJSON(diary))
 	if err != nil {
 		return nil, err
 	}
@@ -950,8 +980,15 @@ func (s *Store) CreateConversation(owner, title string) (*Conversation, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.InsertImportedConversation(owner, id, title)
+}
+
+func (s *Store) InsertImportedConversation(owner, id, title string) (*Conversation, error) {
+	if id == "" {
+		return nil, fmt.Errorf("conversation id is required")
+	}
 	now := nowString()
-	_, err = s.DB.Exec(`INSERT INTO ai_conversations(created, id, owner, title, updated) VALUES(?, ?, ?, ?, ?)`, now, id, owner, title, now)
+	_, err := s.DB.Exec(`INSERT INTO ai_conversations(created, id, owner, title, updated) VALUES(?, ?, ?, ?, ?)`, now, id, owner, title, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1012,8 +1049,15 @@ func (s *Store) CreateMessage(owner, conversationID, role, content string, refer
 	if err != nil {
 		return nil, err
 	}
+	return s.InsertImportedMessage(owner, id, conversationID, role, content, referenced)
+}
+
+func (s *Store) InsertImportedMessage(owner, id, conversationID, role, content string, referenced []string) (*Message, error) {
+	if id == "" {
+		return nil, fmt.Errorf("message id is required")
+	}
 	now := nowString()
-	_, err = s.DB.Exec(`INSERT INTO ai_messages(content, conversation, created, id, owner, referenced_diaries, role, updated) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, content, conversationID, now, id, owner, encodeJSON(referenced), role, now)
+	_, err := s.DB.Exec(`INSERT INTO ai_messages(content, conversation, created, id, owner, referenced_diaries, role, updated) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, content, conversationID, now, id, owner, encodeJSON(referenced), role, now)
 	if err != nil {
 		return nil, err
 	}
