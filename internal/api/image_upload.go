@@ -32,9 +32,9 @@ type imageUploadCheveretoSettings struct {
 }
 
 type imageUploadSettingsResponse struct {
-	Provider  string                      `json:"provider"`
-	Local     imageUploadLocalSettings    `json:"local"`
-	S3        imageUploadS3Settings       `json:"s3"`
+	Provider  string                       `json:"provider"`
+	Local     imageUploadLocalSettings     `json:"local"`
+	S3        imageUploadS3Settings        `json:"s3"`
 	Chevereto imageUploadCheveretoSettings `json:"chevereto"`
 }
 
