@@ -1,8 +1,11 @@
 package api
 
 import (
+	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
@@ -74,7 +77,7 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err != nil {
 			return badRequest("Failed to create media", err)
 		}
-		if err := s.SaveUploadedFile(s.NewMediaFilePath(media.ID, filename), file); err != nil {
+		if err := s.SaveUploadedMedia(media, file); err != nil {
 			_ = s.DeleteMedia(media.ID, user.ID)
 			return serverError("Failed to save media file", err)
 		}
@@ -102,11 +105,12 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err != nil {
 			return notFound("Media not found")
 		}
-		path := s.MediaFilePath(media)
 		if err := s.DeleteMedia(media.ID, user.ID); err != nil {
 			return notFound("Media not found")
 		}
-		_ = os.Remove(path)
+		if err := s.DeleteMediaFile(media); err != nil && !os.IsNotExist(err) {
+			return serverError("Failed to delete media file", err)
+		}
 		return c.JSON(http.StatusOK, map[string]any{"success": true})
 	})
 
@@ -115,7 +119,36 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err != nil || media.File != c.PathParam("filename") {
 			return notFound("File not found")
 		}
-		return c.File(s.MediaFilePath(media))
+		path := s.MediaFilePath(media)
+		if _, err := os.Stat(path); err == nil {
+			return c.File(path)
+		}
+
+		reader, err := s.OpenMediaFile(media)
+		if err != nil {
+			return notFound("File not found")
+		}
+		defer reader.Close()
+
+		head := make([]byte, 512)
+		n, readErr := reader.Read(head)
+		if readErr != nil && readErr != io.EOF {
+			return serverError("Failed to read media file", readErr)
+		}
+
+		contentType := http.DetectContentType(head[:n])
+		if guessed := mime.TypeByExtension(filepath.Ext(media.File)); guessed != "" {
+			contentType = guessed
+		}
+		c.Response().Header().Set(echo.HeaderContentType, contentType)
+		c.Response().WriteHeader(http.StatusOK)
+		if n > 0 {
+			if _, err := c.Response().Write(head[:n]); err != nil {
+				return err
+			}
+		}
+		_, err = io.Copy(c.Response().Writer, reader)
+		return err
 	})
 }
 

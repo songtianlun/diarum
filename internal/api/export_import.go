@@ -56,6 +56,7 @@ type exportMedia struct {
 	Name  string   `json:"name,omitempty"`
 	Alt   string   `json:"alt,omitempty"`
 	Diary []string `json:"diary,omitempty"`
+	Owner string   `json:"-"`
 }
 
 type exportConversation struct {
@@ -151,7 +152,7 @@ func handleExport(c echo.Context, s *store.Store) error {
 	if req.IncludeMedia {
 		for _, m := range allMedia {
 			if isDateInRange(store.DateOnly(m.Created), startDate, endDate) {
-				exportMediaList = append(exportMediaList, exportMedia{ID: m.ID, File: m.File, Name: m.Name, Alt: m.Alt, Diary: m.Diary})
+				exportMediaList = append(exportMediaList, exportMedia{ID: m.ID, File: m.File, Name: m.Name, Alt: m.Alt, Diary: m.Diary, Owner: m.Owner})
 			}
 		}
 	}
@@ -201,9 +202,14 @@ func handleExport(c echo.Context, s *store.Store) error {
 	}
 	mediaExportedCount := 0
 	for _, m := range exportMediaList {
-		media := &store.Media{ID: m.ID, File: m.File}
-		path := s.MediaFilePath(media)
-		content, err := os.ReadFile(path)
+		media := &store.Media{ID: m.ID, File: m.File, Owner: m.Owner}
+		reader, err := s.OpenMediaFile(media)
+		if err != nil {
+			stats.FailedItems = append(stats.FailedItems, exportFailedItem{Type: "media", ID: m.ID, Reason: err.Error()})
+			continue
+		}
+		content, err := io.ReadAll(reader)
+		reader.Close()
 		if err != nil {
 			stats.FailedItems = append(stats.FailedItems, exportFailedItem{Type: "media", ID: m.ID, Reason: err.Error()})
 			continue

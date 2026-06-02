@@ -1,7 +1,7 @@
 import { pb } from '$lib/api/client';
 import type { Media, UploadProgress } from '$lib/api/client';
 import { get } from 'svelte/store';
-import { cheveretoSettings, loadCheveretoSettings, isCheveretoLoaded } from '$lib/stores/chevereto';
+import { imageUploadSettings, loadImageUploadSettings, isImageUploadLoaded } from '$lib/stores/imageUpload';
 import { uploadToChevereto } from '$lib/api/chevereto';
 
 /**
@@ -87,13 +87,13 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		throw new Error(`File size exceeds 50MB limit. File size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
 	}
 
-	// Check if Chevereto is enabled
-	if (!isCheveretoLoaded()) {
-		await loadCheveretoSettings();
+	// Check active image upload provider
+	if (!isImageUploadLoaded()) {
+		await loadImageUploadSettings();
 	}
-	const settings = get(cheveretoSettings);
+	const settings = get(imageUploadSettings);
 
-	if (settings.enabled) {
+	if (settings.provider === 'chevereto') {
 		try {
 			const result = await uploadToChevereto(file);
 			return { cheveretoUrl: result.url };

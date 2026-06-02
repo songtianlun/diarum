@@ -30,6 +30,16 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"chevereto.api_key":  {Type: "string", Default: "", Encrypted: true},
 	"chevereto.album_id": {Type: "string", Default: "", Encrypted: false},
 
+	// Image upload storage settings
+	"image_upload.provider":            {Type: "string", Default: "local", Encrypted: false},
+	"image_upload.local.path":          {Type: "string", Default: "", Encrypted: false},
+	"image_upload.s3.bucket":           {Type: "string", Default: "", Encrypted: false},
+	"image_upload.s3.region":           {Type: "string", Default: "", Encrypted: false},
+	"image_upload.s3.endpoint":         {Type: "string", Default: "", Encrypted: false},
+	"image_upload.s3.access_key":       {Type: "string", Default: "", Encrypted: true},
+	"image_upload.s3.secret":           {Type: "string", Default: "", Encrypted: true},
+	"image_upload.s3.force_path_style": {Type: "bool", Default: false, Encrypted: false},
+
 	// Diary editor presets
 	"diary.mood_options":    {Type: "json", Default: []string{"😊", "😌", "🥳", "💪", "🤔", "😴", "😔", "😤"}, Encrypted: false},
 	"diary.weather_options": {Type: "json", Default: []string{"☀️", "⛅", "☁️", "🌧️", "⛈️", "🌫️", "❄️", "🌬️"}, Encrypted: false},

@@ -153,6 +153,7 @@ func main() {
 	api.RegisterAuthRoutes(e, appStore, authService)
 	api.RegisterDiaryRoutes(e, appStore, authMiddleware, onDiaryChanged)
 	api.RegisterMediaRoutes(e, appStore, authMiddleware)
+	api.RegisterImageUploadRoutes(e, appStore, authMiddleware)
 	api.RegisterSettingsRoutes(e, appStore, authMiddleware)
 	api.RegisterAIRoutes(e, appStore, authMiddleware, embeddingService)
 	api.RegisterExportImportRoutes(e, appStore, authMiddleware, embeddingService)

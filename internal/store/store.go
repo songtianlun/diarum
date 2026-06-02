@@ -14,6 +14,11 @@ import (
 	"strings"
 	"time"
 
+	aws "github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	awstypes "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/songtianlun/diarum/internal/logger"
 
 	_ "modernc.org/sqlite"
@@ -32,6 +37,18 @@ type Store struct {
 	DataDir           string
 	MediaCollectionID string
 	AuthSecret        []byte
+	LegacyS3          *LegacyS3Config
+	legacyS3Client    *awss3.Client
+}
+
+type LegacyS3Config struct {
+	Enabled        bool   `json:"enabled"`
+	Bucket         string `json:"bucket"`
+	Region         string `json:"region"`
+	Endpoint       string `json:"endpoint"`
+	AccessKey      string `json:"accessKey"`
+	Secret         string `json:"secret"`
+	ForcePathStyle bool   `json:"forcePathStyle"`
 }
 
 type User struct {
@@ -139,7 +156,7 @@ func Open(dataDir string) (*Store, error) {
 			}
 			logger.Info("[Store] legacy database migration completed: source=%s target=%s", oldPath, newPath)
 		}
-		if err := ensureRuntimeMetadata(db, oldPath); err != nil {
+		if err := ensureRuntimeMetadata(db, dataDir, oldPath); err != nil {
 			db.Close()
 			_ = os.Remove(tempPath)
 			return nil, err
@@ -162,7 +179,7 @@ func Open(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := ensureRuntimeMetadata(db, oldPath); err != nil {
+	if err := ensureRuntimeMetadata(db, dataDir, oldPath); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -176,8 +193,19 @@ func Open(dataDir string) (*Store, error) {
 	if err != nil || len(authSecret) == 0 {
 		authSecret = []byte(authSecretHex)
 	}
+	legacyS3, _ := getLegacyS3Config(db)
+	appStore := &Store{
+		DB:                db,
+		DataDir:           dataDir,
+		MediaCollectionID: mediaCollectionID,
+		AuthSecret:        authSecret,
+		LegacyS3:          legacyS3,
+	}
+	if err := appStore.initLegacyS3Client(); err != nil {
+		logger.Warn("[Store] legacy S3 client init failed: %v", err)
+	}
 
-	return &Store{DB: db, DataDir: dataDir, MediaCollectionID: mediaCollectionID, AuthSecret: authSecret}, nil
+	return appStore, nil
 }
 
 func openSQLite(path string) (*sql.DB, error) {
@@ -363,6 +391,17 @@ func migrateLegacyData(db *sql.DB, oldPath string) error {
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO migration_meta(key, value) VALUES('legacy.media_collection_id', ?)`, mediaCollectionID); err != nil {
 		return err
 	}
+	legacyS3, err := loadLegacyS3ConfigFromAttachedDB(tx)
+	if err != nil {
+		logger.Warn("[Store] failed to load legacy S3 settings during migration: %v", err)
+	} else if legacyS3 != nil {
+		legacyS3JSON, marshalErr := json.Marshal(legacyS3)
+		if marshalErr == nil {
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO migration_meta(key, value) VALUES('legacy.s3', ?)`, string(legacyS3JSON)); err != nil {
+				return err
+			}
+		}
+	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO migration_meta(key, value) VALUES('migration.source', 'legacy')`); err != nil {
 		return err
 	}
@@ -388,7 +427,7 @@ func isMissingLegacyTableError(err error) bool {
 	return strings.Contains(msg, "no such table") || strings.Contains(msg, "no such column")
 }
 
-func ensureRuntimeMetadata(db *sql.DB, oldPath string) error {
+func ensureRuntimeMetadata(db *sql.DB, dataDir, oldPath string) error {
 	secret, _ := getMeta(db, "auth.secret")
 	if secret == "" {
 		raw := make([]byte, 32)
@@ -414,7 +453,229 @@ func ensureRuntimeMetadata(db *sql.DB, oldPath string) error {
 	if mediaCollectionID == "" {
 		return setMeta(db, "legacy.media_collection_id", DefaultMediaCollectionID)
 	}
+	legacyS3Raw, _ := getMeta(db, "legacy.s3")
+	if legacyS3Raw == "" && fileExists(oldPath) && isLegacyDataDB(oldPath) {
+		legacyS3, err := loadLegacyS3ConfigFromPath(oldPath)
+		if err == nil && legacyS3 != nil {
+			if payload, marshalErr := json.Marshal(legacyS3); marshalErr == nil {
+				_ = setMeta(db, "legacy.s3", string(payload))
+			}
+		}
+	}
+	legacyS3, err := getLegacyS3Config(db)
+	if err != nil {
+		return err
+	}
+	return ensureImageUploadSettings(db, dataDir, legacyS3)
+}
+
+func ensureImageUploadSettings(db *sql.DB, dataDir string, legacyS3 *LegacyS3Config) error {
+	rows, err := db.Query(`SELECT id FROM users`)
+	if err != nil {
+		return err
+	}
+	userIDs := make([]string, 0)
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			rows.Close()
+			return err
+		}
+		userIDs = append(userIDs, userID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	defaultLocalPath := filepath.Join(dataDir, "storage", DefaultMediaCollectionID)
+	for _, userID := range userIDs {
+		if err := insertUserSettingIfMissing(db, userID, "image_upload.local.path", defaultLocalPath, false); err != nil {
+			return err
+		}
+		if legacyS3 != nil {
+			if err := insertUserSettingIfMissing(db, userID, "image_upload.s3.bucket", legacyS3.Bucket, false); err != nil {
+				return err
+			}
+			if err := insertUserSettingIfMissing(db, userID, "image_upload.s3.region", legacyS3.Region, false); err != nil {
+				return err
+			}
+			if err := insertUserSettingIfMissing(db, userID, "image_upload.s3.endpoint", legacyS3.Endpoint, false); err != nil {
+				return err
+			}
+			if err := insertUserSettingIfMissing(db, userID, "image_upload.s3.access_key", legacyS3.AccessKey, true); err != nil {
+				return err
+			}
+			if err := insertUserSettingIfMissing(db, userID, "image_upload.s3.secret", legacyS3.Secret, true); err != nil {
+				return err
+			}
+			if err := insertUserSettingIfMissing(db, userID, "image_upload.s3.force_path_style", legacyS3.ForcePathStyle, false); err != nil {
+				return err
+			}
+		}
+
+		provider, err := getUserSettingRaw(db, userID, "image_upload.provider")
+		if err != nil {
+			return err
+		}
+		if settingHasValue(provider) {
+			continue
+		}
+
+		selectedProvider := "local"
+		if userSettingBoolValue(db, userID, "chevereto.enabled") || (userSettingStringValue(db, userID, "chevereto.domain") != "" && userSettingStringValue(db, userID, "chevereto.api_key") != "") {
+			selectedProvider = "chevereto"
+		} else if legacyS3 != nil {
+			selectedProvider = "s3"
+		}
+
+		if err := insertUserSettingIfMissing(db, userID, "image_upload.provider", selectedProvider, false); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func insertUserSettingIfMissing(db *sql.DB, userID, key string, value any, encrypted bool) error {
+	raw, err := getUserSettingRaw(db, userID, key)
+	if err != nil {
+		return err
+	}
+	if settingHasValue(raw) {
+		return nil
+	}
+	id, err := GenerateID()
+	if err != nil {
+		return err
+	}
+	now := nowString()
+	_, err = db.Exec(`INSERT OR IGNORE INTO user_settings(created, encrypted, id, key, updated, user, value) VALUES(?, ?, ?, ?, ?, ?, ?)`, now, encrypted, id, key, now, userID, encodeJSON(value))
+	return err
+}
+
+func getUserSettingRaw(db *sql.DB, userID, key string) (string, error) {
+	var raw sql.NullString
+	err := db.QueryRow(`SELECT value FROM user_settings WHERE user = ? AND key = ?`, userID, key).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !raw.Valid {
+		return "", nil
+	}
+	return raw.String, nil
+}
+
+func settingHasValue(raw string) bool {
+	if strings.TrimSpace(raw) == "" || raw == "null" {
+		return false
+	}
+	var value any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return strings.TrimSpace(raw) != ""
+	}
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(typed) != ""
+	default:
+		return true
+	}
+}
+
+func userSettingStringValue(db *sql.DB, userID, key string) string {
+	raw, err := getUserSettingRaw(db, userID, key)
+	if err != nil || strings.TrimSpace(raw) == "" || raw == "null" {
+		return ""
+	}
+	var value any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return raw
+	}
+	return anyToString(value)
+}
+
+func userSettingBoolValue(db *sql.DB, userID, key string) bool {
+	raw, err := getUserSettingRaw(db, userID, key)
+	if err != nil || strings.TrimSpace(raw) == "" || raw == "null" {
+		return false
+	}
+	var value any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return false
+	}
+	return anyToBool(value)
+}
+
+func loadLegacyS3ConfigFromAttachedDB(tx *sql.Tx) (*LegacyS3Config, error) {
+	var raw string
+	err := tx.QueryRow(`SELECT value FROM legacy._params WHERE key = 'settings'`).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseLegacyS3Config(raw)
+}
+
+func loadLegacyS3ConfigFromPath(path string) (*LegacyS3Config, error) {
+	db, err := openSQLite(path)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	var raw string
+	err = db.QueryRow(`SELECT value FROM _params WHERE key = 'settings'`).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseLegacyS3Config(raw)
+}
+
+func parseLegacyS3Config(raw string) (*LegacyS3Config, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var settings struct {
+		S3 LegacyS3Config `json:"s3"`
+	}
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return nil, err
+	}
+	if !settings.S3.Enabled {
+		return nil, nil
+	}
+	if settings.S3.Bucket == "" || settings.S3.Region == "" || settings.S3.AccessKey == "" || settings.S3.Secret == "" {
+		return nil, nil
+	}
+	return &settings.S3, nil
+}
+
+func getLegacyS3Config(db *sql.DB) (*LegacyS3Config, error) {
+	raw, err := getMeta(db, "legacy.s3")
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return nil, err
+	}
+	var cfg LegacyS3Config
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil, err
+	}
+	if !cfg.Enabled || cfg.Bucket == "" {
+		return nil, nil
+	}
+	return &cfg, nil
 }
 
 func backupLegacyData(dataDir, oldPath string) (string, error) {
@@ -927,10 +1188,7 @@ func scanMediaRow(rows *sql.Rows) (*Media, error) {
 }
 
 func (s *Store) MediaFilePath(media *Media) string {
-	candidates := []string{
-		filepath.Join(s.DataDir, "storage", s.MediaCollectionID, media.ID, media.File),
-		filepath.Join(s.DataDir, "storage", DefaultMediaCollectionID, media.ID, media.File),
-	}
+	candidates := s.mediaFileCandidates(media)
 	for _, candidate := range candidates {
 		if fileExists(candidate) {
 			return candidate
@@ -939,8 +1197,140 @@ func (s *Store) MediaFilePath(media *Media) string {
 	return candidates[0]
 }
 
+func (s *Store) DefaultLocalMediaDir() string {
+	return filepath.Join(s.DataDir, "storage", DefaultMediaCollectionID)
+}
+
+func (s *Store) mediaFileCandidates(media *Media) []string {
+	candidates := []string{
+		filepath.Join(s.DataDir, "storage", s.MediaCollectionID, media.ID, media.File),
+		filepath.Join(s.DataDir, "storage", DefaultMediaCollectionID, media.ID, media.File),
+	}
+	if media != nil && media.Owner != "" {
+		candidates = append([]string{filepath.Join(s.userLocalMediaDir(media.Owner), media.ID, media.File)}, candidates...)
+	}
+	return uniqueStrings(candidates)
+}
+
+func (s *Store) mediaObjectKeys(media *Media) []string {
+	return []string{
+		strings.Join([]string{s.MediaCollectionID, media.ID, media.File}, "/"),
+		strings.Join([]string{DefaultMediaCollectionID, media.ID, media.File}, "/"),
+	}
+}
+
 func (s *Store) NewMediaFilePath(mediaID, filename string) string {
 	return filepath.Join(s.DataDir, "storage", DefaultMediaCollectionID, mediaID, filename)
+}
+
+func (s *Store) userLocalMediaDir(userID string) string {
+	if strings.TrimSpace(userID) == "" {
+		return s.DefaultLocalMediaDir()
+	}
+	value, err := s.GetSetting(userID, "image_upload.local.path")
+	if err != nil {
+		return s.DefaultLocalMediaDir()
+	}
+	path := strings.TrimSpace(anyToString(value))
+	if path == "" {
+		return s.DefaultLocalMediaDir()
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(s.DataDir, path)
+}
+
+func (s *Store) imageUploadProvider(userID string) string {
+	provider := strings.ToLower(strings.TrimSpace(s.userStringSetting(userID, "image_upload.provider")))
+	switch provider {
+	case "local", "s3", "chevereto":
+		return provider
+	default:
+		if s.userBoolSetting(userID, "chevereto.enabled") {
+			return "chevereto"
+		}
+		return "local"
+	}
+}
+
+func (s *Store) userS3Config(userID string) *LegacyS3Config {
+	if strings.TrimSpace(userID) == "" {
+		return nil
+	}
+	cfg := &LegacyS3Config{
+		Enabled:        true,
+		Bucket:         strings.TrimSpace(s.userStringSetting(userID, "image_upload.s3.bucket")),
+		Region:         strings.TrimSpace(s.userStringSetting(userID, "image_upload.s3.region")),
+		Endpoint:       strings.TrimSpace(s.userStringSetting(userID, "image_upload.s3.endpoint")),
+		AccessKey:      strings.TrimSpace(s.userStringSetting(userID, "image_upload.s3.access_key")),
+		Secret:         strings.TrimSpace(s.userStringSetting(userID, "image_upload.s3.secret")),
+		ForcePathStyle: s.userBoolSetting(userID, "image_upload.s3.force_path_style"),
+	}
+	if cfg.Bucket == "" || cfg.Region == "" || cfg.AccessKey == "" || cfg.Secret == "" {
+		return nil
+	}
+	return cfg
+}
+
+func (s *Store) userStringSetting(userID, key string) string {
+	value, err := s.GetSetting(userID, key)
+	if err != nil {
+		return ""
+	}
+	return anyToString(value)
+}
+
+func (s *Store) userBoolSetting(userID, key string) bool {
+	value, err := s.GetSetting(userID, key)
+	if err != nil {
+		return false
+	}
+	return anyToBool(value)
+}
+
+func anyToString(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case fmt.Stringer:
+		return typed.String()
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func anyToBool(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	case float64:
+		return typed != 0
+	case int:
+		return typed != 0
+	default:
+		return false
+	}
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func (s *Store) ListConversations(owner string, limit int) ([]*Conversation, error) {
@@ -1118,6 +1508,182 @@ func (s *Store) SaveUploadedFile(dst string, reader io.Reader) error {
 	defer out.Close()
 	_, err = io.Copy(out, reader)
 	return err
+}
+
+func (s *Store) SaveUploadedMedia(media *Media, reader io.Reader) error {
+	if media == nil {
+		return fmt.Errorf("media is required")
+	}
+	if s.imageUploadProvider(media.Owner) == "s3" {
+		cfg := s.userS3Config(media.Owner)
+		if cfg == nil {
+			return fmt.Errorf("s3 settings are incomplete")
+		}
+		return s.saveMediaToS3(cfg, media, reader)
+	}
+	if s.imageUploadProvider(media.Owner) == "chevereto" {
+		return fmt.Errorf("chevereto uploads must use the chevereto upload endpoint")
+	}
+	return s.SaveUploadedFile(filepath.Join(s.userLocalMediaDir(media.Owner), media.ID, media.File), reader)
+}
+
+func newS3Client(cfg *LegacyS3Config) (*awss3.Client, error) {
+	if cfg == nil || !cfg.Enabled {
+		return nil, nil
+	}
+	endpoint := strings.TrimSpace(cfg.Endpoint)
+	if endpoint != "" && !strings.Contains(endpoint, "://") {
+		endpoint = "https://" + endpoint
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(
+		context.Background(),
+		awsconfig.WithRegion(cfg.Region),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.Secret, "")),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return awss3.NewFromConfig(awsCfg, func(o *awss3.Options) {
+		o.UsePathStyle = cfg.ForcePathStyle
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+		}
+	}), nil
+}
+
+func (s *Store) saveMediaToS3(cfg *LegacyS3Config, media *Media, reader io.Reader) error {
+	client, err := newS3Client(cfg)
+	if err != nil {
+		return err
+	}
+	_, err = client.PutObject(context.Background(), &awss3.PutObjectInput{
+		Bucket: aws.String(cfg.Bucket),
+		Key:    aws.String(strings.Join([]string{DefaultMediaCollectionID, media.ID, media.File}, "/")),
+		Body:   reader,
+	})
+	return err
+}
+
+func (s *Store) initLegacyS3Client() error {
+	client, err := newS3Client(s.LegacyS3)
+	if err != nil {
+		return err
+	}
+	s.legacyS3Client = client
+	return nil
+}
+
+func (s *Store) OpenMediaFile(media *Media) (io.ReadCloser, error) {
+	for _, candidate := range s.mediaFileCandidates(media) {
+		if !fileExists(candidate) {
+			continue
+		}
+		file, err := os.Open(candidate)
+		if err == nil {
+			return file, nil
+		}
+	}
+	if media != nil && media.Owner != "" {
+		if cfg := s.userS3Config(media.Owner); cfg != nil {
+			client, err := newS3Client(cfg)
+			if err != nil {
+				return nil, err
+			}
+			reader, err := s.openMediaFromS3(client, cfg, media)
+			if err == nil {
+				return reader, nil
+			}
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+		}
+	}
+	if s.legacyS3Client == nil || s.LegacyS3 == nil {
+		return nil, os.ErrNotExist
+	}
+	return s.openMediaFromS3(s.legacyS3Client, s.LegacyS3, media)
+}
+
+func (s *Store) DeleteMediaFile(media *Media) error {
+	var firstErr error
+	for _, candidate := range s.mediaFileCandidates(media) {
+		if !fileExists(candidate) {
+			continue
+		}
+		if err := os.Remove(candidate); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if media != nil && media.Owner != "" {
+		if cfg := s.userS3Config(media.Owner); cfg != nil {
+			client, err := newS3Client(cfg)
+			if err != nil {
+				return err
+			}
+			if err := s.deleteMediaFromS3(client, cfg, media); err != nil && firstErr == nil && !errors.Is(err, os.ErrNotExist) {
+				firstErr = err
+			}
+		}
+	}
+	if s.legacyS3Client != nil && s.LegacyS3 != nil {
+		if err := s.deleteMediaFromS3(s.legacyS3Client, s.LegacyS3, media); err != nil && firstErr == nil && !errors.Is(err, os.ErrNotExist) {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (s *Store) openMediaFromS3(client *awss3.Client, cfg *LegacyS3Config, media *Media) (io.ReadCloser, error) {
+	if client == nil || cfg == nil {
+		return nil, os.ErrNotExist
+	}
+	var lastErr error
+	for _, key := range s.mediaObjectKeys(media) {
+		result, err := client.GetObject(context.Background(), &awss3.GetObjectInput{
+			Bucket: aws.String(cfg.Bucket),
+			Key:    aws.String(key),
+		})
+		if err == nil {
+			return result.Body, nil
+		}
+		lastErr = err
+		var noSuchKey *awstypes.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			continue
+		}
+	}
+	if lastErr != nil {
+		var noSuchKey *awstypes.NoSuchKey
+		if errors.As(lastErr, &noSuchKey) {
+			return nil, os.ErrNotExist
+		}
+		return nil, lastErr
+	}
+	return nil, os.ErrNotExist
+}
+
+func (s *Store) deleteMediaFromS3(client *awss3.Client, cfg *LegacyS3Config, media *Media) error {
+	if client == nil || cfg == nil {
+		return nil
+	}
+	var firstErr error
+	for _, key := range s.mediaObjectKeys(media) {
+		_, err := client.DeleteObject(context.Background(), &awss3.DeleteObjectInput{
+			Bucket: aws.String(cfg.Bucket),
+			Key:    aws.String(key),
+		})
+		if err == nil {
+			continue
+		}
+		var noSuchKey *awstypes.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			continue
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func SafeFilename(name string) string {
