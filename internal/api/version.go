@@ -4,10 +4,11 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // RegisterVersionRoutes registers the version API endpoint
-func RegisterVersionRoutes(e *echo.Echo, version, name string) {
+func RegisterVersionRoutes(e *core.ServeEvent, version, name string) {
 	handler := func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{
 			"version": version,
@@ -16,7 +17,7 @@ func RegisterVersionRoutes(e *echo.Echo, version, name string) {
 	}
 
 	// v1 canonical endpoint
-	e.GET("/api/v1/version", handler)
+	e.Router.GET("/api/v1/version", handler)
 	// backward compatibility for existing clients
-	e.GET("/api/version", handler)
+	e.Router.GET("/api/version", handler)
 }

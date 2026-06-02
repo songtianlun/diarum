@@ -67,7 +67,7 @@ export function isCheveretoResult(result: Media | CheveretoUploadResult): result
 }
 
 /**
- * Upload an image file to Diarum or Chevereto
+ * Upload an image file to PocketBase or Chevereto
  * @param file - The image file to upload
  * @param options - Upload options
  * @returns The created media record or Chevereto URL
@@ -81,7 +81,7 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		throw new Error(`Invalid file type: ${file.type}. Allowed types: ${allowedTypes.join(', ')}`);
 	}
 
-	// Validate file size (50MB max - must match backend media limit)
+	// Validate file size (50MB max - must match PocketBase media collection setting)
 	const maxSize = 50 * 1024 * 1024;
 	if (file.size > maxSize) {
 		throw new Error(`File size exceeds 50MB limit. File size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
@@ -103,7 +103,7 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		}
 	}
 
-	// Fallback to local Diarum upload
+	// Fallback to PocketBase upload
 	let resolvedDiaryId = diaryId;
 	if (!resolvedDiaryId && diaryDate) {
 		resolvedDiaryId = await getOrCreateDiaryId(diaryDate);
@@ -123,19 +123,14 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 	}
 
 	try {
-		const response = await fetch('/api/v1/media', {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`
-			},
-			body: formData
+		const record = await pb.collection('media').create<Media>(formData, {
+			requestKey: `upload_${Date.now()}`,
 		});
-		if (!response.ok) {
-			throw new Error(await response.text());
-		}
-		return await response.json();
+
+		return record;
 	} catch (error: any) {
 		console.error('Upload failed:', error);
+		console.error('Error data:', JSON.stringify(error?.data, null, 2));
 		throw new Error('Failed to upload image. Please try again.');
 	}
 }
@@ -151,8 +146,7 @@ export function getMediaUrl(media: Media, thumb?: string): string {
 		throw new Error('Invalid media record');
 	}
 
-	const url = `/api/v1/files/media/${encodeURIComponent(media.id)}/${encodeURIComponent(media.file)}`;
-	return thumb ? `${url}?thumb=${encodeURIComponent(thumb)}` : url;
+	return pb.files.getUrl(media as any, media.file, { thumb });
 }
 
 /**
@@ -161,15 +155,7 @@ export function getMediaUrl(media: Media, thumb?: string): string {
  */
 export async function deleteMedia(mediaId: string): Promise<void> {
 	try {
-		const response = await fetch(`/api/v1/media/${encodeURIComponent(mediaId)}`, {
-			method: 'DELETE',
-			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`
-			}
-		});
-		if (!response.ok) {
-			throw new Error(await response.text());
-		}
+		await pb.collection('media').delete(mediaId);
 	} catch (error) {
 		console.error('Delete failed:', error);
 		throw new Error('Failed to delete media. Please try again.');

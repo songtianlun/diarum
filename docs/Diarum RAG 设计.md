@@ -36,7 +36,7 @@ graph TD
     subgraph Diarum 应用
         A[用户界面]
         B[API 服务]
-        C[Native SQLite Store]
+        C[PocketBase SQLite]
         D[AI 服务层]
         E[chromem-go 向量库]
         F[配置管理]
@@ -79,7 +79,7 @@ graph TD
 
 ### 4.2. 配置存储与安全
 
-- **存储**: AI 配置信息将存储在 SQLite 配置表中，与用户关联。
+- **存储**: AI 配置信息将存储在 PocketBase 的一个新集合 `ai_settings` 中，与用户关联。
 - **安全**: 为了保护用户隐私，所有 `API Key` 在存入数据库前都将**使用 AES-256-GCM 进行加密**。密钥由 Diarum 应用管理，确保数据安全。
 
 ## 5. 对话历史存储方案
@@ -88,7 +88,7 @@ graph TD
 
 ### 5.1. 数据库设计
 
-在 SQLite 中创建两个新的表：
+在 PocketBase 中创建两个新的集合：
 
 1.  **`ai_conversations`**: 用于存储每个独立的对话会话。包含会话标题、摘要、消息数、最后更新时间等字段。
 2.  **`ai_messages`**: 用于存储每一条具体的消息。包含所属会话 ID、角色（用户/助手）、消息内容、引用的日记 ID 列表等字段。

@@ -11,14 +11,15 @@ import (
 	"time"
 
 	chromem "github.com/philippgille/chromem-go"
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/models"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/logger"
-	"github.com/songtianlun/diarum/internal/store"
 )
 
 // EmbeddingService handles diary embedding operations
 type EmbeddingService struct {
-	store         *store.Store
+	app           *pocketbase.PocketBase
 	vectorDB      *VectorDB
 	configService *config.ConfigService
 }
@@ -62,11 +63,11 @@ type EmbeddingResponse struct {
 }
 
 // NewEmbeddingService creates a new EmbeddingService
-func NewEmbeddingService(store *store.Store, vectorDB *VectorDB) *EmbeddingService {
+func NewEmbeddingService(app *pocketbase.PocketBase, vectorDB *VectorDB) *EmbeddingService {
 	return &EmbeddingService{
-		store:         store,
+		app:           app,
 		vectorDB:      vectorDB,
-		configService: config.NewConfigService(store),
+		configService: config.NewConfigService(app),
 	}
 }
 
@@ -176,7 +177,14 @@ func (s *EmbeddingService) BuildAllVectors(ctx context.Context, userID string) (
 	}
 
 	// Get all diaries for the user
-	diaries, err := s.store.ListDiaries(userID, "", "", "-date", 0)
+	diaries, err := s.app.Dao().FindRecordsByFilter(
+		"diaries",
+		"owner = {:owner}",
+		"-date",
+		-1, // No limit
+		0,
+		map[string]any{"owner": userID},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch diaries: %w", err)
 	}
@@ -196,7 +204,7 @@ func (s *EmbeddingService) BuildAllVectors(ctx context.Context, userID string) (
 	for _, diary := range diaries {
 		if err := s.processDiary(ctx, collection, diary, embeddingFunc); err != nil {
 			result.Failed++
-			dateStr := extractDate(diary.Date)
+			dateStr := extractDate(diary.GetString("date"))
 			errMsg := fmt.Sprintf("Diary %s: %v", dateStr, err)
 			result.Errors = append(result.Errors, dateStr)
 			result.ErrorDetails = append(result.ErrorDetails, errMsg)
@@ -235,7 +243,14 @@ func (s *EmbeddingService) BuildIncrementalVectors(ctx context.Context, userID s
 	}
 
 	// Get all diaries for the user
-	diaries, err := s.store.ListDiaries(userID, "", "", "-date", 0)
+	diaries, err := s.app.Dao().FindRecordsByFilter(
+		"diaries",
+		"owner = {:owner}",
+		"-date",
+		-1,
+		0,
+		map[string]any{"owner": userID},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch diaries: %w", err)
 	}
@@ -261,7 +276,7 @@ func (s *EmbeddingService) BuildIncrementalVectors(ctx context.Context, userID s
 
 		if err := s.processDiary(ctx, collection, diary, embeddingFunc); err != nil {
 			result.Failed++
-			dateStr := extractDate(diary.Date)
+			dateStr := extractDate(diary.GetString("date"))
 			errMsg := fmt.Sprintf("Diary %s: %v", dateStr, err)
 			result.Errors = append(result.Errors, dateStr)
 			result.ErrorDetails = append(result.ErrorDetails, errMsg)
@@ -278,16 +293,16 @@ func (s *EmbeddingService) BuildIncrementalVectors(ctx context.Context, userID s
 }
 
 // processDiary processes a single diary entry
-func (s *EmbeddingService) processDiary(ctx context.Context, collection *chromem.Collection, diary *store.Diary, embeddingFunc chromem.EmbeddingFunc) error {
-	content := diary.Content
+func (s *EmbeddingService) processDiary(ctx context.Context, collection *chromem.Collection, diary *models.Record, embeddingFunc chromem.EmbeddingFunc) error {
+	content := diary.GetString("content")
 	if content == "" {
 		return nil // Skip empty diaries
 	}
 
-	diaryID := diary.ID
-	dateStr := extractDate(diary.Date)
-	mood := diary.Mood
-	weather := diary.Weather
+	diaryID := diary.GetId()
+	dateStr := extractDate(diary.GetString("date"))
+	mood := diary.GetString("mood")
+	weather := diary.GetString("weather")
 	builtAt := time.Now().UTC().Format(time.RFC3339Nano)
 
 	// Generate embedding directly to avoid issues with collection's embeddingFunc
@@ -325,27 +340,14 @@ func extractDate(dateTime string) string {
 	return dateTime
 }
 
-func parseStoreTime(value string) (time.Time, error) {
-	if parsed, err := time.Parse("2006-01-02 15:04:05.000Z", value); err == nil {
-		return parsed, nil
-	}
-	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
-		return parsed, nil
-	}
-	return time.Parse(time.RFC3339, value)
-}
-
 // needsBuildVector checks if a diary needs its vector rebuilt
-func (s *EmbeddingService) needsBuildVector(ctx context.Context, collection *chromem.Collection, diary *store.Diary) bool {
+func (s *EmbeddingService) needsBuildVector(ctx context.Context, collection *chromem.Collection, diary *models.Record) bool {
 	if collection == nil {
 		return true
 	}
 
-	diaryID := diary.ID
-	diaryUpdated, err := parseStoreTime(diary.Updated)
-	if err != nil {
-		return true
-	}
+	diaryID := diary.GetId()
+	diaryUpdated := diary.Updated.Time()
 
 	doc, err := collection.GetByID(ctx, diaryID)
 	if err != nil {
@@ -441,7 +443,14 @@ func (s *EmbeddingService) GetVectorStats(ctx context.Context, userID string) (*
 	stats := &VectorStats{}
 
 	// Get all diaries for the user
-	diaries, err := s.store.ListDiaries(userID, "", "", "updated", 0)
+	diaries, err := s.app.Dao().FindRecordsByFilter(
+		"diaries",
+		"owner = {:owner}",
+		"-updated",
+		-1,
+		0,
+		map[string]any{"owner": userID},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch diaries: %w", err)
 	}
@@ -452,12 +461,8 @@ func (s *EmbeddingService) GetVectorStats(ctx context.Context, userID string) (*
 
 	// Compare each diary with its vector
 	for _, diary := range diaries {
-		diaryID := diary.ID
-		diaryUpdated, err := parseStoreTime(diary.Updated)
-		if err != nil {
-			stats.OutdatedCount++
-			continue
-		}
+		diaryID := diary.GetId()
+		diaryUpdated := diary.Updated.Time()
 
 		// Try to get the vector document
 		if collection == nil {

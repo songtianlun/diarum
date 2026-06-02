@@ -81,7 +81,7 @@
 
 ### 4.1. 后端改造 (Go)
 
-1.  **创建 `user_settings` 表**: 在 SQLite 中创建新的 `user_settings` 表。
+1.  **创建 `user_settings` 集合**: 在 PocketBase 中创建新的 `user_settings` 表。
 2.  **实现 `ConfigService`**: 编写配置服务层的完整逻辑，包括数据库交互、缓存、加解密等。
 3.  **实现配置注册表**: 在代码中定义所有系统配置项及其元数据。
 4.  **实现 API Handlers**: 编写处理配置相关 API 请求的处理器，并将其注册到应用的路由中。

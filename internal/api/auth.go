@@ -1,47 +1,42 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
-	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
-
-	"github.com/songtianlun/diarum/internal/auth"
-	"github.com/songtianlun/diarum/internal/store"
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/apis"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // RegisterAuthRoutes registers auth business API endpoints.
-func RegisterAuthRoutes(e *echo.Echo, store *store.Store, authService *auth.Service) {
-	e.POST("/api/v1/auth/login", func(c echo.Context) error {
+func RegisterAuthRoutes(app *pocketbase.PocketBase, e *core.ServeEvent) {
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	e.Router.POST("/api/v1/auth/login", func(c echo.Context) error {
 		var body struct {
 			UsernameOrEmail string `json:"usernameOrEmail"`
 			Password        string `json:"password"`
 		}
 		if err := c.Bind(&body); err != nil {
-			return badRequest("Invalid request body", err)
+			return apis.NewBadRequestError("Invalid request body", err)
 		}
 
 		if body.UsernameOrEmail == "" || body.Password == "" {
-			return badRequest("usernameOrEmail and password are required", nil)
+			return apis.NewBadRequestError("usernameOrEmail and password are required", nil)
 		}
 
-		user, err := store.GetUserByIdentity(body.UsernameOrEmail)
-		if err != nil || !authService.VerifyPassword(user.PasswordHash, body.Password) {
-			return unauthorized("Invalid login credentials")
-		}
-
-		token, err := authService.IssueToken(user)
-		if err != nil {
-			return serverError("Failed to issue token", err)
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			"token":  token,
-			"record": user,
+		return proxyJSON(c, client, http.MethodPost, "/api/collections/users/auth-with-password", map[string]any{
+			"identity": body.UsernameOrEmail,
+			"password": body.Password,
 		})
-	})
+	}, apis.ActivityLogger(app))
 
-	e.POST("/api/v1/auth/register", func(c echo.Context) error {
+	e.Router.POST("/api/v1/auth/register", func(c echo.Context) error {
 		var body struct {
 			Username        string `json:"username"`
 			Email           string `json:"email"`
@@ -49,27 +44,46 @@ func RegisterAuthRoutes(e *echo.Echo, store *store.Store, authService *auth.Serv
 			PasswordConfirm string `json:"passwordConfirm"`
 		}
 		if err := c.Bind(&body); err != nil {
-			return badRequest("Invalid request body", err)
+			return apis.NewBadRequestError("Invalid request body", err)
 		}
 
-		body.Username = strings.TrimSpace(body.Username)
-		body.Email = strings.TrimSpace(body.Email)
 		if body.Username == "" || body.Email == "" || body.Password == "" || body.PasswordConfirm == "" {
-			return badRequest("username, email, password, and passwordConfirm are required", nil)
-		}
-		if body.Password != body.PasswordConfirm {
-			return badRequest("passwords do not match", nil)
+			return apis.NewBadRequestError("username, email, password, and passwordConfirm are required", nil)
 		}
 
-		hash, err := authService.HashPassword(body.Password)
-		if err != nil {
-			return serverError("Failed to hash password", err)
-		}
-		user, err := store.CreateUser(body.Username, body.Email, hash)
-		if err != nil {
-			return badRequest("Failed to create user", err)
-		}
+		return proxyJSON(c, client, http.MethodPost, "/api/collections/users/records", map[string]any{
+			"username":        body.Username,
+			"email":           body.Email,
+			"password":        body.Password,
+			"passwordConfirm": body.PasswordConfirm,
+		})
+	}, apis.ActivityLogger(app))
+}
 
-		return c.JSON(http.StatusOK, user)
-	})
+func proxyJSON(c echo.Context, client *http.Client, method, path string, payload any) error {
+	baseURL := c.Scheme() + "://" + c.Request().Host
+
+	requestBody, err := json.Marshal(payload)
+	if err != nil {
+		return apis.NewBadRequestError("Failed to encode request", err)
+	}
+
+	req, err := http.NewRequest(method, baseURL+path, bytes.NewReader(requestBody))
+	if err != nil {
+		return apis.NewApiError(http.StatusInternalServerError, "Failed to create upstream request", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return apis.NewApiError(http.StatusBadGateway, "Upstream auth service request failed", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return apis.NewApiError(http.StatusBadGateway, "Failed to read upstream response", err)
+	}
+
+	return c.Blob(resp.StatusCode, echo.MIMEApplicationJSON, respBody)
 }

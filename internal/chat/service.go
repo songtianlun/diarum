@@ -11,15 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/models"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/logger"
-	"github.com/songtianlun/diarum/internal/store"
 )
 
 // ChatService handles AI chat operations with RAG
 type ChatService struct {
-	store            *store.Store
+	app              *pocketbase.PocketBase
 	embeddingService *embedding.EmbeddingService
 	configService    *config.ConfigService
 }
@@ -97,11 +98,11 @@ type StreamWriter interface {
 }
 
 // NewChatService creates a new ChatService
-func NewChatService(store *store.Store, embeddingService *embedding.EmbeddingService) *ChatService {
+func NewChatService(app *pocketbase.PocketBase, embeddingService *embedding.EmbeddingService) *ChatService {
 	return &ChatService{
-		store:            store,
+		app:              app,
 		embeddingService: embeddingService,
-		configService:    config.NewConfigService(store),
+		configService:    config.NewConfigService(app),
 	}
 }
 
@@ -161,17 +162,28 @@ func (s *ChatService) SearchDiariesByDateRange(ctx context.Context, userID strin
 		args.Limit = 100
 	}
 
-	start := ""
-	end := ""
+	// Build filter conditions
+	filter := "owner = {:owner}"
+	filterParams := map[string]any{"owner": userID}
+
 	if args.StartDate != "" {
-		start = args.StartDate + " 00:00:00.000Z"
+		filter += " && date >= {:start_date}"
+		filterParams["start_date"] = args.StartDate
 	}
 	if args.EndDate != "" {
-		end = args.EndDate + " 23:59:59.999Z"
+		filter += " && date <= {:end_date}"
+		filterParams["end_date"] = args.EndDate + " 23:59:59"
 	}
 
 	// Query from database
-	diaries, err := s.store.ListDiaries(userID, start, end, "-date", args.Limit)
+	diaries, err := s.app.Dao().FindRecordsByFilter(
+		"diaries",
+		filter,
+		"-date",
+		args.Limit,
+		0,
+		filterParams,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch diaries: %w", err)
 	}
@@ -179,16 +191,16 @@ func (s *ChatService) SearchDiariesByDateRange(ctx context.Context, userID strin
 	// Convert to DiarySearchResult
 	results := make([]embedding.DiarySearchResult, 0, len(diaries))
 	for _, diary := range diaries {
-		dateStr := diary.Date
+		dateStr := diary.GetString("date")
 		if len(dateStr) >= 10 {
 			dateStr = dateStr[:10]
 		}
 		results = append(results, embedding.DiarySearchResult{
-			ID:      diary.ID,
+			ID:      diary.GetId(),
 			Date:    dateStr,
-			Content: diary.Content,
-			Mood:    diary.Mood,
-			Weather: diary.Weather,
+			Content: diary.GetString("content"),
+			Mood:    diary.GetString("mood"),
+			Weather: diary.GetString("weather"),
 		})
 	}
 
@@ -278,7 +290,14 @@ Always reference specific dates when discussing diary entries. Respond in the sa
 
 // GetConversationHistory retrieves message history for a conversation
 func (s *ChatService) GetConversationHistory(conversationID string, limit int) ([]ChatMessage, error) {
-	messages, err := s.store.ListMessages(conversationID, limit)
+	messages, err := s.app.Dao().FindRecordsByFilter(
+		"ai_messages",
+		"conversation = {:conv}",
+		"created",
+		limit,
+		0,
+		map[string]any{"conv": conversationID},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch messages: %w", err)
 	}
@@ -286,17 +305,30 @@ func (s *ChatService) GetConversationHistory(conversationID string, limit int) (
 	history := make([]ChatMessage, 0, len(messages))
 	for _, msg := range messages {
 		history = append(history, ChatMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
+			Role:    msg.GetString("role"),
+			Content: msg.GetString("content"),
 		})
 	}
 	return history, nil
 }
 
 // SaveMessage saves a message to the database
-func (s *ChatService) SaveMessage(userID, conversationID, role, content string, referencedDiaries []string) (*store.Message, error) {
-	record, err := s.store.CreateMessage(userID, conversationID, role, content, referencedDiaries)
+func (s *ChatService) SaveMessage(userID, conversationID, role, content string, referencedDiaries []string) (*models.Record, error) {
+	collection, err := s.app.Dao().FindCollectionByNameOrId("ai_messages")
 	if err != nil {
+		return nil, fmt.Errorf("failed to find messages collection: %w", err)
+	}
+
+	record := models.NewRecord(collection)
+	record.Set("conversation", conversationID)
+	record.Set("role", role)
+	record.Set("content", content)
+	record.Set("owner", userID)
+	if len(referencedDiaries) > 0 {
+		record.Set("referenced_diaries", referencedDiaries)
+	}
+
+	if err := s.app.Dao().SaveRecord(record); err != nil {
 		return nil, fmt.Errorf("failed to save message: %w", err)
 	}
 
@@ -807,16 +839,29 @@ func truncateString(s string, maxLen int) string {
 
 // GetConversationMessageCount returns the number of messages in a conversation
 func (s *ChatService) GetConversationMessageCount(conversationID string) (int, error) {
-	return s.store.CountMessages(conversationID)
+	messages, err := s.app.Dao().FindRecordsByFilter(
+		"ai_messages",
+		"conversation = {:conv}",
+		"",
+		0,
+		0,
+		map[string]any{"conv": conversationID},
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count messages: %w", err)
+	}
+	return len(messages), nil
 }
 
 // UpdateConversationTitle updates the title of a conversation
 func (s *ChatService) UpdateConversationTitle(conversationID, title string) error {
-	conv, err := s.store.GetConversation(conversationID, "")
+	conv, err := s.app.Dao().FindRecordById("ai_conversations", conversationID)
 	if err != nil {
 		return fmt.Errorf("failed to find conversation: %w", err)
 	}
-	if _, err := s.store.UpdateConversationTitle(conversationID, conv.Owner, title); err != nil {
+
+	conv.Set("title", title)
+	if err := s.app.Dao().SaveRecord(conv); err != nil {
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 

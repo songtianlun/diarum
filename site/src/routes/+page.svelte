@@ -9,9 +9,7 @@
 
 	onMount(() => {
 		if ($isAuthenticated) {
-			goto(`/diary/${getToday()}`).catch(() => {
-				ready = true;
-			});
+			goto(`/diary/${getToday()}`);
 		} else {
 			ready = true;
 		}

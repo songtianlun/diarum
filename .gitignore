@@ -25,7 +25,6 @@ diaria_data/
 # Build artifacts
 dist/
 build/
-.tmp/
 
 # IDE
 .vscode/
