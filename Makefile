@@ -1,4 +1,4 @@
-.PHONY: help build dev run clean test test-cover test-coverage frontend backend docker version install-air
+.PHONY: help build dev run clean test test-cover test-coverage frontend backend docker version install-air test-static
 
 # Get version from git
 VERSION ?= $(shell git describe --dirty --always --tags --abbrev=7 2>/dev/null || echo "dev")
@@ -82,11 +82,15 @@ clean:
 	rm -rf dist
 
 # Run tests
-test:
+test-static:
+	@mkdir -p internal/static/build
+	@test -f internal/static/build/index.html || printf '<!doctype html><title>Diarum test static</title>\n' > internal/static/build/index.html
+
+test: test-static
 	@mkdir -p $(GOCACHE)
 	GOCACHE=$(GOCACHE) go test ./...
 
-test-cover test-coverage:
+test-cover test-coverage: test-static
 	@mkdir -p $(dir $(COVERAGE_FILE)) $(GOCACHE)
 	GOCACHE=$(GOCACHE) go test -coverprofile=$(COVERAGE_FILE) ./...
 	GOCACHE=$(GOCACHE) go tool cover -func=$(COVERAGE_FILE)
