@@ -665,6 +665,9 @@ func parseLegacyS3Config(raw string) (*LegacyS3Config, error) {
 
 func getLegacyS3Config(db *sql.DB) (*LegacyS3Config, error) {
 	raw, err := getMeta(db, "legacy.s3")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil || strings.TrimSpace(raw) == "" {
 		return nil, err
 	}

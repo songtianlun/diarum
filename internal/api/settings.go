@@ -22,6 +22,72 @@ func generateToken() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
+func getSettingHandler(configService *config.ConfigService) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		userId := auth.CurrentUser(c).ID
+		key := c.PathParam("key")
+
+		if _, ok := config.GetConfigMeta(key); !ok {
+			return badRequest("Unknown setting key: "+key, nil)
+		}
+
+		value, err := configService.Get(userId, key)
+		if err != nil {
+			return badRequest("Failed to get setting", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"key":   key,
+			"value": value,
+		})
+	}
+}
+
+func putSettingHandler(configService *config.ConfigService) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		userId := auth.CurrentUser(c).ID
+		key := c.PathParam("key")
+
+		if _, ok := config.GetConfigMeta(key); !ok {
+			return badRequest("Unknown setting key: "+key, nil)
+		}
+
+		var body struct {
+			Value any `json:"value"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return badRequest("Invalid request body", err)
+		}
+
+		if err := configService.Set(userId, key, body.Value); err != nil {
+			return badRequest("Failed to save setting", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"success": true,
+		})
+	}
+}
+
+func deleteSettingHandler(configService *config.ConfigService) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		userId := auth.CurrentUser(c).ID
+		key := c.PathParam("key")
+
+		if _, ok := config.GetConfigMeta(key); !ok {
+			return badRequest("Unknown setting key: "+key, nil)
+		}
+
+		if err := configService.Delete(userId, key); err != nil {
+			return badRequest("Failed to delete setting", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"success": true,
+		})
+	}
+}
+
 // RegisterSettingsRoutes registers settings-related API endpoints
 func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware echo.MiddlewareFunc) {
 	configService := config.NewConfigService(store)
@@ -175,68 +241,11 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 	})
 
 	// Get single setting by key
-	group.GET("/:key", func(c echo.Context) error {
-		userId := auth.CurrentUser(c).ID
-		key := c.PathParam("key")
-
-		// Validate key against registry
-		if _, ok := config.GetConfigMeta(key); !ok {
-			return badRequest("Unknown setting key: "+key, nil)
-		}
-
-		value, err := configService.Get(userId, key)
-		if err != nil {
-			return badRequest("Failed to get setting", err)
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			"key":   key,
-			"value": value,
-		})
-	})
+	group.GET("/:key", getSettingHandler(configService))
 
 	// Update single setting by key
-	group.PUT("/:key", func(c echo.Context) error {
-		userId := auth.CurrentUser(c).ID
-		key := c.PathParam("key")
-
-		// Validate key against registry
-		if _, ok := config.GetConfigMeta(key); !ok {
-			return badRequest("Unknown setting key: "+key, nil)
-		}
-
-		var body struct {
-			Value any `json:"value"`
-		}
-		if err := c.Bind(&body); err != nil {
-			return badRequest("Invalid request body", err)
-		}
-
-		if err := configService.Set(userId, key, body.Value); err != nil {
-			return badRequest("Failed to save setting", err)
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			"success": true,
-		})
-	})
+	group.PUT("/:key", putSettingHandler(configService))
 
 	// Delete single setting by key
-	group.DELETE("/:key", func(c echo.Context) error {
-		userId := auth.CurrentUser(c).ID
-		key := c.PathParam("key")
-
-		// Validate key against registry
-		if _, ok := config.GetConfigMeta(key); !ok {
-			return badRequest("Unknown setting key: "+key, nil)
-		}
-
-		if err := configService.Delete(userId, key); err != nil {
-			return badRequest("Failed to delete setting", err)
-		}
-
-		return c.JSON(http.StatusOK, map[string]any{
-			"success": true,
-		})
-	})
+	group.DELETE("/:key", deleteSettingHandler(configService))
 }

@@ -1,10 +1,13 @@
-.PHONY: help build dev run clean test frontend backend docker version install-air
+.PHONY: help build dev run clean test test-cover test-coverage frontend backend docker version install-air
 
 # Get version from git
 VERSION ?= $(shell git describe --dirty --always --tags --abbrev=7 2>/dev/null || echo "dev")
 LDFLAGS := -X main.Version=$(VERSION)
 AIR_VERSION ?= latest
 AIR := $(CURDIR)/.tmp/bin/air
+GOCACHE ?= $(CURDIR)/.tmp/go-build
+COVERAGE_FILE ?= $(CURDIR)/.tmp/coverage.out
+COVERAGE_THRESHOLD ?= 80
 
 # Default target
 help:
@@ -16,6 +19,7 @@ help:
 	@echo "  make backend    - Build backend only"
 	@echo "  make clean      - Clean build artifacts"
 	@echo "  make test       - Run tests"
+	@echo "  make test-cover - Run tests with coverage and enforce >= $(COVERAGE_THRESHOLD)%"
 	@echo "  make docker     - Build Docker image"
 	@echo "  make version    - Show current version"
 
@@ -79,7 +83,15 @@ clean:
 
 # Run tests
 test:
-	go test ./...
+	@mkdir -p $(GOCACHE)
+	GOCACHE=$(GOCACHE) go test ./...
+
+test-cover test-coverage:
+	@mkdir -p $(dir $(COVERAGE_FILE)) $(GOCACHE)
+	GOCACHE=$(GOCACHE) go test -coverprofile=$(COVERAGE_FILE) ./...
+	GOCACHE=$(GOCACHE) go tool cover -func=$(COVERAGE_FILE)
+	@coverage=$$(GOCACHE=$(GOCACHE) go tool cover -func=$(COVERAGE_FILE) | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
+	awk "BEGIN { exit !($$coverage >= $(COVERAGE_THRESHOLD)) }" || (echo "Coverage $$coverage% is below $(COVERAGE_THRESHOLD)%" && exit 1)
 
 # Build Docker image
 docker:

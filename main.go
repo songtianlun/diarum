@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,6 +25,10 @@ import (
 	"github.com/songtianlun/diarum/internal/static"
 	"github.com/songtianlun/diarum/internal/store"
 )
+
+var startServer = func(e *echo.Echo, addr string) error {
+	return e.Start(addr)
+}
 
 func getDataDir() string {
 	if dataDir := os.Getenv("DIARUM_DATA_PATH"); dataDir != "" {
@@ -82,30 +87,35 @@ func serveSPA(c echo.Context, fsys fs.FS) error {
 }
 
 func main() {
+	if err := run(os.Args[1:], os.Stdout); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(args []string, stdout io.Writer) error {
 	command := "serve"
-	args := os.Args[1:]
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command = args[0]
 		args = args[1:]
 	}
 	if command == "version" {
-		fmt.Printf("%s version %s\n", Name, Version)
-		return
+		_, err := fmt.Fprintf(stdout, "%s version %s\n", Name, Version)
+		return err
 	}
 	if command != "serve" {
-		log.Fatalf("unknown command: %s", command)
+		return fmt.Errorf("unknown command: %s", command)
 	}
 
 	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
 	dataDir := serveFlags.String("data-dir", getDataDir(), "the directory to store application data")
 	httpAddr := serveFlags.String("http", ":8090", "HTTP listen address")
 	if err := serveFlags.Parse(args); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	appStore, err := store.Open(*dataDir)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer appStore.Close()
 
@@ -172,7 +182,11 @@ func main() {
 		e.GET("/*", func(c echo.Context) error { return serveSPA(c, staticFS) })
 	}
 
-	if err := e.Start(*httpAddr); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
+	if err := startServer(e, *httpAddr); err != nil && err != http.ErrServerClosed {
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
 	}
+	return nil
 }
