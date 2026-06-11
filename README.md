@@ -176,6 +176,11 @@ make test
 
 Diarum stores application data in `diarum.db` under the configured data directory. On startup, if an older `data.db` exists and `diarum.db` does not, Diarum automatically creates the new database and migrates users, diaries, media metadata, settings, and AI conversation data while leaving the old database untouched.
 
+### Unit Tests
+
+[![codecov](https://codecov.io/gh/songtianlun/diarum/graph/badge.svg?token=S6DXR0YJH2)](https://codecov.io/gh/songtianlun/diarum)
+![codecov-graph](https://codecov.io/gh/songtianlun/diarum/graphs/icicle.svg?token=S6DXR0YJH2)
+
 ---
 
 ## 中文
@@ -342,6 +347,11 @@ make dev-backend
 ### 数据存储
 
 Diarum 会在配置的数据目录下使用 `diarum.db` 保存应用数据。启动时如果检测到旧版 `data.db` 且尚不存在 `diarum.db`，会自动创建新数据库并迁移用户、日记、媒体元数据、设置和 AI 对话数据，同时保留旧数据库不变。
+
+### 单元测试
+
+[![codecov](https://codecov.io/gh/songtianlun/diarum/graph/badge.svg?token=S6DXR0YJH2)](https://codecov.io/gh/songtianlun/diarum)
+![codecov-graph](https://codecov.io/gh/songtianlun/diarum/graphs/icicle.svg?token=S6DXR0YJH2)
 
 ## 加入交流群
 

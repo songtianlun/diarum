@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -559,6 +560,296 @@ func TestMemosDateParsingAndAppendFormatting(t *testing.T) {
 	}
 	if !strings.Contains(content, "<!-- DIARUM:MEMOS:BEGIN") || !strings.Contains(content, "<pre><code>") {
 		t.Fatalf("appendMemosBlock content = %q", content)
+	}
+}
+
+func TestMemosSettingsAndWebhookFailures(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	RegisterMemosRoutes(e, s, authMiddlewareFor(user), nil)
+
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/memos/settings", nil, map[string]string{"Host": "diarum.example.com"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET memos settings status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	settings := decodeJSONBody(t, rec)
+	if settings["token_exists"] != false || settings["webhook_url"] != "" {
+		t.Fatalf("default memos settings = %#v", settings)
+	}
+
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/memos/webhook/no-token", strings.NewReader(`{}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unknown webhook token status = %d", rec.Code)
+	}
+
+	cfg := config.NewConfigService(s)
+	if err := cfg.Set(user.ID, "memos.webhook_token", "known-token"); err != nil {
+		t.Fatalf("Set webhook token: %v", err)
+	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/memos/webhook/known-token", strings.NewReader(`{}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("disabled webhook status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = performRequest(t, e, http.MethodPut, "/api/v1/memos/settings", strings.NewReader(`{"enabled":true,"base_url":"https://memos.example.com/"}`), map[string]string{"Content-Type": "application/json", "Host": "diarum.example.com", "X-Forwarded-Host": "public.example.com", "X-Forwarded-Proto": "https"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enable memos settings status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	settings = decodeJSONBody(t, rec)
+	if settings["webhook_url"] != "https://public.example.com/api/v1/memos/webhook/known-token" {
+		t.Fatalf("forwarded webhook_url = %q", settings["webhook_url"])
+	}
+
+	rec = performRequest(t, e, http.MethodPut, "/api/v1/memos/settings", strings.NewReader(`{`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid settings body status = %d", rec.Code)
+	}
+
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/memos/settings/reset-token", nil, map[string]string{"Host": "diarum.example.com"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset memos token status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	settings = decodeJSONBody(t, rec)
+	if settings["token_exists"] != true || settings["webhook_url"] == "" {
+		t.Fatalf("reset token settings = %#v", settings)
+	}
+	webhookPath := strings.TrimPrefix(settings["webhook_url"].(string), "http://diarum.example.com")
+
+	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(`{`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid webhook JSON status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(`{"action":"create","memo":{"content":"missing id"}}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing memo id status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(`{"action":"create","memo":{"id":"bad-time","content":"x"}}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("missing memo time status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMemosRoutesDatabaseErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	RegisterMemosRoutes(e, s, authMiddlewareFor(user), nil)
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("Close store DB: %v", err)
+	}
+
+	rec := performRequest(t, e, http.MethodPost, "/api/v1/memos/webhook/token", strings.NewReader(`{}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("webhook token validation DB error status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodPut, "/api/v1/memos/settings", strings.NewReader(`{"enabled":true}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("PUT settings token save DB error status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodPut, "/api/v1/memos/settings", strings.NewReader(`{"enabled":false}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("PUT settings batch DB error status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/memos/settings/reset-token", nil, nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("reset settings token DB error status = %d", rec.Code)
+	}
+}
+
+func TestMemosPayloadParsingVariants(t *testing.T) {
+	if got, err := validateMemosWebhookToken(newTestStore(t), ""); err != nil || got != "" {
+		t.Fatalf("validate empty token = %q, %v", got, err)
+	}
+	closedStore := newTestStore(t)
+	if err := closedStore.DB.Close(); err != nil {
+		t.Fatalf("Close store DB: %v", err)
+	}
+	if _, err := validateMemosWebhookToken(closedStore, "token"); err == nil {
+		t.Fatal("validate token should return query error after DB close")
+	}
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "https://diarum.example.com/settings", nil)
+	req.TLS = &tls.ConnectionState{}
+	c := e.NewContext(req, httptest.NewRecorder())
+	if got := absoluteURL(c, "/api/v1/memos/webhook/tls-token"); got != "https://diarum.example.com/api/v1/memos/webhook/tls-token" {
+		t.Fatalf("absoluteURL TLS = %q", got)
+	}
+
+	event := parseMemosWebhookEvent(map[string]any{
+		"type": "memo.archived",
+		"data": map[string]any{
+			"resource": map[string]any{
+				"uid":        float64(42),
+				"content":    " nested ",
+				"created_at": map[string]any{"seconds": "1712448000", "nanos": float64(123)},
+				"html_url":   "https://memos.example.com/m/42",
+			},
+		},
+	})
+	if event.Action != "delete" || event.Memo.ID != "42" || event.Memo.CreateTime != "2024-04-07T00:00:00Z" || event.Memo.URL == "" {
+		t.Fatalf("nested parsed event = %#v", event)
+	}
+
+	event = parseMemosWebhookEvent(map[string]any{
+		"resource": "memos/abc",
+		"state":    "ARCHIVED",
+		"created":  "2024-04-08 10:11:12",
+	})
+	if event.Action != "delete" || event.Memo.ID != "abc" || memoDate(event.Memo) != "2024-04-08" {
+		t.Fatalf("fallback parsed event = %#v date=%q", event, memoDate(event.Memo))
+	}
+	event = parseMemosWebhookEvent(map[string]any{
+		"memo": map[string]any{"id": "upsert-default", "created": "2024-04-08"},
+	})
+	if event.Action != "upsert" || event.Memo.ID != "upsert-default" {
+		t.Fatalf("default upsert event = %#v", event)
+	}
+
+	if got := normalizeMemosAction("memos.memo.restored"); got != "memos.memo.restored" {
+		t.Fatalf("normalizeMemosAction unknown = %q", got)
+	}
+	if got := stringValue(true); got != "" {
+		t.Fatalf("stringValue bool = %q", got)
+	}
+	if got, ok := int64Value(map[string]any{}); ok || got != 0 {
+		t.Fatalf("int64Value invalid = %d, %v", got, ok)
+	}
+	if got := protobufTimestampString(map[string]any{"seconds": map[string]any{}}); got != "" {
+		t.Fatalf("protobufTimestampString invalid seconds = %q", got)
+	}
+	if got := protobufTimestampString(map[string]any{"nanos": float64(1)}); got != "" {
+		t.Fatalf("protobufTimestampString missing seconds = %q", got)
+	}
+	if got := memoID(map[string]any{}); got != "" {
+		t.Fatalf("memoID empty = %q", got)
+	}
+	if got := buildMemosURL("", "id"); got != "" {
+		t.Fatalf("buildMemosURL empty base = %q", got)
+	}
+	if got := buildMemosURL("https://memos.example.com", ""); got != "" {
+		t.Fatalf("buildMemosURL empty id = %q", got)
+	}
+}
+
+func TestMemosBlockReplacementAndDateVariants(t *testing.T) {
+	block := renderMemosBlock(memosMemo{ID: `id"-->`, Content: "hello <memo>\nline\n\nnext"}, "2024-04-07")
+	if !strings.Contains(block, `id="id&quot;--&gt;"`) || !strings.Contains(block, "hello &lt;memo&gt;<br>line") || !strings.Contains(block, "<p>next</p>") {
+		t.Fatalf("escaped rendered block = %q", block)
+	}
+	if empty := renderMemoContentHTML("   "); empty != "<p></p>" {
+		t.Fatalf("empty memo content = %q", empty)
+	}
+
+	legacy := "before\n<hr><pre><code>Source: Memos\nMemo ID: legacy&amp;id</code></pre><p>old</p><hr>\nafter"
+	replaced, ok := replaceMemosBlock(legacy, "legacy&id", "NEW")
+	if !ok || !strings.Contains(replaced, "beforeNEWafter") {
+		t.Fatalf("replace legacy block = %q, %v", replaced, ok)
+	}
+	removed, ok := removeMemosBlockFromContent(legacy, "legacy&id")
+	if !ok || strings.Contains(removed, "Memo ID") {
+		t.Fatalf("remove legacy block = %q, %v", removed, ok)
+	}
+	unchanged, ok := replaceMemosBlock("plain", "missing", "NEW")
+	if ok || unchanged != "plain" {
+		t.Fatalf("replace missing = %q, %v", unchanged, ok)
+	}
+	unchanged, ok = removeMemosBlockFromContent("plain", "missing")
+	if ok || unchanged != "plain" {
+		t.Fatalf("remove missing = %q, %v", unchanged, ok)
+	}
+
+	for name, test := range map[string]struct {
+		value string
+		want  string
+	}{
+		"millis": {value: "1712448000000", want: "2024-04-07"},
+		"micros": {value: "1712448000000000", want: "2024-04-07"},
+		"nanos":  {value: "1712448000000000000", want: "2024-04-07"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := memoDateFromValue(test.value); got != test.want {
+				t.Fatalf("memoDateFromValue(%q) = %q, want %q", test.value, got, test.want)
+			}
+		})
+	}
+	if got := memoDateFromValue("not-a-date"); got != "" {
+		t.Fatalf("invalid memoDateFromValue = %q", got)
+	}
+	if got := memoDateFromValue("9999999999999999999"); got != "" {
+		t.Fatalf("overflow memoDateFromValue = %q", got)
+	}
+	if got := memoDate(memosMemo{UpdateTime: "2024-04-09T01:02:03"}); got != "2024-04-09" {
+		t.Fatalf("memoDate update fallback = %q", got)
+	}
+	if got := appendMemosBlock("", "block"); got != "block" {
+		t.Fatalf("append empty content = %q", got)
+	}
+}
+
+func TestMemosSyncFindsAndRemovesExistingBlock(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	oldBlock := renderMemosBlock(memosMemo{ID: "memo-1", Content: "old", CreateTime: "2024-04-01"}, "2024-04-01")
+	if _, _, err := s.UpsertDiary(user.ID, "2024-04-01", "intro\n\n"+oldBlock, "calm", "cloudy"); err != nil {
+		t.Fatalf("UpsertDiary old: %v", err)
+	}
+
+	changed, err := syncMemosMemo(s, user.ID, memosWebhookEvent{Action: "upsert", Memo: memosMemo{ID: "memo-1", Content: "new", CreateTime: "2024-04-02", URL: "https://memos.example.com/m/memo-1"}})
+	if err != nil || !changed {
+		t.Fatalf("sync existing memo changed=%v err=%v", changed, err)
+	}
+	diary, err := s.GetDiaryByDate(user.ID, "2024-04-01 00:00:00.000Z", "2024-04-01 23:59:59.999Z")
+	if err != nil {
+		t.Fatalf("GetDiaryByDate existing memo: %v", err)
+	}
+	if strings.Contains(diary.Content, "old") || !strings.Contains(diary.Content, "new") || diary.Mood != "calm" || diary.Weather != "cloudy" {
+		t.Fatalf("updated existing diary = %#v", diary)
+	}
+
+	changed, err = syncMemosMemo(s, user.ID, memosWebhookEvent{Action: "delete", Memo: memosMemo{ID: "memo-1"}})
+	if err != nil || !changed {
+		t.Fatalf("delete existing memo changed=%v err=%v", changed, err)
+	}
+	diary, err = s.GetDiaryByDate(user.ID, "2024-04-01 00:00:00.000Z", "2024-04-01 23:59:59.999Z")
+	if err != nil {
+		t.Fatalf("GetDiaryByDate deleted memo: %v", err)
+	}
+	if strings.Contains(diary.Content, "DIARUM:MEMOS") || strings.Contains(diary.Content, "new") {
+		t.Fatalf("deleted memo diary content = %q", diary.Content)
+	}
+
+	changed, err = removeMemosBlock(s, user.ID, "missing", "2024-04-03")
+	if err != nil || changed {
+		t.Fatalf("remove missing memo changed=%v err=%v", changed, err)
+	}
+
+	if _, _, err := s.UpsertDiary(user.ID, "2024-04-04", "plain diary", "ok", "sun"); err != nil {
+		t.Fatalf("UpsertDiary plain: %v", err)
+	}
+	changed, err = syncMemosMemo(s, user.ID, memosWebhookEvent{Action: "upsert", Memo: memosMemo{ID: "memo-2", Content: "appended", CreateTime: "2024-04-04"}})
+	if err != nil || !changed {
+		t.Fatalf("append memo to existing date changed=%v err=%v", changed, err)
+	}
+	diary, err = s.GetDiaryByDate(user.ID, "2024-04-04 00:00:00.000Z", "2024-04-04 23:59:59.999Z")
+	if err != nil {
+		t.Fatalf("GetDiaryByDate appended memo: %v", err)
+	}
+	if !strings.Contains(diary.Content, "plain diary") || !strings.Contains(diary.Content, "appended") {
+		t.Fatalf("appended memo diary content = %q", diary.Content)
+	}
+	changed, err = removeMemosBlock(s, user.ID, "missing", "2024-04-04")
+	if err != nil || changed {
+		t.Fatalf("remove missing memo from existing date changed=%v err=%v", changed, err)
+	}
+
+	closedStore := newTestStore(t)
+	if err := closedStore.DB.Close(); err != nil {
+		t.Fatalf("Close store DB: %v", err)
+	}
+	if _, err := findMemosDiary(closedStore, user.ID, "memo", ""); err == nil {
+		t.Fatal("findMemosDiary should return list error after DB close")
 	}
 }
 
