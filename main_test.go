@@ -114,6 +114,84 @@ func TestRunVersionAndUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestServeSPAEdgeCases(t *testing.T) {
+	fsys := fstest.MapFS{
+		"index.html":          &fstest.MapFile{Data: []byte("root")},
+		"empty-dir/index.txt": &fstest.MapFile{Data: []byte("txt")},
+		"bad-dir/index.html":  &fstest.MapFile{Data: []byte("bad-dir-index")},
+	}
+
+	e := echo.New()
+
+	t.Run("root path", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		if err := serveSPA(c, fs.FS(fsys)); err != nil {
+			t.Fatalf("serveSPA root: %v", err)
+		}
+		if body := rec.Body.String(); body != "root" {
+			t.Fatalf("root body = %q, want root", body)
+		}
+	})
+
+	t.Run("empty path becomes root", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.URL.Path = ""
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		if err := serveSPA(c, fs.FS(fsys)); err != nil {
+			t.Fatalf("serveSPA empty path: %v", err)
+		}
+	})
+
+	t.Run("dir with trailing slash gets index", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/bad-dir/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		if err := serveSPA(c, fs.FS(fsys)); err != nil {
+			t.Fatalf("serveSPA bad-dir/ : %v", err)
+		}
+		if body := rec.Body.String(); body != "bad-dir-index" {
+			t.Fatalf("bad-dir/ body = %q, want bad-dir-index", body)
+		}
+	})
+
+	t.Run("dir without trailing slash falls back", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/empty-dir", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		if err := serveSPA(c, fs.FS(fsys)); err != nil {
+			t.Fatalf("serveSPA empty-dir: %v", err)
+		}
+		if body := rec.Body.String(); body != "root" {
+			t.Fatalf("empty-dir body = %q, want root fallback", body)
+		}
+	})
+
+	t.Run("missing index.html", func(t *testing.T) {
+		emptyFS := fstest.MapFS{}
+		req := httptest.NewRequest(http.MethodGet, "/anything", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		err := serveSPA(c, fs.FS(emptyFS))
+		if err != echo.ErrNotFound {
+			t.Fatalf("serveSPA empty FS error = %v, want echo.ErrNotFound", err)
+		}
+	})
+
+	t.Run("api path returns not found", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v2/test", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		err := serveSPA(c, fs.FS(fsys))
+		if err != echo.ErrNotFound {
+			t.Fatalf("serveSPA /api/ error = %v, want echo.ErrNotFound", err)
+		}
+	})
+
+}
+
 func TestRunServe(t *testing.T) {
 	originalStartServer := startServer
 	originalLevel := logger.GetLevel()
@@ -168,4 +246,27 @@ func TestRunServe(t *testing.T) {
 	if err := run([]string{"serve", "-data-dir", filePath}, io.Discard); err == nil {
 		t.Fatal("run serve should fail when data-dir points to a file")
 	}
+
+	t.Run("default command and data dir", func(t *testing.T) {
+		startServer = func(e *echo.Echo, addr string) error {
+			return http.ErrServerClosed
+		}
+		if err := run(nil, io.Discard); err != nil {
+			t.Fatalf("run nil args: %v", err)
+		}
+	})
+
+	t.Run("vector db init failure", func(t *testing.T) {
+		startServer = func(e *echo.Echo, addr string) error {
+			return http.ErrServerClosed
+		}
+		tmpDir := t.TempDir()
+		vectorDir := filepath.Join(tmpDir, "vectors")
+		if err := os.WriteFile(vectorDir, []byte("block"), 0o600); err != nil {
+			t.Fatalf("WriteFile block vector dir: %v", err)
+		}
+		if err := run([]string{"serve", "-data-dir", tmpDir, "-http", ":9393"}, io.Discard); err != nil {
+			t.Fatalf("run serve vector db failure should be non-fatal: %v", err)
+		}
+	})
 }

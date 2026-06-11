@@ -115,3 +115,42 @@ func TestMiddlewareAndCurrentUser(t *testing.T) {
 		t.Fatal("CurrentUser should be nil when context has no user")
 	}
 }
+
+func TestParseTokenUserNotFound(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewService(s)
+
+	token, err := service.IssueToken(user)
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+
+	deleteUser(t, s, user.ID)
+
+	if _, err := service.ParseToken(token); err == nil {
+		t.Fatal("ParseToken should fail when user no longer exists")
+	}
+}
+
+func TestMiddlewareWrongPrefix(t *testing.T) {
+	s := newTestStore(t)
+	service := NewService(s)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Basic dGVzdDp0ZXN0")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := service.Middleware(func(c echo.Context) error { return nil })(c); err == nil {
+		t.Fatal("Middleware should reject non-Bearer Authorization header")
+	}
+}
+
+func deleteUser(t *testing.T, s *store.Store, userID string) {
+	t.Helper()
+	if _, err := s.DB.Exec(`DELETE FROM users WHERE id = ?`, userID); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+}

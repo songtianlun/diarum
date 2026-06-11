@@ -289,6 +289,16 @@ func TestIsAllowedMediaType(t *testing.T) {
 		t.Fatalf("IsAllowedMediaType(svg) = %q, %v", got, allowed)
 	}
 
+	applicationXML := []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>`)
+	if got, allowed := IsAllowedMediaType(applicationXML); !allowed || got != "image/svg+xml" {
+		t.Fatalf("IsAllowedMediaType(application/xml svg) = %q, %v", got, allowed)
+	}
+
+	plainXML := []byte(`<?xml version="1.0"?><doc></doc>`)
+	if got, allowed := IsAllowedMediaType(plainXML); allowed {
+		t.Fatalf("IsAllowedMediaType(plain-xml) = %q, %v, want not allowed", got, allowed)
+	}
+
 	png := []byte{
 		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -306,5 +316,110 @@ func TestIsAllowedMediaType(t *testing.T) {
 
 	if got, allowed := IsAllowedMediaType([]byte("plain text")); allowed || got != "text/plain" {
 		t.Fatalf("IsAllowedMediaType(text) = %q, %v", got, allowed)
+	}
+}
+
+func TestValidateTokenAndGetUserEdgeCases(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewConfigService(s)
+
+	if err := service.Set(user.ID, "api.token", "secret-token"); err != nil {
+		t.Fatalf("Set api.token: %v", err)
+	}
+	if err := service.Set(user.ID, "api.enabled", true); err != nil {
+		t.Fatalf("Set api.enabled: %v", err)
+	}
+
+	t.Run("no matching token at all", func(t *testing.T) {
+		otherUser := newTestUser(t, s)
+		if err := service.Set(otherUser.ID, "api.token", "other-token"); err != nil {
+			t.Fatalf("Set other token: %v", err)
+		}
+		if err := service.Set(otherUser.ID, "api.enabled", false); err != nil {
+			t.Fatalf("Set other api.enabled: %v", err)
+		}
+		userID, err := service.ValidateTokenAndGetUser("nonexistent-token")
+		if err != nil {
+			t.Fatalf("ValidateTokenAndGetUser no match: %v", err)
+		}
+		if userID != "" {
+			t.Fatalf("ValidateTokenAndGetUser no match user = %q, want empty", userID)
+		}
+	})
+
+	t.Run("token mismatch via constant time compare", func(t *testing.T) {
+		userID, err := service.ValidateTokenAndGetUser("wrong-secret")
+		if err != nil {
+			t.Fatalf("ValidateTokenAndGetUser wrong token: %v", err)
+		}
+		if userID != "" {
+			t.Fatalf("ValidateTokenAndGetUser wrong token user = %q, want empty", userID)
+		}
+	})
+}
+
+func TestParseStringValueEmbedded(t *testing.T) {
+	service := &ConfigService{}
+	if got := service.parseStringValue(nil); got != "" {
+		t.Fatalf("parseStringValue nil = %q, want empty", got)
+	}
+	if got := service.parseStringValue("hello"); got != "hello" {
+		t.Fatalf("parseStringValue string = %q, want hello", got)
+	}
+	if got := service.parseStringValue(42); got != "" {
+		t.Fatalf("parseStringValue int = %q, want empty", got)
+	}
+}
+
+func TestGetBoolStringFalse(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewConfigService(s)
+
+	if err := s.SetSetting(user.ID, "string.false", "false", false); err != nil {
+		t.Fatalf("SetSetting string.false: %v", err)
+	}
+	if got, err := service.GetBool(user.ID, "string.false"); err != nil || got {
+		t.Fatalf("GetBool string.false = %v, %v, want false", got, err)
+	}
+}
+
+func TestGetStringWithNilValue(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewConfigService(s)
+
+	if err := s.SetSetting(user.ID, "nil.value", nil, false); err != nil {
+		t.Fatalf("SetSetting nil.value: %v", err)
+	}
+	if got, err := service.GetString(user.ID, "nil.value"); err != nil || got != "" {
+		t.Fatalf("GetString nil.value = %q, %v, want empty", got, err)
+	}
+}
+
+func TestGetStringNonStringValue(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewConfigService(s)
+
+	if err := s.SetSetting(user.ID, "float.key", float64(3.14), false); err != nil {
+		t.Fatalf("SetSetting float.key: %v", err)
+	}
+	if got, err := service.GetString(user.ID, "float.key"); err != nil || got != "" {
+		t.Fatalf("GetString float.key = %q, %v, want empty", got, err)
+	}
+}
+
+func TestGetBoolNonBoolValue(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewConfigService(s)
+
+	if err := s.SetSetting(user.ID, "map.key", map[string]any{"x": 1}, false); err != nil {
+		t.Fatalf("SetSetting map.key: %v", err)
+	}
+	if got, err := service.GetBool(user.ID, "map.key"); err != nil || got {
+		t.Fatalf("GetBool map.key = %v, %v, want false", got, err)
 	}
 }

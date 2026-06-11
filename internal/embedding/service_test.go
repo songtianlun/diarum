@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -623,6 +625,139 @@ func TestVectorDBLifecycle(t *testing.T) {
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestCreateEmbeddingFuncMissingConfigs(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	vectorDB := newTestVectorDB(t)
+	service := NewEmbeddingService(s, vectorDB)
+
+	if err := s.SetSetting(user.ID, "ai.api_key", "", false); err != nil {
+		t.Fatalf("SetSetting empty api_key: %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.base_url", "https://mock.local", false); err != nil {
+		t.Fatalf("SetSetting base_url: %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.embedding_model", "model", false); err != nil {
+		t.Fatalf("SetSetting embedding_model: %v", err)
+	}
+	if _, err := service.createEmbeddingFunc(user.ID); err == nil || !strings.Contains(err.Error(), "API key not configured") {
+		t.Fatalf("createEmbeddingFunc empty key error = %v", err)
+	}
+
+	if err := s.SetSetting(user.ID, "ai.api_key", "key", false); err != nil {
+		t.Fatalf("SetSetting api_key: %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.base_url", "", false); err != nil {
+		t.Fatalf("SetSetting empty base_url: %v", err)
+	}
+	if _, err := service.createEmbeddingFunc(user.ID); err == nil || !strings.Contains(err.Error(), "base URL not configured") {
+		t.Fatalf("createEmbeddingFunc empty baseURL error = %v", err)
+	}
+
+	if err := s.SetSetting(user.ID, "ai.base_url", "https://mock.local", false); err != nil {
+		t.Fatalf("SetSetting base_url: %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.embedding_model", "", false); err != nil {
+		t.Fatalf("SetSetting empty embedding_model: %v", err)
+	}
+	if _, err := service.createEmbeddingFunc(user.ID); err == nil || !strings.Contains(err.Error(), "embedding model not configured") {
+		t.Fatalf("createEmbeddingFunc empty model error = %v", err)
+	}
+}
+
+func TestBuildAllVectorsAndQuerySimilarStoreError(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	vectorDB := newTestVectorDB(t)
+	service := NewEmbeddingService(s, vectorDB)
+
+	if err := s.SetSetting(user.ID, "ai.enabled", true, false); err != nil {
+		t.Fatalf("SetSetting ai.enabled: %v", err)
+	}
+
+	if _, err := service.BuildAllVectors(context.Background(), user.ID); err == nil || !strings.Contains(err.Error(), "failed to create embedding function") {
+		t.Fatalf("BuildAllVectors missing config error = %v", err)
+	}
+	if _, err := service.BuildIncrementalVectors(context.Background(), user.ID); err == nil || !strings.Contains(err.Error(), "failed to create embedding function") {
+		t.Fatalf("BuildIncrementalVectors missing config error = %v", err)
+	}
+}
+
+func TestGetVectorStatsMissingCollection(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	vectorDB := newTestVectorDB(t)
+	service := NewEmbeddingService(s, vectorDB)
+
+	if _, err := s.InsertImportedDiary(user.ID, "pending-doc", "2024-08-01", "content", "", ""); err != nil {
+		t.Fatalf("InsertImportedDiary: %v", err)
+	}
+	stats, err := service.GetVectorStats(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("GetVectorStats no collection: %v", err)
+	}
+	if stats.PendingCount != 1 || stats.DiaryCount != 1 {
+		t.Fatalf("GetVectorStats no collection = %#v", stats)
+	}
+}
+
+func TestNewVectorDBError(t *testing.T) {
+	notDir := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(notDir, []byte("block"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := NewVectorDB(filepath.Join(notDir, "vectors")); err == nil {
+		t.Fatal("NewVectorDB should fail when parent is a file")
+	}
+}
+
+func TestGetCollectionAfterDelete(t *testing.T) {
+	db := newTestVectorDB(t)
+	if got := db.GetCollection("nonexistent"); got != nil {
+		t.Fatalf("GetCollection nonexistent = %#v, want nil", got)
+	}
+}
+
+func TestNewVectorDBAndGetCollectionErrors(t *testing.T) {
+	db := newTestVectorDB(t)
+	embeddingFunc := func(ctx context.Context, text string) ([]float32, error) {
+		return []float32{1, 0}, nil
+	}
+	col, err := db.GetOrCreateCollection(context.Background(), "user-new", embeddingFunc)
+	if err != nil {
+		t.Fatalf("GetOrCreateCollection: %v", err)
+	}
+	if col == nil {
+		t.Fatal("GetOrCreateCollection should return non-nil")
+	}
+	if err := db.DeleteCollection("user-new"); err != nil {
+		t.Fatalf("DeleteCollection: %v", err)
+	}
+	if got := db.GetCollection("user-new"); got != nil {
+		t.Fatalf("GetCollection after delete should be nil, got %v", got)
+	}
+}
+
+func TestGenerateEmbeddingMarshalError(t *testing.T) {
+	s := newTestStore(t)
+	vectorDB := newTestVectorDB(t)
+	service := NewEmbeddingService(s, vectorDB)
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `not-json`), nil
+	})
+	if _, err := service.generateEmbedding(context.Background(), "https://mock.local", "key", "model", "text"); err == nil || !strings.Contains(err.Error(), "failed to decode response") {
+		t.Fatalf("generateEmbedding decode error = %v", err)
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"object":"list","data":[{"embedding":[]}],"model":"m"}`), nil
+	})
+	if vec, err := service.generateEmbedding(context.Background(), "https://mock.local", "key", "model", "text"); err != nil || len(vec) != 0 {
+		t.Fatalf("generateEmbedding empty embedding = %v, %v", vec, err)
 	}
 }
 

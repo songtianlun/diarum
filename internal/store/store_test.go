@@ -1626,3 +1626,483 @@ func ioReadAllAndClose(rc interface {
 	defer rc.Close()
 	return io.ReadAll(rc)
 }
+
+func TestOpenRenameAndRuntimeErrorBranches(t *testing.T) {
+	dataDir := t.TempDir()
+
+	t.Run("rename failure when newPath already locked", func(t *testing.T) {
+		lockedPath := filepath.Join(dataDir, "locked")
+		if err := os.MkdirAll(lockedPath, 0755); err != nil {
+			t.Fatalf("Mkdir locked: %v", err)
+		}
+		newPathInLocked := filepath.Join(lockedPath, DatabaseName)
+		if err := os.WriteFile(newPathInLocked, []byte("locked"), 0o400); err != nil {
+			t.Fatalf("WriteFile locked: %v", err)
+		}
+		if _, err := Open(lockedPath); err == nil {
+			t.Fatal("Open should fail when database file is occupied")
+		}
+	})
+
+	t.Run("ensureRuntimeMetadata failure on existing db", func(t *testing.T) {
+		base := t.TempDir()
+		dbPath := filepath.Join(base, DatabaseName)
+		db, err := openSQLite(dbPath)
+		if err != nil {
+			t.Fatalf("openSQLite: %v", err)
+		}
+		if err := createSchema(db); err != nil {
+			t.Fatalf("createSchema: %v", err)
+		}
+		if err := setMeta(db, "auth.secret", "valid-hex"); err != nil {
+			t.Fatalf("setMeta: %v", err)
+		}
+		if err := setMeta(db, "legacy.media_collection_id", DefaultMediaCollectionID); err != nil {
+			t.Fatalf("setMeta media_collection_id: %v", err)
+		}
+		if err := setMeta(db, "legacy.s3", `{invalid`); err != nil {
+			t.Fatalf("setMeta invalid s3: %v", err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatalf("close db: %v", err)
+		}
+		if _, err := Open(base); err == nil {
+			t.Fatal("Open should fail when invalid legacy.s3 breaks runtime metadata")
+		}
+	})
+}
+
+func TestImageUploadProviderCheveretoFallback(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if got := s.imageUploadProvider(user.ID); got != "local" {
+		t.Fatalf("default imageUploadProvider = %q, want local", got)
+	}
+
+	if err := s.SetSetting(user.ID, "image_upload.provider", "unknown", false); err != nil {
+		t.Fatalf("SetSetting provider unknown: %v", err)
+	}
+	if err := s.SetSetting(user.ID, "chevereto.enabled", true, false); err != nil {
+		t.Fatalf("SetSetting chevereto.enabled: %v", err)
+	}
+	if got := s.imageUploadProvider(user.ID); got != "chevereto" {
+		t.Fatalf("imageUploadProvider chevereto fallback = %q, want chevereto", got)
+	}
+}
+
+func TestUserS3AndFileHelpersEdges(t *testing.T) {
+	s := newTestStore(t)
+
+	if got := s.userS3Config(""); got != nil {
+		t.Fatalf("userS3Config empty user = %#v, want nil", got)
+	}
+
+	user := newTestUser(t, s)
+	if got := s.userS3Config(user.ID); got != nil {
+		t.Fatalf("userS3Config without s3 settings = %#v, want nil", got)
+	}
+
+	if got := s.userLocalMediaDir(""); got != s.DefaultLocalMediaDir() {
+		t.Fatalf("userLocalMediaDir empty = %q, want default", got)
+	}
+
+	_ = user
+}
+
+func TestGetConversationListMessagesWithoutOwner(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	conv, err := s.CreateConversation(user.ID, "Test")
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	got, err := s.GetConversation(conv.ID, "")
+	if err != nil {
+		t.Fatalf("GetConversation without owner: %v", err)
+	}
+	if got.ID != conv.ID {
+		t.Fatalf("GetConversation without owner ID = %q, want %q", got.ID, conv.ID)
+	}
+
+	if _, err := s.GetConversation(conv.ID, "other-owner"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetConversation wrong owner error = %v, want sql.ErrNoRows", err)
+	}
+
+	msgs, err := s.ListMessages(conv.ID, 0)
+	if err != nil {
+		t.Fatalf("ListMessages without limit: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("ListMessages without limit = %d, want 0", len(msgs))
+	}
+}
+
+func TestSaveUploadedFileErrors(t *testing.T) {
+	s := newTestStore(t)
+
+	dst := filepath.Join(t.TempDir(), "existing-file")
+	if err := os.WriteFile(dst, []byte("block"), 0o400); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := s.SaveUploadedFile(filepath.Join(dst, "nested"), bytes.NewBufferString("x")); err == nil {
+		t.Fatal("SaveUploadedFile should fail when parent is a file not directory")
+	}
+}
+
+func TestListMediaRowsError(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+	if _, _, err := s.ListMedia(user.ID, 1, 10); err == nil {
+		t.Fatal("ListMedia should fail after DB close")
+	}
+}
+
+func TestEnsureImageUploadSettingsScanErrors(t *testing.T) {
+	s := newTestStore(t)
+	_ = newTestUser(t, s)
+
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+	if err := ensureImageUploadSettings(s.DB, s.DataDir, nil); err == nil {
+		t.Fatal("ensureImageUploadSettings should fail after DB close")
+	}
+}
+
+func TestGetSettingsNullValue(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if _, err := s.DB.Exec(`INSERT INTO user_settings(created, encrypted, id, key, updated, user, value) VALUES(?, false, ?, ?, ?, ?, NULL)`, nowString(), "null-val", "null.key", nowString(), user.ID); err != nil {
+		t.Fatalf("insert null value: %v", err)
+	}
+
+	settings, err := s.GetSettings(user.ID)
+	if err != nil {
+		t.Fatalf("GetSettings with null: %v", err)
+	}
+	if settings["null.key"] != nil {
+		t.Fatalf("GetSettings null.key = %#v, want nil", settings["null.key"])
+	}
+}
+
+func TestGenerateIDAndTokenError(t *testing.T) {
+	if id, err := GenerateID(); err != nil || id == "" {
+		t.Fatalf("GenerateID = %q, %v", id, err)
+	}
+	if token, err := GenerateTokenKey(); err != nil || token == "" {
+		t.Fatalf("GenerateTokenKey = %q, %v", token, err)
+	}
+}
+
+func TestGetUserSettingRawNullValue(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if _, err := s.DB.Exec(`INSERT INTO user_settings(created, encrypted, id, key, updated, user, value) VALUES(?, false, ?, ?, ?, ?, NULL)`, nowString(), "null-setting", "settings.null", nowString(), user.ID); err != nil {
+		t.Fatalf("insert null setting: %v", err)
+	}
+
+	raw, err := getUserSettingRaw(s.DB, user.ID, "settings.null")
+	if err != nil {
+		t.Fatalf("getUserSettingRaw null: %v", err)
+	}
+	if raw != "" {
+		t.Fatalf("getUserSettingRaw null value = %q, want empty", raw)
+	}
+}
+
+func TestSettingHasValueEdgeCases(t *testing.T) {
+	if settingHasValue("") {
+		t.Fatal("settingHasValue empty should be false")
+	}
+	if settingHasValue("null") {
+		t.Fatal("settingHasValue null should be false")
+	}
+	if !settingHasValue(`"hello"`) {
+		t.Fatal("settingHasValue string should be true")
+	}
+	if !settingHasValue("123") {
+		t.Fatal("settingHasValue number should be true")
+	}
+}
+
+func TestUserSettingStringBoolValueEdges(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if got := userSettingStringValue(s.DB, user.ID, "missing.key"); got != "" {
+		t.Fatalf("userSettingStringValue missing = %q, want empty", got)
+	}
+	if got := userSettingBoolValue(s.DB, user.ID, "missing.key"); got {
+		t.Fatal("userSettingBoolValue missing should be false")
+	}
+
+	if err := s.SetSetting(user.ID, "bool.true.string", "true", false); err != nil {
+		t.Fatalf("SetSetting bool.true.string: %v", err)
+	}
+	if !userSettingBoolValue(s.DB, user.ID, "bool.true.string") {
+		t.Fatal("userSettingBoolValue true string should be true")
+	}
+
+	if err := s.SetSetting(user.ID, "string.raw", "just-a-string", false); err != nil {
+		t.Fatalf("SetSetting string.raw: %v", err)
+	}
+	if got := userSettingStringValue(s.DB, user.ID, "string.raw"); got != "just-a-string" {
+		t.Fatalf("userSettingStringValue raw = %q, want just-a-string", got)
+	}
+}
+
+func TestOpenSQLiteErrorOnPing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "corrupt.db")
+	if err := os.WriteFile(path, []byte("not a database"), 0o600); err != nil {
+		t.Fatalf("WriteFile corrupt: %v", err)
+	}
+	if _, err := openSQLite(path); err == nil {
+		t.Fatal("openSQLite should fail on corrupt database")
+	}
+}
+
+func TestMigrateLegacyDataAttachError(t *testing.T) {
+	base := t.TempDir()
+	target, err := openSQLite(filepath.Join(base, "target.db"))
+	if err != nil {
+		t.Fatalf("openSQLite target: %v", err)
+	}
+	defer target.Close()
+	if err := createSchema(target); err != nil {
+		t.Fatalf("createSchema target: %v", err)
+	}
+
+	legacyPath := filepath.Join(base, "legacy-data.db")
+	legacyDB, err := openSQLite(legacyPath)
+	if err != nil {
+		t.Fatalf("openSQLite legacy: %v", err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE _collections (id TEXT PRIMARY KEY, name TEXT NOT NULL)`,
+		`CREATE TABLE _migrations (id TEXT PRIMARY KEY)`,
+	} {
+		if _, err := legacyDB.Exec(stmt); err != nil {
+			t.Fatalf("create legacy schema: %v", err)
+		}
+	}
+	if _, err := legacyDB.Exec(`INSERT INTO _migrations(id) VALUES('m1')`); err != nil {
+		t.Fatalf("insert migration: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	if err := target.Close(); err != nil {
+		t.Fatalf("close target db: %v", err)
+	}
+	if err := migrateLegacyData(target, legacyPath); err == nil {
+		t.Fatal("migrateLegacyData should fail on closed target db")
+	}
+}
+
+func TestNewS3ClientEndpointWithoutScheme(t *testing.T) {
+	cfg := &LegacyS3Config{
+		Enabled:   true,
+		Bucket:    "bucket",
+		Region:    "us-east-1",
+		AccessKey: "key",
+		Secret:    "secret",
+		Endpoint:  "s3.example.com",
+	}
+	client, err := newS3Client(cfg)
+	if err != nil {
+		t.Fatalf("newS3Client endpoint without scheme: %v", err)
+	}
+	if client == nil {
+		t.Fatal("newS3Client should return non-nil client")
+	}
+}
+
+func TestUserLocalMediaDirErrorPath(t *testing.T) {
+	s := newTestStore(t)
+	dir := s.userLocalMediaDir("non-existent-user")
+	if dir == "" {
+		t.Fatal("userLocalMediaDir should return default for missing user")
+	}
+}
+
+func TestOpenMediaCollectionIDDefault(t *testing.T) {
+	base := t.TempDir()
+	dbPath := filepath.Join(base, DatabaseName)
+	db, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("openSQLite: %v", err)
+	}
+	if err := createSchema(db); err != nil {
+		t.Fatalf("createSchema: %v", err)
+	}
+	if err := setMeta(db, "auth.secret", "ab"); err != nil {
+		t.Fatalf("setMeta auth.secret: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	s, err := Open(base)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if s.MediaCollectionID != DefaultMediaCollectionID {
+		t.Fatalf("MediaCollectionID = %q, want %q", s.MediaCollectionID, DefaultMediaCollectionID)
+	}
+	if string(s.AuthSecret) != "\xab" {
+		t.Fatalf("AuthSecret = %q, want \\xab", string(s.AuthSecret))
+	}
+}
+
+func TestOpenS3ClientInitError(t *testing.T) {
+	base := t.TempDir()
+	dbPath := filepath.Join(base, DatabaseName)
+	db, err := openSQLite(dbPath)
+	if err != nil {
+		t.Fatalf("openSQLite: %v", err)
+	}
+	if err := createSchema(db); err != nil {
+		t.Fatalf("createSchema: %v", err)
+	}
+	if err := setMeta(db, "auth.secret", "ab"); err != nil {
+		t.Fatalf("setMeta auth.secret: %v", err)
+	}
+	if err := setMeta(db, "legacy.media_collection_id", DefaultMediaCollectionID); err != nil {
+		t.Fatalf("setMeta media_collection_id: %v", err)
+	}
+	if err := setMeta(db, "legacy.s3", `{"enabled":true,"bucket":"b","region":"us-east-1","endpoint":"invalid\u0000","accessKey":"a","secret":"s"}`); err != nil {
+		t.Fatalf("setMeta legacy.s3: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	s, err := Open(base)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+	if s.LegacyS3 == nil {
+		t.Fatal("LegacyS3 should be loaded")
+	}
+}
+
+func TestOpenBackupLegacyDataError(t *testing.T) {
+	base := t.TempDir()
+	oldPath := filepath.Join(base, LegacyDatabaseName)
+	legacyDB, err := openSQLite(oldPath)
+	if err != nil {
+		t.Fatalf("open legacy: %v", err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE _collections (id TEXT PRIMARY KEY, name TEXT NOT NULL)`,
+		`CREATE TABLE _migrations (id TEXT PRIMARY KEY)`,
+	} {
+		if _, err := legacyDB.Exec(stmt); err != nil {
+			t.Fatalf("create legacy: %v", err)
+		}
+	}
+	if _, err := legacyDB.Exec(`INSERT INTO _migrations(id) VALUES('m1')`); err != nil {
+		t.Fatalf("insert migration: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("close legacy: %v", err)
+	}
+
+	backupsPath := filepath.Join(base, "backups")
+	if err := os.WriteFile(backupsPath, []byte("block"), 0o600); err != nil {
+		t.Fatalf("WriteFile block backups dir: %v", err)
+	}
+
+	if _, err := Open(base); err == nil {
+		t.Fatal("Open should fail when backup directory creation fails")
+	}
+}
+
+func TestSettingHasValueInvalidJSON(t *testing.T) {
+	if settingHasValue(`{invalid`) != true {
+		t.Fatal("settingHasValue should be true for invalid non-empty JSON")
+	}
+}
+
+func TestUserSettingStringBoolValueInvalidJSON(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if err := s.SetSetting(user.ID, "invalid.json", "{broken", false); err != nil {
+		t.Fatalf("SetSetting invalid.json: %v", err)
+	}
+
+	if got := userSettingStringValue(s.DB, user.ID, "invalid.json"); got != "{broken" {
+		t.Fatalf("userSettingStringValue invalid json = %q, want {broken", got)
+	}
+	if got := userSettingBoolValue(s.DB, user.ID, "invalid.json"); got {
+		t.Fatal("userSettingBoolValue invalid json should be false")
+	}
+}
+
+func TestEnsureImageUploadSettingsContinueWhenSettingExists(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if err := s.SetSetting(user.ID, "image_upload.provider", "local", false); err != nil {
+		t.Fatalf("SetSetting provider: %v", err)
+	}
+
+	legacyS3 := &LegacyS3Config{Enabled: true, Bucket: "b", Region: "r", Endpoint: "e", AccessKey: "a", Secret: "s", ForcePathStyle: true}
+	if err := ensureImageUploadSettings(s.DB, s.DataDir, legacyS3); err != nil {
+		t.Fatalf("ensureImageUploadSettings with existing provider: %v", err)
+	}
+	if got := userSettingStringValue(s.DB, user.ID, "image_upload.provider"); got != "local" {
+		t.Fatalf("existing provider should be preserved, got %q", got)
+	}
+}
+
+func TestIsLegacyDataDBCorruptDB(t *testing.T) {
+	base := t.TempDir()
+	corruptPath := filepath.Join(base, "corrupt.db")
+	if err := os.WriteFile(corruptPath, []byte("not a database"), 0o600); err != nil {
+		t.Fatalf("WriteFile corrupt: %v", err)
+	}
+	if isLegacyDataDB(corruptPath) {
+		t.Fatal("isLegacyDataDB should return false for corrupt database")
+	}
+}
+
+func TestSaveUploadedMediaS3WithoutCfg(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if err := s.SetSetting(user.ID, "image_upload.provider", "s3", false); err != nil {
+		t.Fatalf("SetSetting provider s3: %v", err)
+	}
+	media := &Media{ID: "mid", File: "f.png", Owner: user.ID}
+	if err := s.SaveUploadedMedia(media, bytes.NewBufferString("x")); err == nil || !strings.Contains(err.Error(), "s3 settings are incomplete") {
+		t.Fatalf("SaveUploadedMedia s3 incomplete error = %v", err)
+	}
+}
+
+func TestEnsureImageUploadSettingsDroppedTable(t *testing.T) {
+	s := newTestStore(t)
+	_ = newTestUser(t, s)
+
+	if _, err := s.DB.Exec(`DROP TABLE IF EXISTS user_settings`); err != nil {
+		t.Fatalf("drop user_settings: %v", err)
+	}
+
+	err := ensureImageUploadSettings(s.DB, s.DataDir, nil)
+	if err == nil {
+		t.Fatal("ensureImageUploadSettings should fail without user_settings table")
+	}
+}

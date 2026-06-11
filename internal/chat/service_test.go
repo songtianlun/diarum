@@ -580,3 +580,68 @@ func TestGenerateTitleErrorAndEdgePaths(t *testing.T) {
 		t.Fatalf("truncateString short = %q, want short", got)
 	}
 }
+
+func TestSaveMessageAndHistoryErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewChatService(s, nil)
+
+	if _, err := service.SaveMessage(user.ID, "missing-conversation", "user", "hello", nil); err == nil || !strings.Contains(err.Error(), "failed to save message") {
+		t.Fatalf("SaveMessage missing conversation error = %v", err)
+	}
+
+	conv, err := s.CreateConversation(user.ID, "test")
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if _, err := service.SaveMessage("missing-user", conv.ID, "user", "hello", nil); err == nil || !strings.Contains(err.Error(), "failed to save message") {
+		t.Fatalf("SaveMessage missing user error = %v", err)
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	if _, err := service.GetConversationHistory(conv.ID, 10); err == nil || !strings.Contains(err.Error(), "failed to fetch messages") {
+		t.Fatalf("GetConversationHistory closed-store error = %v", err)
+	}
+}
+
+func TestUpdateConversationTitleErrors(t *testing.T) {
+	s := newTestStore(t)
+	service := NewChatService(s, nil)
+
+	if err := service.UpdateConversationTitle("missing", "title"); err == nil || !strings.Contains(err.Error(), "failed to find conversation") {
+		t.Fatalf("UpdateConversationTitle missing conv error = %v", err)
+	}
+
+	user := newTestUser(t, s)
+	conv, err := s.CreateConversation(user.ID, "test")
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if err := service.UpdateConversationTitle(conv.ID, "new title"); err != nil {
+		t.Fatalf("UpdateConversationTitle success: %v", err)
+	}
+}
+
+func TestFormatDiariesForContextWeekdayParse(t *testing.T) {
+	service := &ChatService{}
+	result := service.formatDiariesForContext([]embedding.DiarySearchResult{
+		{ID: "d1", Date: "2024-06-01", Content: "test", Mood: "happy", Weather: "sunny"},
+	})
+	if !strings.Contains(result, "Saturday") {
+		t.Fatalf("formatDiariesForContext weekday missing: %s", result)
+	}
+}
+
+func TestGenerateTitleLongTitle(t *testing.T) {
+	_ = truncateString("Hello World This Is A Very Long Title That Exceeds Fifty Characters By Far", 50)
+}
+
+func TestChatServiceNew(t *testing.T) {
+	s := newTestStore(t)
+	service := NewChatService(s, nil)
+	if service == nil {
+		t.Fatal("NewChatService should return non-nil")
+	}
+}

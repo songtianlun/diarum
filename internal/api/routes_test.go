@@ -1203,3 +1203,73 @@ func TestSingleSettingHandlers(t *testing.T) {
 		t.Fatal("deleteSettingHandler should reject unknown key")
 	}
 }
+
+func TestSettingsHandlerStoreClosedErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	configService := config.NewConfigService(s)
+	e := echo.New()
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/settings/api.chat_model", strings.NewReader(`{"value":"test"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putRec := httptest.NewRecorder()
+	putCtx := e.NewContext(putReq, putRec).(*echo.DefaultContext)
+	putCtx.Set(iauth.ContextUserKey, user)
+	putCtx.SetPathParams(echo.PathParams{{Name: "key", Value: "api.chat_model"}})
+	if err := putSettingHandler(configService)(putCtx); err == nil {
+		t.Fatal("putSettingHandler should fail when store is closed")
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/settings/api.chat_model", nil)
+	delRec := httptest.NewRecorder()
+	delCtx := e.NewContext(delReq, delRec).(*echo.DefaultContext)
+	delCtx.Set(iauth.ContextUserKey, user)
+	delCtx.SetPathParams(echo.PathParams{{Name: "key", Value: "api.chat_model"}})
+	if err := deleteSettingHandler(configService)(delCtx); err == nil {
+		t.Fatal("deleteSettingHandler should fail when store is closed")
+	}
+}
+
+func TestMediaRoutesStoreErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	RegisterMediaRoutes(e, s, authMiddlewareFor(user))
+
+	rec := performRequest(t, e, http.MethodPost, "/api/v1/media", nil, map[string]string{"Content-Type": "multipart/form-data"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST media no file status = %d, want 400", rec.Code)
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/media", nil, nil)
+	if rec.Code == http.StatusOK {
+		t.Fatal("GET media list should fail when store is closed")
+	}
+}
+
+func TestImageUploadRoutesStoreErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	RegisterImageUploadRoutes(e, s, authMiddlewareFor(user))
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/image-upload/settings", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET image-upload settings status = %d", rec.Code)
+	}
+
+	rec = performRequest(t, e, http.MethodPut, "/api/v1/image-upload/settings", strings.NewReader(`{"provider":"","local":{"path":""},"s3":{"bucket":"","region":"","endpoint":"","accessKey":"","secret":"","forcePathStyle":false},"chevereto":{"domain":"","apiKey":"","albumId":""}}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code == http.StatusOK {
+		t.Fatal("PUT image-upload settings should fail when store is closed")
+	}
+}
