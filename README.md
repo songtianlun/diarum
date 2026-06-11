@@ -45,6 +45,7 @@ Try Diarum without installation:
 - 📱 **Progressive Web App** - Install on any device with offline support and app-like experience
 - 📤 **One-Click Share** - Share your diary entries instantly with a single tap
 - 🔄 **Offline & Auto Sync** - Work offline seamlessly with automatic cache synchronization and real-time sync status monitoring
+- 🔗 **Memos Webhook Sync** - Receive Memos create, update, and delete webhook events and sync them into the diary entry for the memo creation date
 - 🔒 **Self-Hosted** - Complete control over your personal data
 - 🚀 **Easy Deployment** - Single binary with embedded frontend, deploy anywhere
 - 💾 **Native SQLite Backend** - Built-in user system, local media storage, and automatic legacy data migration
@@ -227,6 +228,7 @@ Diarum stores application data in `diarum.db` under the configured data director
 - 📱 **渐进式 Web 应用** - 支持安装到任意设备，离线可用，原生应用般的体验
 - 📤 **一键分享** - 轻点即可分享日记内容
 - 🔄 **离线与自动同步** - 完整离线支持，自动缓存同步，实时查看数据同步状态
+- 🔗 **Memos Webhook 同步** - 接收 Memos 新增、更新、删除 webhook 事件，并同步写入 memo 创建日期对应的日记
 - 🔒 **自托管** - 完全掌控你的个人数据
 - 🚀 **易于部署** - 单一二进制文件，内嵌前端，随处部署
 - 💾 **原生 SQLite 后端** - 内置用户体系、本地媒体存储与旧数据自动迁移
@@ -362,4 +364,3 @@ If you encounter any issues or have questions, please [open an issue](https://gi
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=songtianlun/diarum&type=timeline&legend=top-left)](https://www.star-history.com/#songtianlun/diarum&type=timeline&legend=top-left)
-
