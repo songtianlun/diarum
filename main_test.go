@@ -14,6 +14,8 @@ import (
 	"testing/fstest"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/songtianlun/diarum/internal/logger"
 )
 
 type failingWriter struct{}
@@ -42,11 +44,11 @@ func TestGetDataDir(t *testing.T) {
 
 func TestServeSPA(t *testing.T) {
 	fsys := fstest.MapFS{
-		"index.html":           &fstest.MapFile{Data: []byte("root-index")},
-		"assets/app.js":        &fstest.MapFile{Data: []byte("console.log('ok')")},
-		"nested/index.html":    &fstest.MapFile{Data: []byte("nested-index")},
-		"nested/ignored.txt":   &fstest.MapFile{Data: []byte("ignored")},
-		"not-a-dir/file.html":  &fstest.MapFile{Data: []byte("file-html")},
+		"index.html":          &fstest.MapFile{Data: []byte("root-index")},
+		"assets/app.js":       &fstest.MapFile{Data: []byte("console.log('ok')")},
+		"nested/index.html":   &fstest.MapFile{Data: []byte("nested-index")},
+		"nested/ignored.txt":  &fstest.MapFile{Data: []byte("ignored")},
+		"not-a-dir/file.html": &fstest.MapFile{Data: []byte("file-html")},
 	}
 
 	tests := []struct {
@@ -114,7 +116,9 @@ func TestRunVersionAndUnknownCommand(t *testing.T) {
 
 func TestRunServe(t *testing.T) {
 	originalStartServer := startServer
+	originalLevel := logger.GetLevel()
 	defer func() { startServer = originalStartServer }()
+	defer logger.SetLevel(originalLevel)
 
 	var capturedAddr string
 	startServer = func(e *echo.Echo, addr string) error {
@@ -137,6 +141,24 @@ func TestRunServe(t *testing.T) {
 	}
 	if err := run([]string{"serve", "-data-dir", t.TempDir(), "-http", ":9292"}, io.Discard); err == nil || err.Error() != "boom" {
 		t.Fatalf("run serve error = %v, want boom", err)
+	}
+
+	logger.SetLevel(logger.LevelDebug)
+	startServer = func(e *echo.Echo, addr string) error {
+		foundDocs := false
+		for _, route := range e.Router().Routes() {
+			if route.Path() == "/api/docs" {
+				foundDocs = true
+				break
+			}
+		}
+		if !foundDocs {
+			t.Fatal("debug mode should register OpenAPI docs route")
+		}
+		return http.ErrServerClosed
+	}
+	if err := run([]string{"serve", "-data-dir", t.TempDir()}, io.Discard); err != nil {
+		t.Fatalf("run serve debug docs: %v", err)
 	}
 
 	filePath := filepath.Join(t.TempDir(), "file-data-dir")

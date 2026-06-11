@@ -114,6 +114,36 @@ func TestConfigServiceCRUDAndDefaults(t *testing.T) {
 	if got, err := service.GetBool(user.ID, "bool.as.string"); err != nil || !got {
 		t.Fatalf("GetBool(bool.as.string) = %v, %v", got, err)
 	}
+	if err := s.SetSetting(user.ID, "bool.zero", 0, false); err != nil {
+		t.Fatalf("SetSetting bool.zero: %v", err)
+	}
+	if err := s.SetSetting(user.ID, "bool.false.string", "false", false); err != nil {
+		t.Fatalf("SetSetting bool.false.string: %v", err)
+	}
+	if err := s.SetSetting(user.ID, "bool.object", map[string]any{"enabled": true}, false); err != nil {
+		t.Fatalf("SetSetting bool.object: %v", err)
+	}
+	if got, err := service.GetBool(user.ID, "bool.zero"); err != nil || got {
+		t.Fatalf("GetBool(bool.zero) = %v, %v, want false", got, err)
+	}
+	if got, err := service.GetBool(user.ID, "bool.false.string"); err != nil || got {
+		t.Fatalf("GetBool(bool.false.string) = %v, %v, want false", got, err)
+	}
+	if got, err := service.GetBool(user.ID, "bool.object"); err != nil || got {
+		t.Fatalf("GetBool(bool.object) = %v, %v, want false", got, err)
+	}
+	if err := s.SetSetting(user.ID, "string.number", 12, false); err != nil {
+		t.Fatalf("SetSetting string.number: %v", err)
+	}
+	if got, err := service.GetString(user.ID, "string.number"); err != nil || got != "" {
+		t.Fatalf("GetString(string.number) = %q, %v, want empty", got, err)
+	}
+	if got, err := service.GetString(user.ID, "missing.string"); err != nil || got != "" {
+		t.Fatalf("GetString(missing.string) = %q, %v, want empty", got, err)
+	}
+	if got, err := service.GetBool(user.ID, "missing.bool"); err != nil || got {
+		t.Fatalf("GetBool(missing.bool) = %v, %v, want false", got, err)
+	}
 
 	if err := service.SetBatch(user.ID, map[string]any{
 		"api.enabled":    false,
@@ -143,6 +173,9 @@ func TestConfigServiceCRUDAndDefaults(t *testing.T) {
 	if err := service.Set(user.ID, "unknown.key", "value"); !errors.Is(err, ErrUnknownKey) {
 		t.Fatalf("Set unknown key error = %v, want ErrUnknownKey", err)
 	}
+	if err := service.SetBatch(user.ID, map[string]any{}); err != nil {
+		t.Fatalf("SetBatch empty: %v", err)
+	}
 
 	if got := service.parseStringValue("hello"); got != "hello" {
 		t.Fatalf("parseStringValue string = %q, want hello", got)
@@ -152,6 +185,35 @@ func TestConfigServiceCRUDAndDefaults(t *testing.T) {
 	}
 	if got := service.parseStringValue([]byte("hello")); got != "aGVsbG8=" {
 		t.Fatalf("parseStringValue bytes = %q, want aGVsbG8=", got)
+	}
+}
+
+func TestConfigServiceStoreErrorEdges(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewConfigService(s)
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	if got, err := service.GetString(user.ID, "image_upload.provider"); err != nil || got != "local" {
+		t.Fatalf("GetString default after store error = %q, %v, want local", got, err)
+	}
+	if got, err := service.GetString(user.ID, "missing.string"); err != nil || got != "" {
+		t.Fatalf("GetString nil default after store error = %q, %v, want empty", got, err)
+	}
+	if got, err := service.GetBool(user.ID, "api.enabled"); err != nil || got {
+		t.Fatalf("GetBool default after store error = %v, %v, want false", got, err)
+	}
+	settings, err := service.GetBatch(user.ID)
+	if err != nil {
+		t.Fatalf("GetBatch after store error: %v", err)
+	}
+	if len(settings) != 0 {
+		t.Fatalf("GetBatch after store error = %#v, want empty", settings)
+	}
+	if err := service.SetBatch(user.ID, map[string]any{"api.enabled": true}); err == nil {
+		t.Fatal("SetBatch should return store error after close")
 	}
 }
 
@@ -188,6 +250,36 @@ func TestValidateTokenAndGetUser(t *testing.T) {
 	}
 	if _, err := service.ValidateTokenAndGetUser("secret-token"); !errors.Is(err, ErrAPIDisabled) {
 		t.Fatalf("ValidateTokenAndGetUser disabled error = %v, want ErrAPIDisabled", err)
+	}
+
+	noAPIUser := newTestUser(t, s)
+	if err := service.Set(noAPIUser.ID, "api.token", "disabled-by-default"); err != nil {
+		t.Fatalf("Set disabled-by-default token: %v", err)
+	}
+	if _, err := service.ValidateTokenAndGetUser("disabled-by-default"); !errors.Is(err, ErrAPIDisabled) {
+		t.Fatalf("ValidateTokenAndGetUser default disabled error = %v, want ErrAPIDisabled", err)
+	}
+
+	emptyTokenUser := newTestUser(t, s)
+	if err := service.Set(emptyTokenUser.ID, "api.token", ""); err != nil {
+		t.Fatalf("Set empty api.token: %v", err)
+	}
+	if err := service.Set(emptyTokenUser.ID, "api.enabled", true); err != nil {
+		t.Fatalf("enable empty token user: %v", err)
+	}
+	userID, err = service.ValidateTokenAndGetUser("")
+	if err != nil {
+		t.Fatalf("ValidateTokenAndGetUser empty token: %v", err)
+	}
+	if userID != emptyTokenUser.ID {
+		t.Fatalf("ValidateTokenAndGetUser empty token user = %q, want %q", userID, emptyTokenUser.ID)
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	if userID, err := service.ValidateTokenAndGetUser("secret-token"); err != nil || userID != "" {
+		t.Fatalf("ValidateTokenAndGetUser store error = %q, %v, want empty nil", userID, err)
 	}
 }
 

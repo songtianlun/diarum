@@ -387,12 +387,48 @@ func TestHelpersAndEdgeCases(t *testing.T) {
 	if service.needsBuildVector(context.Background(), collection, &store.Diary{ID: diary.ID, Updated: "bad-time"}) == false {
 		t.Fatal("needsBuildVector should require build for invalid updated time")
 	}
+	if err := collection.AddDocument(context.Background(), chromem.Document{
+		ID:        "no-built-at",
+		Content:   "plain text",
+		Embedding: []float32{1, 0},
+		Metadata:  map[string]string{},
+	}); err != nil {
+		t.Fatalf("AddDocument no-built-at: %v", err)
+	}
+	if service.needsBuildVector(context.Background(), collection, &store.Diary{ID: "no-built-at", Updated: diary.Updated}) == false {
+		t.Fatal("needsBuildVector should require build when built_at is missing")
+	}
+	if err := collection.AddDocument(context.Background(), chromem.Document{
+		ID:        "bad-built-at",
+		Content:   "plain text",
+		Embedding: []float32{1, 0},
+		Metadata:  map[string]string{"built_at": "bad-time"},
+	}); err != nil {
+		t.Fatalf("AddDocument bad-built-at: %v", err)
+	}
+	if service.needsBuildVector(context.Background(), collection, &store.Diary{ID: "bad-built-at", Updated: diary.Updated}) == false {
+		t.Fatal("needsBuildVector should require build when built_at is invalid")
+	}
+	if err := collection.AddDocument(context.Background(), chromem.Document{
+		ID:        "rfc3339-built-at",
+		Content:   "plain text",
+		Embedding: []float32{1, 0},
+		Metadata:  map[string]string{"built_at": time.Now().UTC().Add(time.Minute).Format(time.RFC3339)},
+	}); err != nil {
+		t.Fatalf("AddDocument rfc3339-built-at: %v", err)
+	}
+	if service.needsBuildVector(context.Background(), collection, &store.Diary{ID: "rfc3339-built-at", Updated: diary.Updated}) {
+		t.Fatal("needsBuildVector should accept RFC3339 built_at")
+	}
 	if service.needsBuildVector(context.Background(), collection, diary) {
 		t.Fatal("needsBuildVector should be false for current document")
 	}
 
 	if got := extractDate("2024-01-03T10:20:30Z"); got != "2024-01-03" {
 		t.Fatalf("extractDate = %q, want 2024-01-03", got)
+	}
+	if got := extractDate("short"); got != "short" {
+		t.Fatalf("extractDate short = %q, want short", got)
 	}
 	if got, err := parseStoreTime("2024-01-03 00:00:00.000Z"); err != nil || got.IsZero() {
 		t.Fatalf("parseStoreTime store format = %v, %v", got, err)
@@ -463,6 +499,97 @@ func TestBuildFailuresAndPendingStats(t *testing.T) {
 	}
 	if stats.PendingCount != 1 || stats.DiaryCount != 1 {
 		t.Fatalf("GetVectorStats pending = %#v", stats)
+	}
+}
+
+func TestIncrementalBuildAndStatsEdges(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	vectorDB := newTestVectorDB(t)
+	service := NewEmbeddingService(s, vectorDB)
+
+	if err := s.SetSetting(user.ID, "ai.enabled", true, false); err != nil {
+		t.Fatalf("SetSetting ai.enabled: %v", err)
+	}
+	if _, err := service.BuildIncrementalVectors(context.Background(), user.ID); err == nil || !strings.Contains(err.Error(), "failed to create embedding function") {
+		t.Fatalf("BuildIncrementalVectors missing config error = %v", err)
+	}
+
+	withMockTransport(t, func(r *http.Request) (*http.Response, error) {
+		var req EmbeddingRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode embedding request: %v", err)
+		}
+		if strings.Contains(req.Input, "fail") {
+			return response(http.StatusBadGateway, "upstream failed"), nil
+		}
+		return response(http.StatusOK, `{"data":[{"embedding":[1,0]}]}`), nil
+	})
+	configureAISettings(t, s, user.ID, "https://mock.local")
+
+	if _, err := s.InsertImportedDiary(user.ID, "ok-incremental", "2024-06-01", "ok", "", ""); err != nil {
+		t.Fatalf("InsertImportedDiary ok: %v", err)
+	}
+	if _, err := s.InsertImportedDiary(user.ID, "fail-incremental", "2024-06-02", "please fail", "", ""); err != nil {
+		t.Fatalf("InsertImportedDiary fail: %v", err)
+	}
+
+	buildResult, err := service.BuildIncrementalVectors(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("BuildIncrementalVectors failure case: %v", err)
+	}
+	if buildResult.Total != 2 || buildResult.Success != 1 || buildResult.Failed != 1 || len(buildResult.ErrorDetails) != 1 {
+		t.Fatalf("BuildIncrementalVectors failure result = %#v", buildResult)
+	}
+
+	statsUser := newTestUser(t, s)
+	configureAISettings(t, s, statsUser.ID, "https://mock.local")
+	invalidUpdated, err := s.InsertImportedDiary(statsUser.ID, "invalid-updated", "2024-06-03", "indexed", "", "")
+	if err != nil {
+		t.Fatalf("InsertImportedDiary invalid-updated: %v", err)
+	}
+	missingBuiltAt, err := s.InsertImportedDiary(statsUser.ID, "missing-built-at", "2024-06-04", "indexed", "", "")
+	if err != nil {
+		t.Fatalf("InsertImportedDiary missing-built-at: %v", err)
+	}
+	badBuiltAt, err := s.InsertImportedDiary(statsUser.ID, "bad-built-at", "2024-06-05", "indexed", "", "")
+	if err != nil {
+		t.Fatalf("InsertImportedDiary bad-built-at: %v", err)
+	}
+	if _, err := s.DB.Exec(`UPDATE diaries SET updated = ? WHERE id = ?`, "bad-time", invalidUpdated.ID); err != nil {
+		t.Fatalf("force invalid updated: %v", err)
+	}
+
+	embeddingFunc, err := service.createEmbeddingFunc(statsUser.ID)
+	if err != nil {
+		t.Fatalf("createEmbeddingFunc stats user: %v", err)
+	}
+	collection, err := vectorDB.GetOrCreateCollection(context.Background(), statsUser.ID, embeddingFunc)
+	if err != nil {
+		t.Fatalf("GetOrCreateCollection stats user: %v", err)
+	}
+	for _, doc := range []chromem.Document{
+		{ID: missingBuiltAt.ID, Content: "indexed", Embedding: []float32{1, 0}, Metadata: map[string]string{}},
+		{ID: badBuiltAt.ID, Content: "indexed", Embedding: []float32{1, 0}, Metadata: map[string]string{"built_at": "bad-time"}},
+	} {
+		if err := collection.AddDocument(context.Background(), doc); err != nil {
+			t.Fatalf("AddDocument %s: %v", doc.ID, err)
+		}
+	}
+
+	stats, err := service.GetVectorStats(context.Background(), statsUser.ID)
+	if err != nil {
+		t.Fatalf("GetVectorStats metadata edges: %v", err)
+	}
+	if stats.OutdatedCount != 3 || stats.DiaryCount != 3 {
+		t.Fatalf("GetVectorStats metadata edges = %#v, want 3 outdated of 3", stats)
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	if _, err := service.GetVectorStats(context.Background(), statsUser.ID); err == nil || !strings.Contains(err.Error(), "failed to fetch diaries") {
+		t.Fatalf("GetVectorStats closed-store error = %v", err)
 	}
 }
 

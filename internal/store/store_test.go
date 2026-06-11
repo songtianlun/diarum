@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -581,6 +582,89 @@ func TestStoreS3AndHelperFunctions(t *testing.T) {
 	}
 }
 
+func TestStoreClosedDatabaseErrorBranches(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	diary, err := s.InsertImportedDiary(user.ID, "closed-diary", "2024-01-01", "content", "", "")
+	if err != nil {
+		t.Fatalf("InsertImportedDiary before close: %v", err)
+	}
+	media, err := s.InsertImportedMedia(user.ID, "closed-media", "photo.png", "Photo", "Alt", []string{diary.ID})
+	if err != nil {
+		t.Fatalf("InsertImportedMedia before close: %v", err)
+	}
+	conv, err := s.InsertImportedConversation(user.ID, "closed-conv", "Conversation")
+	if err != nil {
+		t.Fatalf("InsertImportedConversation before close: %v", err)
+	}
+	msg, err := s.InsertImportedMessage(user.ID, "closed-msg", conv.ID, "user", "hello", []string{diary.ID})
+	if err != nil {
+		t.Fatalf("InsertImportedMessage before close: %v", err)
+	}
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("Close DB: %v", err)
+	}
+
+	checks := []struct {
+		name string
+		fn   func() error
+	}{
+		{"createSchema", func() error { return createSchema(s.DB) }},
+		{"ensureRuntimeMetadata", func() error {
+			return ensureRuntimeMetadata(s.DB, s.DataDir, filepath.Join(s.DataDir, LegacyDatabaseName))
+		}},
+		{"ensureImageUploadSettings", func() error { return ensureImageUploadSettings(s.DB, s.DataDir, nil) }},
+		{"insertUserSettingIfMissing", func() error { return insertUserSettingIfMissing(s.DB, user.ID, "x", "y", false) }},
+		{"getUserSettingRaw", func() error { _, err := getUserSettingRaw(s.DB, user.ID, "x"); return err }},
+		{"getMeta", func() error { _, err := getMeta(s.DB, "x"); return err }},
+		{"setMeta", func() error { return setMeta(s.DB, "x", "y") }},
+		{"getLegacyS3Config", func() error { _, err := getLegacyS3Config(s.DB); return err }},
+		{"Transaction", func() error { return s.Transaction(context.Background(), func(tx *sql.Tx) error { return nil }) }},
+		{"GetUserByID", func() error { _, err := s.GetUserByID(user.ID); return err }},
+		{"GetUserByIdentity", func() error { _, err := s.GetUserByIdentity(user.Email); return err }},
+		{"CreateUser", func() error { _, err := s.CreateUser("closed", "closed@example.com", "hash"); return err }},
+		{"UpsertDiary", func() error { _, _, err := s.UpsertDiary(user.ID, "2024-01-02", "x", "", ""); return err }},
+		{"GetDiaryByDate", func() error {
+			_, err := s.GetDiaryByDate(user.ID, "2024-01-01 00:00:00.000Z", "2024-01-01 23:59:59.999Z")
+			return err
+		}},
+		{"GetDiaryByID", func() error { _, err := s.GetDiaryByID(diary.ID); return err }},
+		{"DeleteDiary", func() error { return s.DeleteDiary(diary.ID, user.ID) }},
+		{"ListDiaries", func() error { _, err := s.ListDiaries(user.ID, "", "", "-date", 1); return err }},
+		{"SearchDiaries", func() error { _, err := s.SearchDiaries(user.ID, "x", 1); return err }},
+		{"GetSetting", func() error { _, err := s.GetSetting(user.ID, "x"); return err }},
+		{"SetSetting", func() error { return s.SetSetting(user.ID, "x", "y", false) }},
+		{"DeleteSetting", func() error { return s.DeleteSetting(user.ID, "x") }},
+		{"GetSettings", func() error { _, err := s.GetSettings(user.ID); return err }},
+		{"ValidateAPIToken", func() error { _, err := s.ValidateAPIToken("token"); return err }},
+		{"ListMedia", func() error { _, _, err := s.ListMedia(user.ID, 1, 10); return err }},
+		{"GetMedia", func() error { _, err := s.GetMedia(media.ID, user.ID); return err }},
+		{"CreateMedia", func() error { _, err := s.CreateMedia(user.ID, "x.png", "x", "", nil); return err }},
+		{"InsertImportedMedia", func() error { _, err := s.InsertImportedMedia(user.ID, "x", "x.png", "x", "", nil); return err }},
+		{"UpdateMediaDiary", func() error { _, err := s.UpdateMediaDiary(media.ID, user.ID, nil); return err }},
+		{"DeleteMedia", func() error { return s.DeleteMedia(media.ID, user.ID) }},
+		{"ListConversations", func() error { _, err := s.ListConversations(user.ID, 10); return err }},
+		{"GetConversation", func() error { _, err := s.GetConversation(conv.ID, user.ID); return err }},
+		{"CreateConversation", func() error { _, err := s.CreateConversation(user.ID, "x"); return err }},
+		{"InsertImportedConversation", func() error { _, err := s.InsertImportedConversation(user.ID, "x", "x"); return err }},
+		{"UpdateConversationTitle", func() error { _, err := s.UpdateConversationTitle(conv.ID, user.ID, "x"); return err }},
+		{"DeleteConversation", func() error { return s.DeleteConversation(conv.ID, user.ID) }},
+		{"ListMessages", func() error { _, err := s.ListMessages(conv.ID, 10); return err }},
+		{"CountMessages", func() error { _, err := s.CountMessages(conv.ID); return err }},
+		{"CreateMessage", func() error { _, err := s.CreateMessage(user.ID, conv.ID, "user", "x", nil); return err }},
+		{"InsertImportedMessage", func() error { _, err := s.InsertImportedMessage(user.ID, "x", conv.ID, "user", "x", nil); return err }},
+		{"GetMessage", func() error { _, err := s.GetMessage(msg.ID); return err }},
+		{"InsertImportedDiary", func() error { _, err := s.InsertImportedDiary(user.ID, "x", "2024-01-03", "x", "", ""); return err }},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.fn(); err == nil {
+				t.Fatalf("%s should fail after DB close", check.name)
+			}
+		})
+	}
+}
+
 func TestLegacyMigrationAndRuntimeInitialization(t *testing.T) {
 	dataDir := t.TempDir()
 	oldPath := filepath.Join(dataDir, LegacyDatabaseName)
@@ -862,6 +946,81 @@ func TestS3MediaHelpers(t *testing.T) {
 	}
 }
 
+func TestUserS3MediaFileBranches(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	s.MediaCollectionID = "legacy-media"
+	media := &Media{ID: "mid", File: "photo.png", Owner: user.ID}
+
+	var sawFallbackGet bool
+	var sawDelete bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if strings.Contains(r.URL.Path, "/legacy-media/") {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`<?xml version="1.0"?><Error><Code>NoSuchKey</Code></Error>`))
+				return
+			}
+			sawFallbackGet = true
+			_, _ = w.Write([]byte("user-s3-body"))
+		case http.MethodDelete:
+			sawDelete = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer server.Close()
+
+	for key, value := range map[string]any{
+		"image_upload.provider":            "s3",
+		"image_upload.s3.bucket":           "bucket",
+		"image_upload.s3.region":           "us-east-1",
+		"image_upload.s3.endpoint":         server.URL,
+		"image_upload.s3.access_key":       "key",
+		"image_upload.s3.secret":           "secret",
+		"image_upload.s3.force_path_style": true,
+	} {
+		if err := s.SetSetting(user.ID, key, value, false); err != nil {
+			t.Fatalf("SetSetting %s: %v", key, err)
+		}
+	}
+
+	reader, err := s.OpenMediaFile(media)
+	if err != nil {
+		t.Fatalf("OpenMediaFile user s3: %v", err)
+	}
+	data, err := ioReadAllAndClose(reader)
+	if err != nil {
+		t.Fatalf("read user s3 body: %v", err)
+	}
+	if string(data) != "user-s3-body" || !sawFallbackGet {
+		t.Fatalf("OpenMediaFile user s3 data/fallback = %q/%v", string(data), sawFallbackGet)
+	}
+	if err := s.DeleteMediaFile(media); err != nil {
+		t.Fatalf("DeleteMediaFile user s3: %v", err)
+	}
+	if !sawDelete {
+		t.Fatal("DeleteMediaFile should call user S3 delete")
+	}
+
+	failingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><Error><Code>InternalError</Code></Error>`))
+	}))
+	defer failingServer.Close()
+	if err := s.SetSetting(user.ID, "image_upload.s3.endpoint", failingServer.URL, false); err != nil {
+		t.Fatalf("SetSetting failing endpoint: %v", err)
+	}
+	if _, err := s.OpenMediaFile(media); err == nil {
+		t.Fatal("OpenMediaFile user s3 should fail on non-NoSuchKey response")
+	}
+	if err := s.DeleteMediaFile(media); err == nil {
+		t.Fatal("DeleteMediaFile user s3 should fail on non-NoSuchKey response")
+	}
+}
+
 func TestEnsureRuntimeMetadataValidation(t *testing.T) {
 	dataDir := t.TempDir()
 	db, err := openSQLite(filepath.Join(dataDir, "runtime.db"))
@@ -930,6 +1089,533 @@ func TestEnsureRuntimeMetadataValidation(t *testing.T) {
 	}
 	if cfg, err := getLegacyS3Config(db2); err != nil || cfg == nil || cfg.Bucket != "b" {
 		t.Fatalf("getLegacyS3Config runtime2 = %#v, %v", cfg, err)
+	}
+}
+
+func TestOpenAndSQLiteErrorBranches(t *testing.T) {
+	base := t.TempDir()
+	notDir := filepath.Join(base, "not-a-dir")
+	if err := os.WriteFile(notDir, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile notDir: %v", err)
+	}
+	if _, err := Open(filepath.Join(notDir, "child")); err == nil {
+		t.Fatal("Open should fail when dataDir parent is a file")
+	}
+
+	if _, err := openSQLite(filepath.Join(base, "missing", "db.sqlite")); err == nil {
+		t.Fatal("openSQLite should fail for missing parent directory")
+	}
+
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, DatabaseName), []byte("not sqlite"), 0o600); err != nil {
+		t.Fatalf("WriteFile corrupt db: %v", err)
+	}
+	if s, err := Open(dataDir); err == nil {
+		_ = s.Close()
+		t.Fatal("Open should fail for corrupt existing database")
+	}
+}
+
+func TestLegacyHelpersEdgeBranches(t *testing.T) {
+	dataDir := t.TempDir()
+	nonLegacyPath := filepath.Join(dataDir, "plain.db")
+	db, err := openSQLite(nonLegacyPath)
+	if err != nil {
+		t.Fatalf("open plain sqlite: %v", err)
+	}
+	if err := createSchema(db); err != nil {
+		t.Fatalf("create plain schema: %v", err)
+	}
+	if err := migrateLegacyData(db, nonLegacyPath); err != nil {
+		t.Fatalf("migrateLegacyData non legacy: %v", err)
+	}
+	if isLegacyDataDB(nonLegacyPath) {
+		t.Fatal("plain schema should not be detected as legacy")
+	}
+	_ = db.Close()
+
+	if isLegacyDataDB(filepath.Join(dataDir, "missing.db")) {
+		t.Fatal("missing database should not be legacy")
+	}
+	if _, err := loadLegacyS3ConfigFromPath(filepath.Join(dataDir, "missing", "data.db")); err == nil {
+		t.Fatal("loadLegacyS3ConfigFromPath should fail for missing parent")
+	}
+
+	legacyPath := filepath.Join(dataDir, "legacy-no-settings.db")
+	legacyDB, err := openSQLite(legacyPath)
+	if err != nil {
+		t.Fatalf("open legacy no settings: %v", err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE _collections (id TEXT PRIMARY KEY, name TEXT NOT NULL)`,
+		`CREATE TABLE _migrations (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE _params (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+	} {
+		if _, err := legacyDB.Exec(stmt); err != nil {
+			t.Fatalf("create legacy table: %v", err)
+		}
+	}
+	if _, err := legacyDB.Exec(`INSERT INTO _migrations(id) VALUES('m1')`); err != nil {
+		t.Fatalf("insert migration: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("close legacy no settings: %v", err)
+	}
+	if cfg, err := loadLegacyS3ConfigFromPath(legacyPath); err != nil || cfg != nil {
+		t.Fatalf("loadLegacyS3ConfigFromPath no settings = %#v, %v", cfg, err)
+	}
+
+	attachedDB, err := openSQLite(filepath.Join(dataDir, "attached.db"))
+	if err != nil {
+		t.Fatalf("open attached target: %v", err)
+	}
+	defer attachedDB.Close()
+	if _, err := attachedDB.Exec(`ATTACH DATABASE ? AS legacy`, legacyPath); err != nil {
+		t.Fatalf("attach legacy: %v", err)
+	}
+	tx, err := attachedDB.Begin()
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	if cfg, err := loadLegacyS3ConfigFromAttachedDB(tx); err != nil || cfg != nil {
+		t.Fatalf("loadLegacyS3ConfigFromAttachedDB no rows = %#v, %v", cfg, err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback tx: %v", err)
+	}
+	if _, err := attachedDB.Exec(`DETACH DATABASE legacy`); err != nil {
+		t.Fatalf("detach legacy: %v", err)
+	}
+
+	for _, raw := range []string{"", `{"s3":{"enabled":true,"bucket":"b","region":"r","accessKey":"a"}}`} {
+		if cfg, err := parseLegacyS3Config(raw); err != nil || cfg != nil {
+			t.Fatalf("parseLegacyS3Config(%q) = %#v, %v", raw, cfg, err)
+		}
+	}
+	if _, err := parseLegacyS3Config(`{`); err == nil {
+		t.Fatal("parseLegacyS3Config should fail on invalid JSON")
+	}
+
+	if _, err := backupLegacyData(dataDir, filepath.Join(dataDir, "missing-data.db")); err == nil {
+		t.Fatal("backupLegacyData should fail when source is missing")
+	}
+	logsPath := filepath.Join(dataDir, "logs.db")
+	if err := os.WriteFile(logsPath, []byte("logs"), 0o600); err != nil {
+		t.Fatalf("WriteFile logs: %v", err)
+	}
+	backupDir, err := backupLegacyData(dataDir, legacyPath)
+	if err != nil {
+		t.Fatalf("backupLegacyData with logs: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(backupDir, "logs.db")); err != nil {
+		t.Fatalf("logs backup missing: %v", err)
+	}
+
+	if err := copyFile(filepath.Join(dataDir, "does-not-exist"), filepath.Join(dataDir, "dst")); err == nil {
+		t.Fatal("copyFile should fail for missing source")
+	}
+	if err := copyFile(legacyPath, filepath.Join(dataDir, "missing-dir", "dst")); err == nil {
+		t.Fatal("copyFile should fail for missing destination parent")
+	}
+}
+
+func TestStoreAdditionalLowCoverageBranches(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	id, err := GenerateID()
+	if err != nil {
+		t.Fatalf("GenerateID: %v", err)
+	}
+	if !strings.HasPrefix(id, "r") || len(id) != 15 {
+		t.Fatalf("GenerateID = %q", id)
+	}
+	tokenKey, err := GenerateTokenKey()
+	if err != nil {
+		t.Fatalf("GenerateTokenKey: %v", err)
+	}
+	if len(tokenKey) != 48 {
+		t.Fatalf("GenerateTokenKey length = %d, want 48", len(tokenKey))
+	}
+	if got := DateOnly("short"); got != "short" {
+		t.Fatalf("DateOnly short = %q", got)
+	}
+
+	if _, err := s.CreateUser(user.Username, "other@example.com", "hash"); err == nil {
+		t.Fatal("CreateUser should fail for duplicate username")
+	}
+	if _, inserted, err := s.UpsertDiary("missing-owner", "2024-07-01", "x", "", ""); err == nil || !inserted {
+		t.Fatalf("UpsertDiary missing owner inserted/error = %v/%v, want insert attempt FK error", inserted, err)
+	}
+
+	first, _, err := s.UpsertDiary(user.ID, "2024-07-01", "first", "", "")
+	if err != nil {
+		t.Fatalf("UpsertDiary first: %v", err)
+	}
+	_, _, err = s.UpsertDiary(user.ID, "2024-07-02", "second", "", "")
+	if err != nil {
+		t.Fatalf("UpsertDiary second: %v", err)
+	}
+	byCreated, err := s.ListDiaries(user.ID, "", "", "created", 0)
+	if err != nil {
+		t.Fatalf("ListDiaries created: %v", err)
+	}
+	if len(byCreated) != 2 || byCreated[0].ID != first.ID {
+		t.Fatalf("ListDiaries created order = %#v", byCreated)
+	}
+	byUpdated, err := s.ListDiaries(user.ID, "", "", "updated", 0)
+	if err != nil {
+		t.Fatalf("ListDiaries updated: %v", err)
+	}
+	if len(byUpdated) != 2 {
+		t.Fatalf("ListDiaries updated order = %#v", byUpdated)
+	}
+
+	if err := s.SetSetting(user.ID, "invalid.raw", "placeholder", false); err != nil {
+		t.Fatalf("SetSetting invalid.raw: %v", err)
+	}
+	if _, err := s.DB.Exec(`UPDATE user_settings SET value = 'not-json' WHERE user = ? AND key = 'invalid.raw'`, user.ID); err != nil {
+		t.Fatalf("update invalid raw: %v", err)
+	}
+	if value, err := s.GetSetting(user.ID, "invalid.raw"); err != nil || value != "not-json" {
+		t.Fatalf("GetSetting invalid raw = %#v, %v", value, err)
+	}
+	if err := s.SetSetting(user.ID, "null.raw", nil, false); err != nil {
+		t.Fatalf("SetSetting null.raw: %v", err)
+	}
+	if value, err := s.GetSetting(user.ID, "null.raw"); err != nil || value != nil {
+		t.Fatalf("GetSetting null raw = %#v, %v", value, err)
+	}
+	settings, err := s.GetSettings(user.ID)
+	if err != nil {
+		t.Fatalf("GetSettings with invalid/null: %v", err)
+	}
+	if settings["invalid.raw"] != "not-json" || settings["null.raw"] != nil {
+		t.Fatalf("GetSettings invalid/null = %#v / %#v", settings["invalid.raw"], settings["null.raw"])
+	}
+
+	if _, err := s.CreateMedia("missing-owner", "x.png", "x", "", nil); err == nil {
+		t.Fatal("CreateMedia should fail for missing owner")
+	}
+	if _, err := s.CreateConversation("missing-owner", "x"); err == nil {
+		t.Fatal("CreateConversation should fail for missing owner")
+	}
+	if _, err := s.CreateMessage(user.ID, "missing-conversation", "user", "x", nil); err == nil {
+		t.Fatal("CreateMessage should fail for missing conversation")
+	}
+
+	media := &Media{ID: "missing-media", File: "missing.png", Owner: user.ID}
+	if got := s.MediaFilePath(media); !strings.HasSuffix(got, filepath.Join(DefaultMediaCollectionID, media.ID, media.File)) {
+		t.Fatalf("MediaFilePath missing fallback = %q", got)
+	}
+	if err := s.SetSetting(user.ID, "image_upload.provider", "s3", false); err != nil {
+		t.Fatalf("SetSetting provider s3: %v", err)
+	}
+	if _, err := s.OpenMediaFile(media); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("OpenMediaFile incomplete user s3 = %v, want os.ErrNotExist", err)
+	}
+	if err := s.DeleteMediaFile(media); err != nil {
+		t.Fatalf("DeleteMediaFile incomplete user s3: %v", err)
+	}
+
+	if got := anyToString(nil); got != "" {
+		t.Fatalf("anyToString nil = %q", got)
+	}
+	if got := anyToString("literal"); got != "literal" {
+		t.Fatalf("anyToString string = %q", got)
+	}
+	if !anyToBool(float64(1)) || anyToBool(float64(0)) || anyToBool(nil) || anyToBool(" true ") != true {
+		t.Fatal("anyToBool edge results unexpected")
+	}
+	if got := TotalPages(20, 10); got != 2 {
+		t.Fatalf("TotalPages exact = %d, want 2", got)
+	}
+	if got := TotalPages(20, 0); got != 0 {
+		t.Fatalf("TotalPages bad perPage = %d, want 0", got)
+	}
+}
+
+func TestOpenExistingDBAndLegacySkipBranches(t *testing.T) {
+	existingDir := t.TempDir()
+	existingDB, err := openSQLite(filepath.Join(existingDir, DatabaseName))
+	if err != nil {
+		t.Fatalf("open existing sqlite: %v", err)
+	}
+	if err := createSchema(existingDB); err != nil {
+		t.Fatalf("create existing schema: %v", err)
+	}
+	if err := setMeta(existingDB, "auth.secret", "plain-secret"); err != nil {
+		t.Fatalf("set plain auth secret: %v", err)
+	}
+	if err := existingDB.Close(); err != nil {
+		t.Fatalf("close existing db: %v", err)
+	}
+
+	existingStore, err := Open(existingDir)
+	if err != nil {
+		t.Fatalf("Open existing store: %v", err)
+	}
+	if string(existingStore.AuthSecret) != "plain-secret" {
+		t.Fatalf("AuthSecret = %q, want plain-secret", string(existingStore.AuthSecret))
+	}
+	if existingStore.MediaCollectionID != DefaultMediaCollectionID {
+		t.Fatalf("MediaCollectionID = %q, want %q", existingStore.MediaCollectionID, DefaultMediaCollectionID)
+	}
+	if err := existingStore.Close(); err != nil {
+		t.Fatalf("close existing store: %v", err)
+	}
+
+	skipDir := t.TempDir()
+	nonLegacyDB, err := openSQLite(filepath.Join(skipDir, LegacyDatabaseName))
+	if err != nil {
+		t.Fatalf("open non legacy data.db: %v", err)
+	}
+	if err := createSchema(nonLegacyDB); err != nil {
+		t.Fatalf("create non legacy schema: %v", err)
+	}
+	if err := nonLegacyDB.Close(); err != nil {
+		t.Fatalf("close non legacy db: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skipDir, "logs.db"), []byte("logs"), 0o600); err != nil {
+		t.Fatalf("write logs.db: %v", err)
+	}
+
+	skipStore, err := Open(skipDir)
+	if err != nil {
+		t.Fatalf("Open with non legacy data.db: %v", err)
+	}
+	if skipStore.MediaCollectionID != DefaultMediaCollectionID {
+		t.Fatalf("skip MediaCollectionID = %q, want %q", skipStore.MediaCollectionID, DefaultMediaCollectionID)
+	}
+	if _, err := getMeta(skipStore.DB, "migration.source"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("migration.source error = %v, want sql.ErrNoRows", err)
+	}
+	if err := skipStore.Close(); err != nil {
+		t.Fatalf("close skip store: %v", err)
+	}
+	backupEntries, err := os.ReadDir(filepath.Join(skipDir, "backups"))
+	if err != nil || len(backupEntries) != 1 {
+		t.Fatalf("backup entries = %v, err=%v", backupEntries, err)
+	}
+	if _, err := os.Stat(filepath.Join(skipDir, "backups", backupEntries[0].Name(), "logs.db")); err != nil {
+		t.Fatalf("logs.db should be backed up for skipped migration: %v", err)
+	}
+}
+
+func TestOpenLegacyDBWithBackupLogsAndDefaults(t *testing.T) {
+	dataDir := t.TempDir()
+	legacyPath := filepath.Join(dataDir, LegacyDatabaseName)
+	legacyDB, err := openSQLite(legacyPath)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE _collections (id TEXT PRIMARY KEY, name TEXT NOT NULL)`,
+		`CREATE TABLE _migrations (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE _params (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+		`CREATE TABLE users (avatar TEXT, created TEXT, email TEXT, emailVisibility BOOLEAN, id TEXT PRIMARY KEY, lastLoginAlertSentAt TEXT, lastResetSentAt TEXT, lastVerificationSentAt TEXT, name TEXT, passwordHash TEXT, tokenKey TEXT, updated TEXT, username TEXT, verified BOOLEAN)`,
+		`CREATE TABLE media (alt TEXT, created TEXT, file TEXT, id TEXT PRIMARY KEY, name TEXT, owner TEXT, updated TEXT, diary JSON)`,
+	} {
+		if _, err := legacyDB.Exec(stmt); err != nil {
+			t.Fatalf("create legacy schema: %v", err)
+		}
+	}
+	legacySettings := `{"s3":{"enabled":true,"bucket":"legacy-bucket","region":"us-east-1","endpoint":"s3.example.com","accessKey":"key","secret":"secret","forcePathStyle":true}}`
+	if _, err := legacyDB.Exec(`INSERT INTO _params(key, value) VALUES('settings', ?)`, legacySettings); err != nil {
+		t.Fatalf("insert legacy settings: %v", err)
+	}
+	now := nowString()
+	if _, err := legacyDB.Exec(`INSERT INTO users(avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified) VALUES('', ?, '', false, 'legacy-user', '', '', '', '', 'hash', 'token', ?, 'legacy-user', false)`, now, now); err != nil {
+		t.Fatalf("insert legacy user: %v", err)
+	}
+	if _, err := legacyDB.Exec(`INSERT INTO media(alt, created, file, id, name, owner, updated, diary) VALUES('', ?, 'photo.png', 'legacy-media-row', 'Photo', 'legacy-user', ?, NULL)`, now, now); err != nil {
+		t.Fatalf("insert legacy media: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "logs.db"), []byte("logs"), 0o600); err != nil {
+		t.Fatalf("write logs.db: %v", err)
+	}
+
+	s, err := Open(dataDir)
+	if err != nil {
+		t.Fatalf("Open legacy store: %v", err)
+	}
+	defer s.Close()
+	if s.MediaCollectionID != DefaultMediaCollectionID {
+		t.Fatalf("MediaCollectionID = %q, want default", s.MediaCollectionID)
+	}
+	media, err := s.GetMedia("legacy-media-row", "legacy-user")
+	if err != nil {
+		t.Fatalf("GetMedia migrated: %v", err)
+	}
+	if len(media.Diary) != 0 {
+		t.Fatalf("migrated null diary = %#v, want empty", media.Diary)
+	}
+	if got := s.imageUploadProvider("legacy-user"); got != "s3" {
+		t.Fatalf("imageUploadProvider legacy user = %q, want s3", got)
+	}
+	backupEntries, err := os.ReadDir(filepath.Join(dataDir, "backups"))
+	if err != nil || len(backupEntries) != 1 {
+		t.Fatalf("backup entries = %v, err=%v", backupEntries, err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "backups", backupEntries[0].Name(), "logs.db")); err != nil {
+		t.Fatalf("logs.db backup missing: %v", err)
+	}
+}
+
+func TestEnsureImageUploadSettingsCheveretoEnabledAndLegacyS3(t *testing.T) {
+	s := newTestStore(t)
+	cheveretoUser := newTestUser(t, s)
+	legacyS3User := newTestUser(t, s)
+	if err := s.SetSetting(cheveretoUser.ID, "chevereto.enabled", true, false); err != nil {
+		t.Fatalf("Set chevereto.enabled: %v", err)
+	}
+	legacyS3 := &LegacyS3Config{Enabled: true, Bucket: "bucket", Region: "region", Endpoint: "endpoint", AccessKey: "access", Secret: "secret", ForcePathStyle: true}
+	if err := ensureImageUploadSettings(s.DB, s.DataDir, legacyS3); err != nil {
+		t.Fatalf("ensureImageUploadSettings: %v", err)
+	}
+	if got := s.imageUploadProvider(cheveretoUser.ID); got != "chevereto" {
+		t.Fatalf("chevereto enabled provider = %q, want chevereto", got)
+	}
+	if got := s.imageUploadProvider(legacyS3User.ID); got != "s3" {
+		t.Fatalf("legacy S3 provider = %q, want s3", got)
+	}
+	if got := userSettingStringValue(s.DB, legacyS3User.ID, "image_upload.s3.secret"); got != "secret" {
+		t.Fatalf("legacy S3 secret = %q, want secret", got)
+	}
+}
+
+func TestCreateEmptyDefaultsSetSettingAndListMediaEdges(t *testing.T) {
+	s := newTestStore(t)
+	user, err := s.CreateUser("", "", "")
+	if err != nil {
+		t.Fatalf("CreateUser empty defaults: %v", err)
+	}
+	if user.Username != "" || user.Email != "" || user.PasswordHash != "" || user.Verified || user.EmailVisibility {
+		t.Fatalf("empty user defaults = %#v", user)
+	}
+	if err := s.SetSetting(user.ID, "plain", "first", false); err != nil {
+		t.Fatalf("SetSetting insert: %v", err)
+	}
+	if err := s.SetSetting(user.ID, "plain", "second", true); err != nil {
+		t.Fatalf("SetSetting update: %v", err)
+	}
+	if value, err := s.GetSetting(user.ID, "plain"); err != nil || value != "second" {
+		t.Fatalf("updated setting = %#v, %v", value, err)
+	}
+	if err := s.SetSetting("missing-user", "bad", "value", false); err == nil {
+		t.Fatal("SetSetting should fail for missing user")
+	}
+
+	conversation, err := s.CreateConversation(user.ID, "")
+	if err != nil {
+		t.Fatalf("CreateConversation empty title: %v", err)
+	}
+	if conversation.Title != "" {
+		t.Fatalf("empty conversation title = %q", conversation.Title)
+	}
+	message, err := s.CreateMessage(user.ID, conversation.ID, "", "", nil)
+	if err != nil {
+		t.Fatalf("CreateMessage empty fields: %v", err)
+	}
+	if message.Role != "" || message.Content != "" || len(message.ReferencedDiaries) != 0 {
+		t.Fatalf("empty message defaults = %#v", message)
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := s.InsertImportedMedia(user.ID, fmt.Sprintf("media-%d", i), fmt.Sprintf("%d.png", i), "", "", nil); err != nil {
+			t.Fatalf("InsertImportedMedia %d: %v", i, err)
+		}
+	}
+	items, total, err := s.ListMedia(user.ID, 2, 2)
+	if err != nil {
+		t.Fatalf("ListMedia page 2: %v", err)
+	}
+	if total != 3 || len(items) != 1 || items[0].Expand != nil {
+		t.Fatalf("ListMedia page 2 total/items/expand = %d/%d/%#v", total, len(items), items)
+	}
+	items, total, err = s.ListMedia(user.ID, 99, 2)
+	if err != nil {
+		t.Fatalf("ListMedia high page: %v", err)
+	}
+	if total != 3 || len(items) != 0 {
+		t.Fatalf("ListMedia high page total/items = %d/%d", total, len(items))
+	}
+}
+
+func TestOpenAndDeleteMediaFileS3FallbackBranchesWithMockTransport(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	media := &Media{ID: "mid", File: "photo.png", Owner: user.ID}
+	s.MediaCollectionID = "legacy-media"
+	userS3Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`<?xml version="1.0"?><Error><Code>NoSuchKey</Code></Error>`))
+	}))
+	defer userS3Server.Close()
+	for key, value := range map[string]any{
+		"image_upload.provider":            "s3",
+		"image_upload.s3.bucket":           "user-bucket",
+		"image_upload.s3.region":           "us-east-1",
+		"image_upload.s3.endpoint":         userS3Server.URL,
+		"image_upload.s3.access_key":       "key",
+		"image_upload.s3.secret":           "secret",
+		"image_upload.s3.force_path_style": true,
+	} {
+		if err := s.SetSetting(user.ID, key, value, false); err != nil {
+			t.Fatalf("SetSetting %s: %v", key, err)
+		}
+	}
+
+	var sawLegacyGet bool
+	var sawLegacyDelete bool
+	legacyClient := newMockS3Client(t, func(req *http.Request) (*http.Response, error) {
+		switch req.Method {
+		case http.MethodGet:
+			sawLegacyGet = true
+			return httpResponse(http.StatusOK, "legacy-body"), nil
+		case http.MethodDelete:
+			sawLegacyDelete = true
+			return httpResponse(http.StatusNoContent, ""), nil
+		default:
+			return httpResponse(http.StatusMethodNotAllowed, ""), nil
+		}
+	})
+	s.LegacyS3 = &LegacyS3Config{Enabled: true, Bucket: "legacy-bucket", Region: "us-east-1"}
+	s.legacyS3Client = legacyClient
+
+	reader, err := s.OpenMediaFile(media)
+	if err != nil {
+		t.Fatalf("OpenMediaFile fallback legacy S3: %v", err)
+	}
+	data, err := ioReadAllAndClose(reader)
+	if err != nil {
+		t.Fatalf("read fallback legacy S3: %v", err)
+	}
+	if string(data) != "legacy-body" || !sawLegacyGet {
+		t.Fatalf("fallback legacy S3 data/saw = %q/%v", string(data), sawLegacyGet)
+	}
+	if err := s.DeleteMediaFile(media); err != nil {
+		t.Fatalf("DeleteMediaFile fallback legacy S3: %v", err)
+	}
+	if !sawLegacyDelete {
+		t.Fatal("DeleteMediaFile should call legacy S3 delete")
+	}
+
+	s.legacyS3Client = newMockS3Client(t, func(req *http.Request) (*http.Response, error) {
+		return httpResponse(http.StatusInternalServerError, `<?xml version="1.0"?><Error><Code>InternalError</Code></Error>`), nil
+	})
+	if err := s.SetSetting(user.ID, "image_upload.provider", "local", false); err != nil {
+		t.Fatalf("SetSetting local provider: %v", err)
+	}
+	if err := s.DeleteMediaFile(media); err == nil {
+		t.Fatal("DeleteMediaFile should return legacy S3 error when no earlier error exists")
 	}
 }
 

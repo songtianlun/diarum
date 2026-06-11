@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/store"
 )
 
@@ -343,5 +346,237 @@ func TestStreamChatWithToolCall(t *testing.T) {
 	}
 	if !strings.Contains(writer.String(), `"content":"Summary"`) {
 		t.Fatalf("StreamChat writer = %q", writer.String())
+	}
+}
+
+func TestSearchAndQueryRelevantDiariesEdges(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	vectorDB, err := embedding.NewVectorDB(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewVectorDB: %v", err)
+	}
+	embeddingService := embedding.NewEmbeddingService(s, vectorDB)
+	service := NewChatService(s, embeddingService)
+
+	for key, value := range map[string]any{
+		"ai.enabled":         true,
+		"ai.api_key":         "test-key",
+		"ai.base_url":        "https://mock.local/",
+		"ai.embedding_model": "embed-model",
+	} {
+		if err := s.SetSetting(user.ID, key, value, false); err != nil {
+			t.Fatalf("SetSetting %s: %v", key, err)
+		}
+	}
+
+	for i := 0; i < 12; i++ {
+		if _, err := s.InsertImportedDiary(user.ID, "", fmt.Sprintf("2024-02-%02d", i+1), "sunny topic", "", ""); err != nil {
+			t.Fatalf("InsertImportedDiary %d: %v", i, err)
+		}
+	}
+
+	results, err := service.SearchDiariesByDateRange(context.Background(), user.ID, SearchDiariesArgs{Limit: 0})
+	if err != nil {
+		t.Fatalf("SearchDiariesByDateRange default limit: %v", err)
+	}
+	if len(results) != 10 {
+		t.Fatalf("default-limited results = %d, want 10", len(results))
+	}
+
+	results, err = service.SearchDiariesByDateRange(context.Background(), user.ID, SearchDiariesArgs{Limit: 500})
+	if err != nil {
+		t.Fatalf("SearchDiariesByDateRange capped limit: %v", err)
+	}
+	if len(results) != 12 {
+		t.Fatalf("capped results = %d, want all 12 under cap", len(results))
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"data":[{"embedding":[1,0]}]}`), nil
+	})
+	if _, err := embeddingService.BuildAllVectors(context.Background(), user.ID); err != nil {
+		t.Fatalf("BuildAllVectors: %v", err)
+	}
+	relevant, err := service.QueryRelevantDiaries(context.Background(), user.ID, "sunny", 3)
+	if err != nil {
+		t.Fatalf("QueryRelevantDiaries: %v", err)
+	}
+	if len(relevant) != 3 {
+		t.Fatalf("QueryRelevantDiaries count = %d, want 3", len(relevant))
+	}
+
+	results, err = service.SearchDiariesByDateRange(context.Background(), user.ID, SearchDiariesArgs{Query: "sunny", Limit: 3})
+	if err != nil {
+		t.Fatalf("SearchDiariesByDateRange semantic: %v", err)
+	}
+	if len(results) == 0 || len(results) > 3 {
+		t.Fatalf("semantic filtered results = %d, want 1..3", len(results))
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusBadGateway, "embedding down"), nil
+	})
+	results, err = service.SearchDiariesByDateRange(context.Background(), user.ID, SearchDiariesArgs{Query: "sunny", Limit: 3})
+	if err != nil {
+		t.Fatalf("SearchDiariesByDateRange semantic failure fallback: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("semantic failure fallback results = %d, want date results", len(results))
+	}
+
+	if _, err := service.SearchDiariesByDateRange(context.Background(), user.ID, SearchDiariesArgs{}); err != nil {
+		t.Fatalf("SearchDiariesByDateRange before close: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	if _, err := service.SearchDiariesByDateRange(context.Background(), user.ID, SearchDiariesArgs{}); err == nil || !strings.Contains(err.Error(), "failed to fetch diaries") {
+		t.Fatalf("SearchDiariesByDateRange closed-store error = %v", err)
+	}
+}
+
+func TestChatAPIErrorBranches(t *testing.T) {
+	service := &ChatService{}
+	writer := &mockStreamWriter{}
+	messages := []ChatMessage{{Role: "user", Content: "hello"}}
+
+	if _, err := service.callStreamingAPI(context.Background(), "://bad", "key", "model", messages, writer); err == nil || !strings.Contains(err.Error(), "failed to create request") {
+		t.Fatalf("callStreamingAPI create request error = %v", err)
+	}
+	if _, _, err := service.callAPIWithTools(context.Background(), "://bad", "key", "model", messages, nil, writer); err == nil || !strings.Contains(err.Error(), "failed to create request") {
+		t.Fatalf("callAPIWithTools create request error = %v", err)
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return nil, errors.New("network down")
+	})
+	if _, err := service.callStreamingAPI(context.Background(), "https://mock.local", "key", "model", messages, writer); err == nil || !strings.Contains(err.Error(), "failed to send request") {
+		t.Fatalf("callStreamingAPI send error = %v", err)
+	}
+	if _, _, err := service.callAPIWithTools(context.Background(), "https://mock.local", "key", "model", messages, nil, writer); err == nil || !strings.Contains(err.Error(), "failed to send request") {
+		t.Fatalf("callAPIWithTools send error = %v", err)
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusTeapot, "short and stout"), nil
+	})
+	if _, err := service.callStreamingAPI(context.Background(), "https://mock.local", "key", "model", messages, writer); err == nil || !strings.Contains(err.Error(), "API returned status 418") {
+		t.Fatalf("callStreamingAPI status error = %v", err)
+	}
+	if _, _, err := service.callAPIWithTools(context.Background(), "https://mock.local", "key", "model", messages, nil, writer); err == nil || !strings.Contains(err.Error(), "API returned status 418") {
+		t.Fatalf("callAPIWithTools status error = %v", err)
+	}
+}
+
+func TestStreamChatConfigurationAndAPIErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewChatService(s, nil)
+	writer := &mockStreamWriter{}
+
+	if _, _, err := service.StreamChat(context.Background(), user.ID, "missing", "hello", writer); err == nil || !strings.Contains(err.Error(), "AI API key not configured") {
+		t.Fatalf("StreamChat missing api key error = %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.api_key", "test-key", false); err != nil {
+		t.Fatalf("SetSetting ai.api_key: %v", err)
+	}
+	if _, _, err := service.StreamChat(context.Background(), user.ID, "missing", "hello", writer); err == nil || !strings.Contains(err.Error(), "AI base URL not configured") {
+		t.Fatalf("StreamChat missing base URL error = %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.base_url", "https://mock.local", false); err != nil {
+		t.Fatalf("SetSetting ai.base_url: %v", err)
+	}
+	if _, _, err := service.StreamChat(context.Background(), user.ID, "missing", "hello", writer); err == nil || !strings.Contains(err.Error(), "chat model not configured") {
+		t.Fatalf("StreamChat missing model error = %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.chat_model", "chat-model", false); err != nil {
+		t.Fatalf("SetSetting ai.chat_model: %v", err)
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusInternalServerError, "boom"), nil
+	})
+	if _, _, err := service.StreamChat(context.Background(), user.ID, "missing", "hello", writer); err == nil || !strings.Contains(err.Error(), "API returned status 500") {
+		t.Fatalf("StreamChat API error = %v", err)
+	}
+}
+
+func TestGenerateTitleErrorAndEdgePaths(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewChatService(s, nil)
+
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "user", "assistant"); err == nil || !strings.Contains(err.Error(), "AI API key not configured") {
+		t.Fatalf("GenerateTitle missing api key error = %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.api_key", "test-key", false); err != nil {
+		t.Fatalf("SetSetting ai.api_key: %v", err)
+	}
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "user", "assistant"); err == nil || !strings.Contains(err.Error(), "AI base URL not configured") {
+		t.Fatalf("GenerateTitle missing base URL error = %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.base_url", "https://mock.local", false); err != nil {
+		t.Fatalf("SetSetting ai.base_url: %v", err)
+	}
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "user", "assistant"); err == nil || !strings.Contains(err.Error(), "chat model not configured") {
+		t.Fatalf("GenerateTitle missing model error = %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.chat_model", "chat-model", false); err != nil {
+		t.Fatalf("SetSetting ai.chat_model: %v", err)
+	}
+
+	if err := s.SetSetting(user.ID, "ai.base_url", "://bad", false); err != nil {
+		t.Fatalf("SetSetting bad base URL: %v", err)
+	}
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "user", "assistant"); err == nil || !strings.Contains(err.Error(), "failed to create request") {
+		t.Fatalf("GenerateTitle create request error = %v", err)
+	}
+	if err := s.SetSetting(user.ID, "ai.base_url", "https://mock.local", false); err != nil {
+		t.Fatalf("SetSetting good base URL: %v", err)
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return nil, errors.New("network down")
+	})
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "user", "assistant"); err == nil || !strings.Contains(err.Error(), "failed to send request") {
+		t.Fatalf("GenerateTitle send error = %v", err)
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusBadGateway, "upstream"), nil
+	})
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "user", "assistant"); err == nil || !strings.Contains(err.Error(), "API returned status 502") {
+		t.Fatalf("GenerateTitle status error = %v", err)
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, "not-json"), nil
+	})
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "user", "assistant"); err == nil || !strings.Contains(err.Error(), "failed to decode response") {
+		t.Fatalf("GenerateTitle decode error = %v", err)
+	}
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[]}`), nil
+	})
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "user", "assistant"); err == nil || !strings.Contains(err.Error(), "no response from API") {
+		t.Fatalf("GenerateTitle no choices error = %v", err)
+	}
+
+	longTitle := strings.Repeat("x", 120)
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"`+longTitle+`"}}]}`), nil
+	})
+	title, err := service.GenerateTitle(context.Background(), user.ID, "user", strings.Repeat("assistant ", 100))
+	if err != nil {
+		t.Fatalf("GenerateTitle long title: %v", err)
+	}
+	if len(title) != 100 {
+		t.Fatalf("GenerateTitle long title len = %d, want 100", len(title))
+	}
+
+	if got := truncateString("short", 10); got != "short" {
+		t.Fatalf("truncateString short = %q, want short", got)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/songtianlun/diarum/internal/config"
+	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/store"
 )
 
@@ -87,6 +88,29 @@ func configureAIRouteSettings(t *testing.T, s *store.Store, userID string) {
 	}
 }
 
+func embeddingTransport(t *testing.T) roundTripFunc {
+	t.Helper()
+
+	return func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/v1/embeddings" {
+			return httpResponse(http.StatusNotFound, "not found"), nil
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode embedding request: %v", err)
+		}
+		input, _ := payload["input"].(string)
+		base := float32(len(input)%7 + 1)
+		body := `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[` + strings.TrimRight(strings.TrimRight(jsonFloat(base), "0"), ".") + `,0.2,0.3]}],"model":"embed-model"}`
+		return httpResponse(http.StatusOK, body), nil
+	}
+}
+
+func jsonFloat(value float32) string {
+	bytes, _ := json.Marshal(value)
+	return string(bytes)
+}
+
 func TestExportImportRoutesAndHelpers(t *testing.T) {
 	s := newTestStore(t)
 	user := newTestUser(t, s)
@@ -153,6 +177,12 @@ func TestExportImportRoutesAndHelpers(t *testing.T) {
 	}
 	if start, end, err := calculateDateRange(ExportRequest{DateRange: "1m"}); err != nil || !end.After(start) {
 		t.Fatalf("calculateDateRange 1m = %v, %v, %v", start, end, err)
+	}
+	for _, dateRange := range []string{"3m", "6m", "1y", "unknown"} {
+		start, end, err := calculateDateRange(ExportRequest{DateRange: dateRange})
+		if err != nil || !end.After(start) {
+			t.Fatalf("calculateDateRange %s = %v, %v, %v", dateRange, start, end, err)
+		}
 	}
 	if !isDateInRange("2024-02-01", mustDate(t, "2024-02-01"), mustDate(t, "2024-02-28")) {
 		t.Fatal("isDateInRange should include in-range dates")
@@ -252,6 +282,30 @@ func TestExportImportRoutesAndHelpers(t *testing.T) {
 	}
 	if payload := decodeJSONBody(t, rec); payload["media"].(map[string]any)["failed"] == float64(0) {
 		t.Fatalf("disallowed media payload = %#v", payload)
+	}
+
+	malformedZip := buildImportZip(t, exportData{
+		Version:    1,
+		ExportedAt: "2024-02-01T00:00:00Z",
+		Diaries: []exportDiary{
+			{ID: "missing-date", Content: "no date"},
+		},
+		Media: []exportMedia{
+			{ID: "empty-file", File: "", Name: "Empty"},
+			{ID: "missing-media", File: "missing.png", Name: "Missing"},
+		},
+		Conversations: []exportConversation{
+			{ID: "conv-no-messages", Title: "No Messages"},
+			{ID: "conv-bad-ref", Title: "Bad Ref", Messages: []exportMessage{{ID: "msg", Role: "assistant", Content: "hello", ReferencedDiaries: []string{"missing-date"}}}},
+		},
+	}, map[string][]byte{"../ignored.png": pngBytes()})
+	body, contentType = multipartRequestBody(t, "file", "malformed.zip", malformedZip, nil)
+	rec = performRequest(t, importEcho, http.MethodPost, "/api/v1/import", body, map[string]string{"Content-Type": contentType})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/v1/import malformed branches status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if payload := decodeJSONBody(t, rec); payload["diaries"].(map[string]any)["failed"] != float64(1) || payload["media"].(map[string]any)["failed"] != float64(2) || payload["conversations"].(map[string]any)["imported"] != float64(2) {
+		t.Fatalf("malformed import payload = %#v", payload)
 	}
 }
 
@@ -392,6 +446,48 @@ func TestAIRoutesAndFetchModels(t *testing.T) {
 	rec = performRequest(t, e, http.MethodDelete, "/api/v1/ai/conversations/"+convID, nil, nil)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("DELETE /ai/conversations/:id missing status = %d", rec.Code)
+	}
+}
+
+func TestAIVectorRoutesWithEmbeddingService(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	vectorDB, err := embedding.NewVectorDB(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewVectorDB: %v", err)
+	}
+	embeddingService := embedding.NewEmbeddingService(s, vectorDB)
+	e := echo.New()
+	RegisterAIRoutes(e, s, authMiddlewareFor(user), embeddingService)
+
+	configureAIRouteSettings(t, s, user.ID)
+	if _, err := s.InsertImportedDiary(user.ID, "ai-vector-1", "2024-05-01", "vector route diary", "calm", "sunny"); err != nil {
+		t.Fatalf("InsertImportedDiary: %v", err)
+	}
+	withMockTransport(t, embeddingTransport(t))
+
+	rec := performRequest(t, e, http.MethodPost, "/api/v1/ai/vectors/build", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /ai/vectors/build status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if payload := decodeJSONBody(t, rec); payload["success"] != float64(1) || payload["failed"] != float64(0) || payload["total"] != float64(1) {
+		t.Fatalf("build vectors payload = %#v", payload)
+	}
+
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/ai/vectors/stats", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /ai/vectors/stats status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if payload := decodeJSONBody(t, rec); payload["diary_count"] != float64(1) || payload["indexed_count"] != float64(1) {
+		t.Fatalf("vector stats payload = %#v", payload)
+	}
+
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/ai/vectors/build-incremental", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /ai/vectors/build-incremental status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if payload := decodeJSONBody(t, rec); payload["total"] != float64(1) || payload["failed"] != float64(0) {
+		t.Fatalf("incremental vectors payload = %#v", payload)
 	}
 }
 

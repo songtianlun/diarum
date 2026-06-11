@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -202,6 +203,19 @@ func TestHelpersVersionAndOpenAPI(t *testing.T) {
 	if _, ok := postOp["requestBody"]; !ok {
 		t.Fatalf("buildOperation POST = %#v", postOp)
 	}
+	patchOp := buildOperation(http.MethodPatch, "/api/v1/items/{id}")
+	if _, ok := patchOp["requestBody"]; !ok {
+		t.Fatalf("buildOperation PATCH = %#v", patchOp)
+	}
+	deleteOp := buildOperation(http.MethodDelete, "/api/v1/items/{id}")
+	if _, ok := deleteOp["requestBody"]; ok {
+		t.Fatalf("buildOperation DELETE should not have requestBody: %#v", deleteOp)
+	}
+	publicDiariesOp := buildOperation(http.MethodGet, "/api/v1/diaries")
+	security := publicDiariesOp["security"].([]map[string][]string)
+	if _, ok := security[0]["apiTokenQuery"]; !ok {
+		t.Fatalf("public diaries operation security = %#v", publicDiariesOp)
+	}
 	versionOp := buildOperation(http.MethodGet, "/api/v1/version")
 	if _, ok := versionOp["security"]; ok {
 		t.Fatalf("version operation should not require security: %#v", versionOp)
@@ -227,14 +241,38 @@ func TestAuthAndSettingsRoutes(t *testing.T) {
 	if payload := decodeJSONBody(t, rec); payload["token"] == "" {
 		t.Fatalf("login payload = %#v", payload)
 	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"usernameOrEmail":"alice@example.com","password":"secret"}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login by email status = %d body=%s", rec.Code, rec.Body.String())
+	}
 
 	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"usernameOrEmail":"alice","password":"wrong"}`), map[string]string{"Content-Type": "application/json"})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("login wrong password status = %d", rec.Code)
 	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"usernameOrEmail":"nobody","password":"secret"}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("login missing user status = %d", rec.Code)
+	}
 	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"usernameOrEmail":"","password":""}`), map[string]string{"Content-Type": "application/json"})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("login missing fields status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("login malformed status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/register", strings.NewReader(registerBody), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("register duplicate status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"username":"","email":"","password":"","passwordConfirm":""}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("register missing fields status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("register malformed status = %d", rec.Code)
 	}
 	rec = performRequest(t, e, http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"username":"bob","email":"bob@example.com","password":"a","passwordConfirm":"b"}`), map[string]string{"Content-Type": "application/json"})
 	if rec.Code != http.StatusBadRequest {
@@ -301,10 +339,23 @@ func TestAuthAndSettingsRoutes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("toggle existing api-token status = %d", rec.Code)
 	}
+	if payload := decodeJSONBody(t, rec); payload["enabled"] != false || payload["token"] != secondToken {
+		t.Fatalf("toggle existing api-token payload = %#v", payload)
+	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/settings/api-token", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET disabled api-token status = %d", rec.Code)
+	}
+	if payload := decodeJSONBody(t, rec); payload["exists"] != true || payload["enabled"] != false || payload["token"] != secondToken {
+		t.Fatalf("GET disabled api-token payload = %#v", payload)
+	}
 
 	rec = performRequest(t, e, http.MethodGet, "/api/v1/settings", nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET settings status = %d", rec.Code)
+	}
+	if payload := decodeJSONBody(t, rec); payload["settings"] == nil {
+		t.Fatalf("GET settings payload = %#v", payload)
 	}
 
 }
@@ -428,6 +479,10 @@ func TestDiaryMediaAndPublicRoutes(t *testing.T) {
 	rec = performRequest(t, e, http.MethodGet, "/api/v1/files/media/"+mediaID+"/photo.png", nil, nil)
 	if rec.Code != http.StatusOK || len(rec.Body.Bytes()) == 0 {
 		t.Fatalf("GET /files/media status = %d body=%q", rec.Code, rec.Body.Bytes())
+	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/files/media/"+mediaID+"/wrong.png", nil, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /files/media filename mismatch status = %d", rec.Code)
 	}
 	rec = performRequest(t, e, http.MethodDelete, "/api/v1/media/"+mediaID, nil, nil)
 	if rec.Code != http.StatusOK {
@@ -850,6 +905,100 @@ func TestMemosSyncFindsAndRemovesExistingBlock(t *testing.T) {
 	}
 	if _, err := findMemosDiary(closedStore, user.ID, "memo", ""); err == nil {
 		t.Fatal("findMemosDiary should return list error after DB close")
+	}
+}
+
+func TestDiaryRoutesSearchStatsAndAccessBranches(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	other := newTestUser(t, s)
+	e := echo.New()
+	changeCount := 0
+	RegisterDiaryRoutes(e, s, authMiddlewareFor(user), func(userID string) {
+		if userID == user.ID {
+			changeCount++
+		}
+	})
+
+	today := time.Now().UTC().Format("2006-01-02")
+	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	oldContent := strings.Repeat("x", 220) + " searchable"
+	diaryToday, _, err := s.UpsertDiary(user.ID, today, oldContent, "focused", "sunny")
+	if err != nil {
+		t.Fatalf("UpsertDiary today: %v", err)
+	}
+	if _, _, err := s.UpsertDiary(user.ID, yesterday, "yesterday searchable", "calm", "cloudy"); err != nil {
+		t.Fatalf("UpsertDiary yesterday: %v", err)
+	}
+	otherDiary, _, err := s.UpsertDiary(other.ID, today, "other diary", "private", "rain")
+	if err != nil {
+		t.Fatalf("UpsertDiary other: %v", err)
+	}
+
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/diaries/exists", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /diaries/exists default status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload := decodeJSONBody(t, rec)
+	if len(payload["dates"].([]any)) < 2 {
+		t.Fatalf("exists dates = %#v", payload)
+	}
+
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/stats?tz=UTC", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /diaries/stats status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload = decodeJSONBody(t, rec)
+	if payload["total"].(float64) < 2 || payload["streak"].(float64) < 2 {
+		t.Fatalf("stats payload = %#v", payload)
+	}
+
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/search", nil, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("GET /diaries/search missing q status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/search?q=searchable", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /diaries/search status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload = decodeJSONBody(t, rec)
+	results := payload["results"].([]any)
+	if len(results) == 0 || !strings.HasSuffix(results[0].(map[string]any)["snippet"].(string), "...") {
+		t.Fatalf("search payload = %#v", payload)
+	}
+
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/diaries/by-ids", strings.NewReader(`{"ids":["`+diaryToday.ID+`","`+otherDiary.ID+`","missing"]}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /diaries/by-ids status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload = decodeJSONBody(t, rec)
+	if diaries := payload["diaries"].([]any); len(diaries) != 1 {
+		t.Fatalf("by-ids payload = %#v", payload)
+	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/diaries/by-ids", strings.NewReader(`{`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /diaries/by-ids invalid status = %d", rec.Code)
+	}
+
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/recent?limit=500", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /diaries/recent status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/"+otherDiary.ID, nil, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("GET /diaries/:id forbidden status = %d", rec.Code)
+	}
+	rec = performRequest(t, e, http.MethodDelete, "/api/v1/diaries/missing", nil, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("DELETE /diaries/missing status = %d", rec.Code)
+	}
+
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/diaries/upsert", strings.NewReader(`{"date":"`+today+`","content":"changed"}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /diaries/upsert status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if changeCount != 1 {
+		t.Fatalf("changeCount = %d, want 1", changeCount)
 	}
 }
 
