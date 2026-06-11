@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -217,8 +219,8 @@ func parseMemosWebhookEvent(payload map[string]any) memosWebhookEvent {
 		ID:         memoID(memoMap),
 		Name:       firstString(memoMap, "name"),
 		Content:    firstString(memoMap, "content"),
-		CreateTime: firstString(memoMap, "createTime", "createdTs", "createdAt", "created_at"),
-		UpdateTime: firstString(memoMap, "updateTime", "updatedTs", "updatedAt", "updated_at"),
+		CreateTime: firstString(memoMap, "createTime", "create_time", "createdTime", "created_time", "createdTs", "created_ts", "createTs", "create_ts", "createdAt", "created_at", "created"),
+		UpdateTime: firstString(memoMap, "updateTime", "update_time", "updatedTime", "updated_time", "updatedTs", "updated_ts", "updateTs", "update_ts", "updatedAt", "updated_at", "updated"),
 		URL:        firstString(memoMap, "url", "link", "htmlUrl", "html_url"),
 	}
 	if action == "" {
@@ -257,15 +259,54 @@ func firstMap(source map[string]any, keys ...string) map[string]any {
 func firstString(source map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value, ok := source[key]; ok {
-			switch v := value.(type) {
-			case string:
-				return strings.TrimSpace(v)
-			case float64:
-				return strings.TrimSpace(fmt.Sprintf("%.0f", v))
+			if str := stringValue(value); str != "" {
+				return str
 			}
 		}
 	}
 	return ""
+}
+
+func stringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strings.TrimSpace(fmt.Sprintf("%.0f", v))
+	case map[string]any:
+		if formatted := protobufTimestampString(v); formatted != "" {
+			return formatted
+		}
+	}
+	return ""
+}
+
+func protobufTimestampString(value map[string]any) string {
+	secondsRaw, ok := value["seconds"]
+	if !ok {
+		return ""
+	}
+	seconds, ok := int64Value(secondsRaw)
+	if !ok {
+		return ""
+	}
+	var nanos int64
+	if nanosRaw, ok := value["nanos"]; ok {
+		nanos, _ = int64Value(nanosRaw)
+	}
+	return time.Unix(seconds, nanos).UTC().Format(time.RFC3339)
+}
+
+func int64Value(value any) (int64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return int64(v), true
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func memoID(memo map[string]any) string {
@@ -288,49 +329,98 @@ func lastPathPart(value string) string {
 
 func syncMemosMemo(s *store.Store, userID string, event memosWebhookEvent) (bool, error) {
 	date := memoDate(event.Memo)
-	if date == "" {
-		date = time.Now().UTC().Format("2006-01-02")
-	}
 	if event.Action == "delete" {
 		return removeMemosBlock(s, userID, event.Memo.ID, date)
+	}
+	if date == "" {
+		return false, fmt.Errorf("missing or invalid memo create_time/update_time for memo %s", event.Memo.ID)
 	}
 	block := renderMemosBlock(event.Memo, date)
 	return upsertMemosBlock(s, userID, event.Memo.ID, date, block)
 }
 
 func memoDate(memo memosMemo) string {
-	for _, value := range []string{memo.CreateTime, memo.UpdateTime} {
-		if len(value) >= 10 {
-			if t, err := time.Parse(time.RFC3339, value); err == nil {
-				return t.UTC().Format("2006-01-02")
-			}
-			return value[:10]
+	if date := memoDateFromValue(memo.CreateTime); date != "" {
+		return date
+	}
+	return memoDateFromValue(memo.UpdateTime)
+}
+
+func memoDateFromValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if unixDate := memoDateFromUnixTimestamp(value); unixDate != "" {
+		return unixDate
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t.UTC().Format("2006-01-02")
 		}
 	}
 	return ""
 }
 
+func memoDateFromUnixTimestamp(value string) string {
+	if !regexp.MustCompile(`^\d{10,19}$`).MatchString(value) {
+		return ""
+	}
+	timestamp, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return ""
+	}
+	switch {
+	case len(value) >= 19:
+		return time.Unix(0, timestamp).UTC().Format("2006-01-02")
+	case len(value) >= 16:
+		return time.UnixMicro(timestamp).UTC().Format("2006-01-02")
+	case len(value) >= 13:
+		return time.UnixMilli(timestamp).UTC().Format("2006-01-02")
+	default:
+		return time.Unix(timestamp, 0).UTC().Format("2006-01-02")
+	}
+}
+
 func renderMemosBlock(memo memosMemo, date string) string {
 	lines := []string{
 		fmt.Sprintf(`%s id="%s" date="%s" -->`, memosBeginPrefix, markerEscape(memo.ID), date),
-		"---",
+		"<hr>",
+		renderMemosMetadataHTML(memo),
+	}
+	lines = append(lines, renderMemoContentHTML(memo.Content), "<hr>", fmt.Sprintf(`%s id="%s" -->`, memosEndPrefix, markerEscape(memo.ID)))
+	return strings.Join(lines, "\n")
+}
+
+func renderMemosMetadataHTML(memo memosMemo) string {
+	metadata := []string{
 		"Source: Memos",
 		"Memo ID: " + memo.ID,
 	}
-	if memo.Name != "" {
-		lines = append(lines, "Memo Name: "+memo.Name)
-	}
 	if memo.URL != "" {
-		lines = append(lines, "Memo URL: "+memo.URL)
+		metadata = append(metadata, "Memo URL: "+memo.URL)
 	}
 	if memo.CreateTime != "" {
-		lines = append(lines, "Created: "+memo.CreateTime)
+		metadata = append(metadata, "Created: "+memo.CreateTime)
 	}
 	if memo.UpdateTime != "" {
-		lines = append(lines, "Updated: "+memo.UpdateTime)
+		metadata = append(metadata, "Updated: "+memo.UpdateTime)
 	}
-	lines = append(lines, "Date: "+date, "", strings.TrimSpace(memo.Content), "---", fmt.Sprintf(`%s id="%s" -->`, memosEndPrefix, markerEscape(memo.ID)))
-	return strings.Join(lines, "\n")
+	return "<pre><code>" + html.EscapeString(strings.Join(metadata, "\n")) + "</code></pre>"
+}
+
+func renderMemoContentHTML(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "<p></p>"
+	}
+	paragraphs := strings.Split(content, "\n\n")
+	for i, paragraph := range paragraphs {
+		escaped := html.EscapeString(strings.TrimSpace(paragraph))
+		escaped = strings.ReplaceAll(escaped, "\n", "<br>")
+		paragraphs[i] = "<p>" + escaped + "</p>"
+	}
+	return strings.Join(paragraphs, "\n")
 }
 
 func markerEscape(value string) string {
@@ -413,28 +503,53 @@ func appendMemosBlock(content, block string) string {
 	if content == "" {
 		return block
 	}
+	if endsWithHorizontalRule(content) {
+		block = trimLeadingMemosHorizontalRule(block)
+	}
 	return content + "\n\n" + block
+}
+
+func endsWithHorizontalRule(content string) bool {
+	content = strings.TrimSpace(content)
+	return regexp.MustCompile(`(?i)<hr\s*/?>$`).MatchString(content)
+}
+
+func trimLeadingMemosHorizontalRule(block string) string {
+	return regexp.MustCompile(`(?i)^\s*<!-- DIARUM:MEMOS:BEGIN([^>]*)-->\s*<hr\s*/?>\s*`).ReplaceAllString(block, "<!-- DIARUM:MEMOS:BEGIN$1 -->\n")
 }
 
 func replaceMemosBlock(content, memoID, block string) (string, bool) {
 	pattern := memosBlockRegexp(memoID)
-	if !pattern.MatchString(content) {
-		return content, false
+	if pattern.MatchString(content) {
+		return pattern.ReplaceAllString(content, block), true
 	}
-	return pattern.ReplaceAllString(content, block), true
+	pattern = memosHTMLBlockRegexp(memoID)
+	if pattern.MatchString(content) {
+		return pattern.ReplaceAllString(content, block), true
+	}
+	return content, false
 }
 
 func removeMemosBlockFromContent(content, memoID string) (string, bool) {
 	pattern := memosBlockRegexp(memoID)
-	if !pattern.MatchString(content) {
-		return content, false
+	if pattern.MatchString(content) {
+		return pattern.ReplaceAllString(content, ""), true
 	}
-	return pattern.ReplaceAllString(content, ""), true
+	pattern = memosHTMLBlockRegexp(memoID)
+	if pattern.MatchString(content) {
+		return pattern.ReplaceAllString(content, ""), true
+	}
+	return content, false
 }
 
 func memosBlockRegexp(memoID string) *regexp.Regexp {
 	quoted := regexp.QuoteMeta(memosMarker(memoID))
 	return regexp.MustCompile(`(?s)\n*<!-- DIARUM:MEMOS:BEGIN[^>]*` + quoted + `[^>]*-->.*?<!-- DIARUM:MEMOS:END[^>]*` + quoted + `[^>]*-->\n*`)
+}
+
+func memosHTMLBlockRegexp(memoID string) *regexp.Regexp {
+	quotedID := regexp.QuoteMeta(html.EscapeString(memoID))
+	return regexp.MustCompile(`(?s)\n*<hr>.*?Memo ID:\s*` + quotedID + `.*?<hr>\n*`)
 }
 
 func memosMarker(memoID string) string {

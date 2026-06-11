@@ -479,7 +479,7 @@ func TestMemosWebhookSync(t *testing.T) {
 	}
 	webhookPath := strings.TrimPrefix(webhookURL, "https://example.com")
 
-	body := `{"type":"memo.created","memo":{"name":"memos/123","content":"hello memos","createTime":"2024-04-05T10:11:12Z","updateTime":"2024-04-05T10:11:12Z"}}`
+	body := `{"activityType":"memos.memo.created","memo":{"name":"memos/123","content":"hello memos","create_time":{"seconds":1712311872},"update_time":{"seconds":1712311872}}}`
 	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST memos webhook create status = %d body=%s", rec.Code, rec.Body.String())
@@ -488,11 +488,11 @@ func TestMemosWebhookSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDiaryByDate after create: %v", err)
 	}
-	if !strings.Contains(diary.Content, `id="123"`) || !strings.Contains(diary.Content, "hello memos") || !strings.Contains(diary.Content, "https://memos.example.com/m/123") {
+	if !strings.Contains(diary.Content, `id="123"`) || !strings.Contains(diary.Content, "<hr>") || !strings.Contains(diary.Content, "hello memos") || !strings.Contains(diary.Content, "https://memos.example.com/m/123") {
 		t.Fatalf("diary content after create = %q", diary.Content)
 	}
 
-	body = `{"type":"memo.updated","memo":{"name":"memos/123","content":"updated memos","createTime":"2024-04-05T10:11:12Z","updateTime":"2024-04-06T10:11:12Z"}}`
+	body = `{"activityType":"memos.memo.updated","memo":{"name":"memos/123","content":"updated memos","create_time":{"seconds":1712311872},"update_time":{"seconds":1712398272}}}`
 	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST memos webhook update status = %d body=%s", rec.Code, rec.Body.String())
@@ -505,7 +505,7 @@ func TestMemosWebhookSync(t *testing.T) {
 		t.Fatalf("diary content after update = %q", diary.Content)
 	}
 
-	body = `{"type":"memo.deleted","memo":{"name":"memos/123","createTime":"2024-04-05T10:11:12Z"}}`
+	body = `{"activityType":"memos.memo.deleted","memo":{"name":"memos/123","create_time":{"seconds":1712311872}}}`
 	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST memos webhook delete status = %d body=%s", rec.Code, rec.Body.String())
@@ -519,6 +519,46 @@ func TestMemosWebhookSync(t *testing.T) {
 	}
 	if changeCount != 3 {
 		t.Fatalf("changeCount = %d, want 3", changeCount)
+	}
+}
+
+func TestMemosDateParsingAndAppendFormatting(t *testing.T) {
+	event := parseMemosWebhookEvent(map[string]any{
+		"activityType": "memos.memo.updated",
+		"memo": map[string]any{
+			"name":        "memos/hqy6gQoqC6k9LamgN39yma",
+			"content":     "sample memo",
+			"create_time": map[string]any{"seconds": float64(1780558277)},
+			"update_time": map[string]any{"seconds": float64(1781144444)},
+		},
+	})
+	if event.Memo.ID != "hqy6gQoqC6k9LamgN39yma" {
+		t.Fatalf("parsed memo ID = %q", event.Memo.ID)
+	}
+	if event.Memo.CreateTime != "2026-06-04T07:31:17Z" || event.Memo.UpdateTime != "2026-06-11T02:20:44Z" {
+		t.Fatalf("parsed memo times = create %q update %q", event.Memo.CreateTime, event.Memo.UpdateTime)
+	}
+	if got := memoDate(event.Memo); got != "2026-06-04" {
+		t.Fatalf("memoDate protobuf timestamp = %q, want 2026-06-04", got)
+	}
+	metadata := renderMemosMetadataHTML(event.Memo)
+	if !strings.Contains(metadata, "Created: 2026-06-04T07:31:17Z") || !strings.Contains(metadata, "Updated: 2026-06-11T02:20:44Z") {
+		t.Fatalf("metadata missing timestamps: %q", metadata)
+	}
+
+	created := "1712448000"
+	memo := memosMemo{ID: "unix-time", CreateTime: created, Content: "timestamp memo"}
+	if got := memoDate(memo); got != "2024-04-07" {
+		t.Fatalf("memoDate unix seconds = %q, want 2024-04-07", got)
+	}
+
+	block := renderMemosBlock(memo, "2024-04-07")
+	content := appendMemosBlock("<p>existing</p><hr>", block)
+	if strings.Count(content, "<hr>") != 2 {
+		t.Fatalf("appendMemosBlock created consecutive horizontal rules: %q", content)
+	}
+	if !strings.Contains(content, "<!-- DIARUM:MEMOS:BEGIN") || !strings.Contains(content, "<pre><code>") {
+		t.Fatalf("appendMemosBlock content = %q", content)
 	}
 }
 
