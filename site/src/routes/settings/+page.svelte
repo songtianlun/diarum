@@ -8,6 +8,10 @@
 		resetApiToken,
 		getDiaryEmojiSettings,
 		saveDiaryEmojiSettings,
+		getMemosSettings,
+		saveMemosSettings,
+		resetMemosWebhookToken,
+		type MemosSettings,
 		type ApiTokenStatus
 	} from '$lib/api/settings';
 	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
@@ -25,12 +29,13 @@
 		sanitizeWeatherOptions
 	} from '$lib/utils/diaryEmoji';
 
-	type SettingsTab = 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'data-management';
+	type SettingsTab = 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
 
 	const settingsTabs: { id: SettingsTab; label: string }[] = [
 		{ id: 'ai-assistant', label: 'AI Assistant' },
 		{ id: 'mood-weather', label: 'Mood & Weather' },
 		{ id: 'api-access', label: 'API Access' },
+		{ id: 'memos-sync', label: 'Memos Sync' },
 		{ id: 'image-upload', label: 'Image Upload' },
 		{ id: 'data-management', label: 'Data Management' }
 	];
@@ -64,6 +69,15 @@
 	let copied = false;
 	let resetting = false;
 	let toggling = false;
+
+	// Memos sync settings
+	let memosSettings: MemosSettings = { enabled: false, base_url: '', webhook_url: '', token_exists: false };
+	let originalMemosSettings: MemosSettings = { ...memosSettings };
+	let memosSaving = false;
+	let memosResetting = false;
+	let memosCopied = false;
+	let memosError = '';
+	let memosSuccess = '';
 
 	// Diary emoji settings
 	let moodOptions: string[] = [];
@@ -349,6 +363,54 @@
 		}
 	}
 
+	async function loadMemosSettingsLocal() {
+		memosSettings = await getMemosSettings();
+		originalMemosSettings = JSON.parse(JSON.stringify(memosSettings));
+	}
+
+	async function handleSaveMemosSettings() {
+		memosSaving = true;
+		memosError = '';
+		memosSuccess = '';
+		try {
+			memosSettings = await saveMemosSettings({
+				enabled: memosSettings.enabled,
+				base_url: memosSettings.base_url
+			});
+			originalMemosSettings = JSON.parse(JSON.stringify(memosSettings));
+			memosSuccess = 'Memos sync settings saved successfully';
+			setTimeout(() => memosSuccess = '', 3000);
+		} catch (e) {
+			memosError = e instanceof Error ? e.message : 'Failed to save Memos settings';
+		}
+		memosSaving = false;
+	}
+
+	async function handleResetMemosWebhookToken() {
+		if (!confirm('Reset the Memos webhook URL? The old URL configured in Memos will stop working.')) {
+			return;
+		}
+		memosResetting = true;
+		memosError = '';
+		try {
+			memosSettings = await resetMemosWebhookToken();
+			originalMemosSettings = JSON.parse(JSON.stringify(memosSettings));
+			memosSuccess = 'Memos webhook URL reset successfully';
+			setTimeout(() => memosSuccess = '', 3000);
+		} catch (e) {
+			memosError = e instanceof Error ? e.message : 'Failed to reset Memos webhook URL';
+		}
+		memosResetting = false;
+	}
+
+	async function copyMemosWebhookURL() {
+		if (memosSettings.webhook_url) {
+			await navigator.clipboard.writeText(memosSettings.webhook_url);
+			memosCopied = true;
+			setTimeout(() => memosCopied = false, 2000);
+		}
+	}
+
 	function getBaseUrl(): string {
 		if (typeof window !== 'undefined') {
 			return window.location.origin;
@@ -454,6 +516,9 @@
 	$: emojiSettingsChanged =
 		JSON.stringify(moodOptions) !== JSON.stringify(originalMoodOptions) ||
 		JSON.stringify(weatherOptions) !== JSON.stringify(originalWeatherOptions);
+
+	$: memosSettingsChanged = memosSettings.enabled !== originalMemosSettings.enabled ||
+		memosSettings.base_url !== originalMemosSettings.base_url;
 
 	// Check if AI settings have changed
 	$: aiSettingsChanged = aiSettings.api_key !== originalAISettings.api_key ||
@@ -606,7 +671,7 @@
 		}
 
 		loading = true;
-		await Promise.all([loadTokenStatus(), loadDiaryEmojiSettingsLocal(), loadAISettings(), loadImageUploadSettingsLocal()]);
+		await Promise.all([loadTokenStatus(), loadDiaryEmojiSettingsLocal(), loadMemosSettingsLocal(), loadAISettings(), loadImageUploadSettingsLocal()]);
 		loading = false;
 		// Load vector stats if AI is enabled
 		if (aiSettings.enabled) {
@@ -791,6 +856,100 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							</div>
 						</div>
 					{/if}
+				</div>
+				{/if}
+
+				{#if activeTab === 'memos-sync'}
+				<!-- Memos Sync Section -->
+				<div id="memos-sync" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
+					<h2 class="text-lg font-semibold text-foreground mb-4">Memos Sync</h2>
+					<p class="text-sm text-muted-foreground mb-6">
+						Receive Memos webhook events and append synced memo blocks into the diary for each memo creation date. Updates replace the matching block by memo ID, and deletes remove it.
+					</p>
+
+					{#if memosError}
+						<div class="mb-4 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+							{memosError}
+						</div>
+					{/if}
+
+					{#if memosSuccess}
+						<div class="mb-4 p-3 bg-green-500/10 text-green-600 rounded-lg text-sm">
+							{memosSuccess}
+						</div>
+					{/if}
+
+					<div class="flex items-center justify-between py-4 border-b border-border/50">
+						<div>
+							<div class="font-medium text-foreground">Enable Memos Webhook</div>
+							<div class="text-sm text-muted-foreground">Generate and accept a private webhook URL for Memos</div>
+						</div>
+						<button
+							on:click={() => memosSettings.enabled = !memosSettings.enabled}
+							aria-label="Toggle Memos sync"
+							class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 {memosSettings.enabled ? 'bg-primary' : 'bg-muted'}"
+						>
+							<span
+								class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 {memosSettings.enabled ? 'translate-x-6' : 'translate-x-1'}"
+							></span>
+						</button>
+					</div>
+
+					<div class="py-4 border-b border-border/50">
+						<label for="memos-base-url" class="block font-medium text-foreground mb-2">Memos Base URL</label>
+						<input
+							id="memos-base-url"
+							type="url"
+							bind:value={memosSettings.base_url}
+							placeholder="https://memos.example.com"
+							class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+						/>
+						<p class="text-xs text-muted-foreground mt-1">Optional. Used to record a memo URL in each synced block, for example https://memos.example.com/m/123.</p>
+					</div>
+
+					{#if memosSettings.enabled && memosSettings.webhook_url}
+						<div class="py-4 border-b border-border/50">
+							<div class="font-medium text-foreground mb-2">Webhook URL</div>
+							<div class="flex items-center gap-2">
+								<code class="flex-1 px-3 py-2 bg-muted rounded-lg text-sm font-mono text-foreground overflow-x-auto">
+									{memosSettings.webhook_url}
+								</code>
+								<button
+									on:click={copyMemosWebhookURL}
+									class="px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+								>
+									{memosCopied ? 'Copied!' : 'Copy'}
+								</button>
+							</div>
+							<p class="text-xs text-muted-foreground mt-2">Paste this URL into Memos webhook settings. Keep it secret because it can write synced memo blocks into your diary.</p>
+						</div>
+
+						<div class="py-4 border-b border-border/50">
+							<div class="flex items-center justify-between gap-4">
+								<div>
+									<div class="font-medium text-foreground">Reset Webhook URL</div>
+									<div class="text-sm text-muted-foreground">Generate a new private URL if the old one is exposed</div>
+								</div>
+								<button
+									on:click={handleResetMemosWebhookToken}
+									disabled={memosResetting}
+									class="px-4 py-2 text-sm bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-lg transition-colors duration-200 disabled:opacity-50"
+								>
+									{memosResetting ? 'Resetting...' : 'Reset URL'}
+								</button>
+							</div>
+						</div>
+					{/if}
+
+					<div class="pt-4 flex items-center gap-3">
+						<button
+							on:click={handleSaveMemosSettings}
+							disabled={memosSaving || !memosSettingsChanged}
+							class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							{memosSaving ? 'Saving...' : 'Save Memos Settings'}
+						</button>
+					</div>
 				</div>
 				{/if}
 

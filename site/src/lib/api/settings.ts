@@ -17,6 +17,13 @@ export interface DiaryEmojiSettings {
 	weather_options: string[];
 }
 
+export interface MemosSettings {
+	enabled: boolean;
+	base_url: string;
+	webhook_url: string;
+	token_exists: boolean;
+}
+
 async function getSettingValue(key: string): Promise<unknown> {
 	const response = await fetch(`/api/v1/settings/${encodeURIComponent(key)}`, {
 		headers: {
@@ -145,3 +152,50 @@ export async function saveDiaryEmojiSettings(settings: DiaryEmojiSettings): Prom
 	return await response.json();
 }
 
+export async function getMemosSettings(): Promise<MemosSettings> {
+	const response = await fetch('/api/v1/memos/settings', {
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`
+		}
+	});
+
+	if (!response.ok) {
+		throw new Error('Failed to get Memos settings');
+	}
+
+	return await response.json();
+}
+
+export async function saveMemosSettings(settings: Pick<MemosSettings, 'enabled' | 'base_url'>): Promise<MemosSettings> {
+	const response = await fetch('/api/v1/memos/settings', {
+		method: 'PUT',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(settings)
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || 'Failed to save Memos settings');
+	}
+
+	return await response.json();
+}
+
+export async function resetMemosWebhookToken(): Promise<MemosSettings> {
+	const response = await fetch('/api/v1/memos/settings/reset-token', {
+		method: 'POST',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`
+		}
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || 'Failed to reset Memos webhook token');
+	}
+
+	return await response.json();
+}

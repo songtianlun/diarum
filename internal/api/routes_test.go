@@ -144,7 +144,7 @@ func TestHelpersVersionAndOpenAPI(t *testing.T) {
 		code int
 		fn   func(string, error) error
 	}{
-		"badRequest": {err: io.EOF, code: http.StatusBadRequest, fn: badRequest},
+		"badRequest":  {err: io.EOF, code: http.StatusBadRequest, fn: badRequest},
 		"serverError": {err: io.EOF, code: http.StatusInternalServerError, fn: serverError},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -454,6 +454,71 @@ func TestDiaryMediaAndPublicRoutes(t *testing.T) {
 	}
 	if got := parsePositiveInt("7", 3); got != 7 {
 		t.Fatalf("parsePositiveInt valid = %d, want 7", got)
+	}
+}
+
+func TestMemosWebhookSync(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	changeCount := 0
+	RegisterMemosRoutes(e, s, authMiddlewareFor(user), func(userID string) {
+		if userID == user.ID {
+			changeCount++
+		}
+	})
+
+	rec := performRequest(t, e, http.MethodPut, "/api/v1/memos/settings", strings.NewReader(`{"enabled":true,"base_url":"https://memos.example.com"}`), map[string]string{"Content-Type": "application/json", "Host": "diarum.example.com", "X-Forwarded-Proto": "https"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT memos settings status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	settings := decodeJSONBody(t, rec)
+	webhookURL := settings["webhook_url"].(string)
+	if !strings.HasPrefix(webhookURL, "https://example.com/api/v1/memos/webhook/") {
+		t.Fatalf("webhook_url = %q", webhookURL)
+	}
+	webhookPath := strings.TrimPrefix(webhookURL, "https://example.com")
+
+	body := `{"type":"memo.created","memo":{"name":"memos/123","content":"hello memos","createTime":"2024-04-05T10:11:12Z","updateTime":"2024-04-05T10:11:12Z"}}`
+	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST memos webhook create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	diary, err := s.GetDiaryByDate(user.ID, "2024-04-05 00:00:00.000Z", "2024-04-05 23:59:59.999Z")
+	if err != nil {
+		t.Fatalf("GetDiaryByDate after create: %v", err)
+	}
+	if !strings.Contains(diary.Content, `id="123"`) || !strings.Contains(diary.Content, "hello memos") || !strings.Contains(diary.Content, "https://memos.example.com/m/123") {
+		t.Fatalf("diary content after create = %q", diary.Content)
+	}
+
+	body = `{"type":"memo.updated","memo":{"name":"memos/123","content":"updated memos","createTime":"2024-04-05T10:11:12Z","updateTime":"2024-04-06T10:11:12Z"}}`
+	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST memos webhook update status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	diary, err = s.GetDiaryByDate(user.ID, "2024-04-05 00:00:00.000Z", "2024-04-05 23:59:59.999Z")
+	if err != nil {
+		t.Fatalf("GetDiaryByDate after update: %v", err)
+	}
+	if strings.Contains(diary.Content, "hello memos") || !strings.Contains(diary.Content, "updated memos") {
+		t.Fatalf("diary content after update = %q", diary.Content)
+	}
+
+	body = `{"type":"memo.deleted","memo":{"name":"memos/123","createTime":"2024-04-05T10:11:12Z"}}`
+	rec = performRequest(t, e, http.MethodPost, webhookPath, strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST memos webhook delete status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	diary, err = s.GetDiaryByDate(user.ID, "2024-04-05 00:00:00.000Z", "2024-04-05 23:59:59.999Z")
+	if err != nil {
+		t.Fatalf("GetDiaryByDate after delete: %v", err)
+	}
+	if strings.Contains(diary.Content, "DIARUM:MEMOS") || strings.Contains(diary.Content, "updated memos") {
+		t.Fatalf("diary content after delete = %q", diary.Content)
+	}
+	if changeCount != 3 {
+		t.Fatalf("changeCount = %d, want 3", changeCount)
 	}
 }
 

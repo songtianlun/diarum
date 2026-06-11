@@ -165,6 +165,7 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterMediaRoutes(e, appStore, authMiddleware)
 	api.RegisterImageUploadRoutes(e, appStore, authMiddleware)
 	api.RegisterSettingsRoutes(e, appStore, authMiddleware)
+	api.RegisterMemosRoutes(e, appStore, authMiddleware, onDiaryChanged)
 	api.RegisterAIRoutes(e, appStore, authMiddleware, embeddingService)
 	api.RegisterExportImportRoutes(e, appStore, authMiddleware, embeddingService)
 	api.RegisterCheveretoRoutes(e, appStore, authMiddleware)

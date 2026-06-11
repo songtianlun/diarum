@@ -16,6 +16,11 @@ var ConfigRegistry = map[string]ConfigMeta{
 	// Sync settings
 	"sync.cacheDays": {Type: "int", Default: 30, Encrypted: false},
 
+	// Memos webhook sync settings
+	"memos.enabled":       {Type: "bool", Default: false, Encrypted: false},
+	"memos.webhook_token": {Type: "string", Default: "", Encrypted: true},
+	"memos.base_url":      {Type: "string", Default: "", Encrypted: false},
+
 	// AI settings (unified API key and base URL)
 	"ai.enabled":          {Type: "bool", Default: false, Encrypted: false},
 	"ai.api_key":          {Type: "string", Default: "", Encrypted: true},
