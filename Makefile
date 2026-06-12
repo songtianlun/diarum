@@ -7,7 +7,7 @@ AIR_VERSION ?= latest
 AIR := $(CURDIR)/.tmp/bin/air
 GOCACHE ?= $(CURDIR)/.tmp/go-build
 COVERAGE_FILE ?= $(CURDIR)/.tmp/coverage.out
-COVERAGE_THRESHOLD ?= 80
+COVERAGE_THRESHOLD ?= 95
 
 # Default target
 help:
@@ -19,7 +19,7 @@ help:
 	@echo "  make backend    - Build backend only"
 	@echo "  make clean      - Clean build artifacts"
 	@echo "  make test       - Run tests"
-	@echo "  make test-cover - Run tests with coverage and enforce >= $(COVERAGE_THRESHOLD)%"
+	@echo "  make test-cover - Run tests and enforce average function coverage >= $(COVERAGE_THRESHOLD)%"
 	@echo "  make docker     - Build Docker image"
 	@echo "  make version    - Show current version"
 
@@ -94,8 +94,9 @@ test-cover test-coverage: test-static
 	@mkdir -p $(dir $(COVERAGE_FILE)) $(GOCACHE)
 	GOCACHE=$(GOCACHE) go test -coverprofile=$(COVERAGE_FILE) ./...
 	GOCACHE=$(GOCACHE) go tool cover -func=$(COVERAGE_FILE)
-	@coverage=$$(GOCACHE=$(GOCACHE) go tool cover -func=$(COVERAGE_FILE) | awk '/^total:/ {gsub("%","",$$3); print $$3}'); \
-	awk "BEGIN { exit !($$coverage >= $(COVERAGE_THRESHOLD)) }" || (echo "Coverage $$coverage% is below $(COVERAGE_THRESHOLD)%" && exit 1)
+	@coverage=$$(GOCACHE=$(GOCACHE) go tool cover -func=$(COVERAGE_FILE) | awk '$$1 != "total:" {gsub("%", "", $$NF); sum += $$NF; count++} END {if (count > 0) printf "%.1f", sum / count; else print "0.0"}'); \
+	echo "Average function coverage: $$coverage%"; \
+	awk "BEGIN { exit !($$coverage >= $(COVERAGE_THRESHOLD)) }" || (echo "Average function coverage $$coverage% is below $(COVERAGE_THRESHOLD)%" && exit 1)
 
 # Build Docker image
 docker:

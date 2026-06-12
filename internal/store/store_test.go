@@ -2106,3 +2106,58 @@ func TestEnsureImageUploadSettingsDroppedTable(t *testing.T) {
 		t.Fatal("ensureImageUploadSettings should fail without user_settings table")
 	}
 }
+
+func TestStoreWriteAndQueryErrorsAfterClose(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
+
+	checks := []struct {
+		name string
+		call func() error
+	}{
+		{"transaction", func() error { return s.Transaction(context.Background(), func(*sql.Tx) error { return nil }) }},
+		{"create user", func() error { _, err := s.CreateUser("user", "email@example.com", "hash"); return err }},
+		{"upsert diary", func() error { _, _, err := s.UpsertDiary("owner", "2024-01-01", "body", "", ""); return err }},
+		{"delete diary", func() error { return s.DeleteDiary("id", "owner") }},
+		{"list diaries", func() error { _, err := s.ListDiaries("owner", "", "", "-date", 1); return err }},
+		{"search diaries", func() error { _, err := s.SearchDiaries("owner", "body", 1); return err }},
+		{"set setting", func() error { return s.SetSetting("owner", "key", "value", false) }},
+		{"delete setting", func() error { return s.DeleteSetting("owner", "key") }},
+		{"get settings", func() error { _, err := s.GetSettings("owner"); return err }},
+		{"validate token", func() error { _, err := s.ValidateAPIToken("token"); return err }},
+		{"list media", func() error { _, _, err := s.ListMedia("owner", 1, 10); return err }},
+		{"create media", func() error { _, err := s.CreateMedia("owner", "file.png", "name", "alt", nil); return err }},
+		{"insert media", func() error {
+			_, err := s.InsertImportedMedia("owner", "id", "file.png", "name", "alt", nil)
+			return err
+		}},
+		{"list conversations", func() error { _, err := s.ListConversations("owner", 10); return err }},
+		{"insert conversation", func() error { _, err := s.InsertImportedConversation("owner", "id", "title"); return err }},
+		{"list messages", func() error { _, err := s.ListMessages("conversation", 10); return err }},
+		{"insert message", func() error {
+			_, err := s.InsertImportedMessage("owner", "id", "conversation", "user", "body", nil)
+			return err
+		}},
+		{"insert diary", func() error { _, err := s.InsertImportedDiary("owner", "id", "2024-01-01", "body", "", ""); return err }},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.call(); err == nil {
+				t.Fatal("expected a closed database error")
+			}
+		})
+	}
+}
+
+func TestSaveUploadedFileOpenError(t *testing.T) {
+	s := newTestStore(t)
+	parent := filepath.Join(t.TempDir(), "parent-file")
+	if err := os.WriteFile(parent, []byte("block directory creation"), 0o600); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	if err := s.SaveUploadedFile(filepath.Join(parent, "child"), strings.NewReader("content")); err == nil {
+		t.Fatal("expected SaveUploadedFile to fail when parent is a file")
+	}
+}

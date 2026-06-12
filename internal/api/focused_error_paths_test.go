@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -534,5 +535,88 @@ func TestImportTriggersEmbeddingBranch(t *testing.T) {
 	payload := decodeJSONBody(t, rec)
 	if payload["diaries"].(map[string]any)["imported"] != float64(1) {
 		t.Fatalf("import embedding payload = %#v", payload)
+	}
+}
+
+func TestFocusedClosedStoreRouteErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	authMiddleware := authMiddlewareFor(user)
+	RegisterDiaryRoutes(e, s, authMiddleware, nil)
+	RegisterMediaRoutes(e, s, authMiddleware)
+	RegisterSettingsRoutes(e, s, authMiddleware)
+	RegisterImageUploadRoutes(e, s, authMiddleware)
+	RegisterCheveretoRoutes(e, s, authMiddleware)
+	RegisterAIRoutes(e, s, authMiddleware, nil)
+	RegisterExportImportRoutes(e, s, authMiddleware, nil)
+
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
+
+	checks := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/api/v1/diaries?date=2024-01-01", ""},
+		{http.MethodPost, "/api/v1/diaries", `{"date":"2024-01-01","content":"body"}`},
+		{http.MethodGet, "/api/v1/diaries/calendar", ""},
+		{http.MethodGet, "/api/v1/diaries/search?q=body", ""},
+		{http.MethodGet, "/api/v1/diaries/recent", ""},
+		{http.MethodGet, "/api/v1/diaries/missing", ""},
+		{http.MethodGet, "/api/v1/media", ""},
+		{http.MethodGet, "/api/v1/image-upload/settings", ""},
+		{http.MethodPut, "/api/v1/image-upload/settings", `{"provider":"local"}`},
+		{http.MethodGet, "/api/v1/settings/api-token", ""},
+		{http.MethodPost, "/api/v1/settings/api-token/toggle", ""},
+		{http.MethodPost, "/api/v1/settings/api-token/reset", ""},
+		{http.MethodGet, "/api/v1/settings/api.enabled", ""},
+		{http.MethodPut, "/api/v1/settings/api.enabled", `{"value":true}`},
+		{http.MethodDelete, "/api/v1/settings/api.enabled", ""},
+		{http.MethodPut, "/api/v1/chevereto/settings", `{"enabled":false}`},
+		{http.MethodGet, "/api/v1/ai/settings", ""},
+		{http.MethodPut, "/api/v1/ai/settings", `{"enabled":false}`},
+		{http.MethodGet, "/api/v1/ai/conversations", ""},
+		{http.MethodPost, "/api/v1/ai/conversations", `{"title":"title"}`},
+		{http.MethodGet, "/api/v1/ai/conversations/missing", ""},
+		{http.MethodDelete, "/api/v1/ai/conversations/missing", ""},
+		{http.MethodPut, "/api/v1/ai/conversations/missing", `{"title":"title"}`},
+		{http.MethodPost, "/api/v1/export", `{}`},
+	}
+	for _, check := range checks {
+		t.Run(check.method+" "+check.path, func(t *testing.T) {
+			var body *strings.Reader
+			if check.body != "" {
+				body = strings.NewReader(check.body)
+			} else {
+				body = strings.NewReader("")
+			}
+			rec := performRequest(t, e, check.method, check.path, body, map[string]string{"Content-Type": "application/json"})
+			if rec.Code == 0 {
+				t.Fatal("request did not produce a response")
+			}
+		})
+	}
+}
+
+func TestFetchModelsAdditionalErrors(t *testing.T) {
+	if _, err := fetchModels("://invalid", "key"); err == nil {
+		t.Fatal("expected invalid URL error")
+	}
+
+	withMockTransport(t, func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("transport failed")
+	})
+	if _, err := fetchModels("https://mock.local", "key"); err == nil {
+		t.Fatal("expected transport error")
+	}
+
+	withMockTransport(t, func(*http.Request) (*http.Response, error) {
+		return httpResponse(http.StatusOK, "not-json"), nil
+	})
+	if _, err := fetchModels("https://mock.local", "key"); err == nil {
+		t.Fatal("expected response decode error")
 	}
 }
