@@ -887,6 +887,20 @@
 		animation-timing-function: cubic-bezier(0.42, 0.05, 0.35, 0.96);
 		animation-fill-mode: both;
 	}
+	/* clip the shade overlays to the page's rounded corners, otherwise their
+	   dark edge shows as a square remnant in the corner notches */
+	.page-slot.left .reveal-shade,
+	.page-slot.left .cover-shade {
+		border-radius: 10px 0 0 10px;
+	}
+	.page-slot.right .reveal-shade,
+	.page-slot.right .cover-shade {
+		border-radius: 0 10px 10px 0;
+	}
+	.page-slot.single .reveal-shade,
+	.page-slot.single .cover-shade {
+		border-radius: 10px;
+	}
 	.reveal-shade.to-right {
 		background: linear-gradient(to right, hsl(25 45% 8% / 0.45), transparent 65%);
 		animation-name: shade-fade;
