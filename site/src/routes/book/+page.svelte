@@ -4,6 +4,6 @@
 	import { getToday } from '$lib/utils/date';
 
 	onMount(() => {
-		goto(`/diary/book/${getToday()}`, { replaceState: true });
+		goto(`/book/${getToday()}`, { replaceState: true });
 	});
 </script>

@@ -175,7 +175,7 @@
 		// watcher sees a stale $page.params.date and navigates backwards.
 		if ($page.params.date !== to.date) {
 			try {
-				await goto(`/diary/book/${to.date}`, { noScroll: true, keepFocus: true });
+				await goto(`/book/${to.date}`, { noScroll: true, keepFocus: true });
 			} catch {
 				/* ignore */
 			}
@@ -322,7 +322,7 @@
 		initial = clampToToday(initial);
 		date = initial;
 		if ($page.params.date !== initial) {
-			goto(`/diary/book/${initial}`, { replaceState: true, noScroll: true });
+			goto(`/book/${initial}`, { replaceState: true, noScroll: true });
 		}
 
 		void (async () => {
