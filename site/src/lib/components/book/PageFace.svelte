@@ -21,6 +21,9 @@
 	export let header = false;
 	/** initial scroll offset for static content snapshots (matches the live page) */
 	export let scrollTop = 0;
+	/** false while this date's data is still being fetched (kind 'content' only) —
+	 *  shows a spinner instead of assuming the page is blank */
+	export let loaded = true;
 
 	/** when true, mood/weather become clickable pickers instead of static text */
 	export let interactive = false;
@@ -49,23 +52,27 @@
 			<div class="meta-month">{monthLabel} {d.getFullYear()}</div>
 			<div class="meta-day">{d.getDate()}</div>
 			<div class="meta-weekday">{weekdayLabel}</div>
-			{#if interactive}
-				<div class="meta-emojis interactive">
-					<MoodWeatherPicker label="Mood" value={mood} options={moodPresets} onSelect={onMoodSelect} />
-					<MoodWeatherPicker
-						label="Weather"
-						value={weather}
-						options={weatherPresets}
-						align="right"
-						onSelect={onWeatherSelect}
-					/>
-				</div>
-			{:else if mood || weather}
-				<div class="meta-emojis">
-					{#if mood}<span title="Mood">{mood}</span>{/if}
-					{#if weather}<span title="Weather">{weather}</span>{/if}
-				</div>
-			{/if}
+			<!-- always reserve this row's space (interactive or not) so mood/weather
+			     never pop in/out and shift the vertically-centered date block -->
+			<div class="meta-emojis">
+				<MoodWeatherPicker
+					label="Mood"
+					value={mood}
+					options={moodPresets}
+					size="lg"
+					disabled={!interactive}
+					onSelect={onMoodSelect}
+				/>
+				<MoodWeatherPicker
+					label="Weather"
+					value={weather}
+					options={weatherPresets}
+					align="right"
+					size="lg"
+					disabled={!interactive}
+					onSelect={onWeatherSelect}
+				/>
+			</div>
 			<div class="meta-flourish" aria-hidden="true">✦</div>
 		</div>
 		<div class="page-footer">{shortLabel}</div>
@@ -77,26 +84,26 @@
 						<span class="content-header-day">{d.getDate()}</span>
 						<span class="content-header-rest">{monthLabel} {d.getFullYear()} · {weekdayLabel}</span>
 					</div>
-					{#if interactive}
-						<div class="content-header-emojis interactive">
-							<MoodWeatherPicker
-								label="Mood"
-								value={mood}
-								options={moodPresets}
-								align="right"
-								onSelect={onMoodSelect}
-							/>
-							<MoodWeatherPicker
-								label="Weather"
-								value={weather}
-								options={weatherPresets}
-								align="right"
-								onSelect={onWeatherSelect}
-							/>
-						</div>
-					{:else if mood || weather}
-						<div class="content-header-emojis">{mood} {weather}</div>
-					{/if}
+					<!-- always reserve this row's space (interactive or not) so mood/weather
+					     never pop in/out once the flip lands -->
+					<div class="content-header-emojis">
+						<MoodWeatherPicker
+							label="Mood"
+							value={mood}
+							options={moodPresets}
+							align="right"
+							disabled={!interactive}
+							onSelect={onMoodSelect}
+						/>
+						<MoodWeatherPicker
+							label="Weather"
+							value={weather}
+							options={weatherPresets}
+							align="right"
+							disabled={!interactive}
+							onSelect={onWeatherSelect}
+						/>
+					</div>
 				</div>
 			{/if}
 			<div class="content-scroll" use:initScroll>
@@ -105,7 +112,26 @@
 				{:else if hasContent}
 					<div class="tiptap-editor-content book-static">{@html content}</div>
 				{:else}
-					<div class="empty-page">This page is blank</div>
+					<!-- kind="content" is only ever a transient flip snapshot — either
+					     still fetching, or genuinely blank but about to settle into the
+					     live editor's own "Reflect on today..." placeholder a moment
+					     later. Either way a confident "this page is blank" would just
+					     flash and then get corrected, so show a soft, lively settling
+					     animation instead of asserting anything. -->
+					<div class="page-settling" aria-hidden="true">
+						<svg class="settling-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+							<path
+								d="M20 4c-3.2 3.2-13.6 2.4-16 6.4-2 3.3-1.6 8.4-1.6 8.4s5.1.4 8.4-1.6c4-2.4 3.2-12.8 6.4-16"
+								stroke-width="1.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+							<path d="M13.2 10.8L3.6 20.4" stroke-width="1.5" stroke-linecap="round" />
+						</svg>
+						<div class="settling-dots">
+							<span></span><span></span><span></span>
+						</div>
+					</div>
 				{/if}
 			</div>
 		</div>
@@ -226,10 +252,7 @@
 		margin-top: 1.1rem;
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		font-size: 1.6rem;
-	}
-	.meta-emojis.interactive {
+		justify-content: center;
 		gap: 0.4rem;
 	}
 	.meta-flourish {
@@ -270,13 +293,10 @@
 		color: hsl(40 20% 62%);
 	}
 	.content-header-emojis {
-		font-size: 1.1rem;
-		flex-shrink: 0;
-	}
-	.content-header-emojis.interactive {
 		display: flex;
 		align-items: center;
 		gap: 0.3rem;
+		flex-shrink: 0;
 	}
 	.content-scroll {
 		flex: 1;
@@ -305,6 +325,31 @@
 		font-style: italic;
 		font-size: 0.9rem;
 		color: hsl(30 20% 55% / 0.55);
+	}
+
+	.loading-page {
+		height: 100%;
+		min-height: 12rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: hsl(30 20% 55% / 0.55);
+	}
+	.loading-spinner {
+		width: 1.5rem;
+		height: 1.5rem;
+		animation: spin 0.8s linear infinite;
+	}
+	.loading-spinner .opacity-25 {
+		opacity: 0.25;
+	}
+	.loading-spinner .opacity-75 {
+		opacity: 0.75;
+	}
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.page-footer {

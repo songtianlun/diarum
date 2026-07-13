@@ -8,6 +8,7 @@
 	export let options: string[] = [];
 	export let disabled = false;
 	export let align: 'left' | 'right' = 'left';
+	export let size: 'md' | 'lg' = 'md';
 	export let onSelect: (emoji: string) => void = () => {};
 
 	let open = false;
@@ -48,7 +49,7 @@
 <div class="picker" bind:this={rootEl}>
 	<button
 		type="button"
-		class="picker-trigger"
+		class="picker-trigger size-{size}"
 		class:has-value={!!value}
 		class:is-open={open}
 		{disabled}
@@ -131,15 +132,27 @@
 	.picker-trigger.has-value {
 		background: hsl(var(--primary) / 0.1);
 	}
+	.picker-trigger.size-lg {
+		width: clamp(2.4rem, 7vw, 2.9rem);
+		height: clamp(2.4rem, 7vw, 2.9rem);
+		border-radius: 0.85rem;
+	}
 
 	.emoji {
 		font-size: 1.05rem;
 		line-height: 1;
 	}
+	.size-lg .emoji {
+		font-size: 1.7rem;
+	}
 	.empty-icon {
 		width: 1.05rem;
 		height: 1.05rem;
 		color: hsl(var(--muted-foreground) / 0.55);
+	}
+	.size-lg .empty-icon {
+		width: 1.6rem;
+		height: 1.6rem;
 	}
 
 	.picker-pop {

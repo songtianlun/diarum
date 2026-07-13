@@ -36,6 +36,8 @@
 		content: string;
 		mood: string;
 		weather: string;
+		/** false only for a placeholder awaiting its first fetch */
+		loaded: boolean;
 	}
 
 	const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -43,7 +45,7 @@
 	let ready = false;
 	let loading = true;
 	let date = getToday();
-	let view: View = { date, content: '', mood: '', weather: '' };
+	let view: View = { date, content: '', mood: '', weather: '', loaded: false };
 
 	// flip animation state
 	let flip: { dir: 'fwd' | 'back'; from: View; to: View; fromScroll: number } | null = null;
@@ -51,7 +53,7 @@
 	let animating = false;
 	let committed = false;
 	let pendingTarget: string | null = null;
-	let flipDuration = 650;
+	let flipDuration = 420;
 	let commitTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// catalog
@@ -87,7 +89,7 @@
 	async function fetchView(d: string): Promise<View> {
 		const dirty = getCachedContent(d);
 		if (dirty?.isDirty) {
-			return { date: d, content: dirty.content, mood: dirty.mood || '', weather: dirty.weather || '' };
+			return { date: d, content: dirty.content, mood: dirty.mood || '', weather: dirty.weather || '', loaded: true };
 		}
 		const cached = viewCache.get(d);
 		if (cached) return cached;
@@ -96,7 +98,8 @@
 			date: d,
 			content: diary?.content || '',
 			mood: diary?.mood || '',
-			weather: diary?.weather || ''
+			weather: diary?.weather || '',
+			loaded: true
 		};
 		viewCache.set(d, v);
 		return v;
@@ -126,18 +129,18 @@
 		let to: View;
 		let needsFetch = false;
 		if (dirty?.isDirty) {
-			to = { date: target, content: dirty.content, mood: dirty.mood || '', weather: dirty.weather || '' };
+			to = { date: target, content: dirty.content, mood: dirty.mood || '', weather: dirty.weather || '', loaded: true };
 		} else if (viewCache.has(target)) {
 			to = viewCache.get(target)!;
 		} else {
-			to = { date: target, content: '', mood: '', weather: '' };
+			to = { date: target, content: '', mood: '', weather: '', loaded: false };
 			needsFetch = true;
 		}
 
 		// preserve the outgoing page's scroll position on its static snapshot
 		const fromScroll = bookEl?.querySelector('.content-scroll')?.scrollTop ?? 0;
 
-		flipDuration = pendingTarget ? 400 : 650;
+		flipDuration = pendingTarget ? 260 : 420;
 		flip = { dir: target > date ? 'fwd' : 'back', from: view, to, fromScroll };
 		// fallback in case animationend doesn't fire
 		commitTimer = setTimeout(() => void commitFlip(), flipDuration + 120);
@@ -540,6 +543,7 @@
 								content={baseRight.content}
 								mood={baseRight.mood}
 								weather={baseRight.weather}
+								loaded={baseRight.loaded}
 								scrollTop={flip.dir === 'back' ? flip.fromScroll : 0}
 							/>
 							{#if flip.dir === 'fwd'}
@@ -565,6 +569,7 @@
 
 					{#if flip && leafFront && leafBack}
 						<div class="leaf {flip.dir}" on:animationend={handleLeafAnimationEnd}>
+							<div class="lift-shadow front"></div>
 							<div class="face front">
 								<PageFace
 									kind="content"
@@ -573,10 +578,12 @@
 									content={leafFront.content}
 									mood={leafFront.mood}
 									weather={leafFront.weather}
+									loaded={leafFront.loaded}
 									scrollTop={flip.dir === 'fwd' ? flip.fromScroll : 0}
 								/>
 								<div class="shade"></div>
 							</div>
+							<div class="lift-shadow back"></div>
 							<div class="face back">
 								<PageFace
 									kind="meta"
@@ -601,6 +608,7 @@
 								content={mobileBase.content}
 								mood={mobileBase.mood}
 								weather={mobileBase.weather}
+								loaded={mobileBase.loaded}
 								scrollTop={flip.dir === 'back' ? flip.fromScroll : 0}
 							/>
 							{#if flip.dir === 'fwd'}
@@ -639,6 +647,7 @@
 
 					{#if flip && leafFront}
 						<div class="leaf single-leaf {flip.dir}" on:animationend={handleLeafAnimationEnd}>
+							<div class="lift-shadow front"></div>
 							<div class="face front">
 								<PageFace
 									kind="content"
@@ -648,10 +657,12 @@
 									content={leafFront.content}
 									mood={leafFront.mood}
 									weather={leafFront.weather}
+									loaded={leafFront.loaded}
 									scrollTop={flip.dir === 'fwd' ? flip.fromScroll : 0}
 								/>
 								<div class="shade"></div>
 							</div>
+							<div class="lift-shadow back"></div>
 							<div class="face back">
 								<PageFace kind="blank" side="single" />
 								<div class="shade"></div>
@@ -848,25 +859,6 @@
 		-webkit-backface-visibility: hidden;
 		overflow: hidden;
 		border-radius: 0 10px 10px 0;
-		/* shadow fades in as the page lifts and out as it lands — no pop */
-		animation-name: leaf-shadow;
-		animation-duration: var(--flip-dur);
-		animation-timing-function: cubic-bezier(0.42, 0.05, 0.35, 0.96);
-		animation-fill-mode: both;
-	}
-	@keyframes leaf-shadow {
-		0% {
-			box-shadow: 0 0 0 0 hsl(25 40% 10% / 0);
-		}
-		25% {
-			box-shadow: 0 10px 34px 0 hsl(25 40% 10% / 0.32);
-		}
-		75% {
-			box-shadow: 0 10px 34px 0 hsl(25 40% 10% / 0.32);
-		}
-		100% {
-			box-shadow: 0 0 0 0 hsl(25 40% 10% / 0);
-		}
 	}
 	.face.back {
 		transform: rotateY(180deg);
@@ -877,12 +869,58 @@
 		border-radius: 10px;
 	}
 
+	/* ---------- leaf drop shadow ----------
+	   A plain, un-clipped layer sitting just behind its matching `.face`
+	   (same inset/rounding, no background) whose *only* visible pixels are
+	   the box-shadow bleeding outside its own box — the face fully covers
+	   the rest. The shadow value itself never changes; only `opacity`
+	   animates, which the compositor can do purely on the GPU. Animating
+	   box-shadow directly (the old approach) forces a full repaint on every
+	   frame and was the main source of jank on mobile. */
+	.lift-shadow {
+		position: absolute;
+		inset: 0;
+		border-radius: 0 10px 10px 0;
+		box-shadow: 0 10px 34px 0 hsl(25 40% 10% / 0.32);
+		backface-visibility: hidden;
+		-webkit-backface-visibility: hidden;
+		pointer-events: none;
+		will-change: opacity;
+		animation-name: shade-pulse-soft;
+		animation-duration: var(--flip-dur);
+		animation-timing-function: cubic-bezier(0.42, 0.05, 0.35, 0.96);
+		animation-fill-mode: both;
+	}
+	.lift-shadow.back {
+		transform: rotateY(180deg);
+		border-radius: 10px 0 0 10px;
+	}
+	.single-leaf .lift-shadow,
+	.single-leaf .lift-shadow.back {
+		border-radius: 10px;
+	}
+	@keyframes shade-pulse-soft {
+		0% {
+			opacity: 0;
+		}
+		25% {
+			opacity: 1;
+		}
+		75% {
+			opacity: 1;
+		}
+		100% {
+			opacity: 0;
+		}
+	}
+
 	/* dynamic shading on leaf faces */
 	.face .shade {
 		position: absolute;
 		inset: 0;
 		z-index: 10;
 		pointer-events: none;
+		will-change: opacity;
 		animation-duration: var(--flip-dur);
 		animation-timing-function: cubic-bezier(0.42, 0.05, 0.35, 0.96);
 		animation-fill-mode: both;
@@ -929,6 +967,7 @@
 		inset: 0;
 		z-index: 6;
 		pointer-events: none;
+		will-change: opacity;
 		animation-duration: var(--flip-dur);
 		animation-timing-function: cubic-bezier(0.42, 0.05, 0.35, 0.96);
 		animation-fill-mode: both;
