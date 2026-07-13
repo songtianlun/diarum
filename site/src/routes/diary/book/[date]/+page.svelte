@@ -7,6 +7,8 @@
 	import BookCatalog from '$lib/components/book/BookCatalog.svelte';
 	import { getDiaryByDate, getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
+	import { getDiaryEmojiSettings } from '$lib/api/settings';
+	import { DEFAULT_MOOD_OPTIONS, DEFAULT_WEATHER_OPTIONS } from '$lib/utils/diaryEmoji';
 	import {
 		getToday,
 		isToday,
@@ -57,6 +59,10 @@
 	let catalogEntries: CalendarDiaryMeta[] = [];
 	let catalogLoaded = false;
 	let catalogLoading = false;
+
+	// mood / weather presets (configured in settings)
+	let moodPresets: string[] = [...DEFAULT_MOOD_OPTIONS];
+	let weatherPresets: string[] = [...DEFAULT_WEATHER_OPTIONS];
 
 	// responsive: single page below 860px
 	let isMobile = false;
@@ -188,6 +194,28 @@
 		updateLocalCache(date, { content: newContent, mood: view.mood, weather: view.weather });
 	}
 
+	function handleMoodSelect(emoji: string) {
+		view = { ...view, mood: emoji };
+		viewCache.set(date, view);
+		updateLocalCache(date, { content: view.content, mood: emoji, weather: view.weather });
+	}
+
+	function handleWeatherSelect(emoji: string) {
+		view = { ...view, weather: emoji };
+		viewCache.set(date, view);
+		updateLocalCache(date, { content: view.content, mood: view.mood, weather: emoji });
+	}
+
+	async function loadDiaryEmojiPresets() {
+		try {
+			const settings = await getDiaryEmojiSettings();
+			moodPresets = [...settings.mood_options];
+			weatherPresets = [...settings.weather_options];
+		} catch (error) {
+			console.error('Failed to load mood/weather presets:', error);
+		}
+	}
+
 	async function toggleCatalog() {
 		showCatalog = !showCatalog;
 		if (showCatalog && !catalogLoading) {
@@ -276,6 +304,7 @@
 			return;
 		}
 		initDiaryCache();
+		void loadDiaryEmojiPresets();
 
 		const mq = window.matchMedia('(max-width: 859px)');
 		isMobile = mq.matches;
@@ -489,6 +518,11 @@
 							date={baseLeft.date}
 							mood={baseLeft.mood}
 							weather={baseLeft.weather}
+							interactive={!flip}
+							{moodPresets}
+							{weatherPresets}
+							onMoodSelect={handleMoodSelect}
+							onWeatherSelect={handleWeatherSelect}
 						/>
 						{#if flip && flip.dir === 'back'}
 							<div class="reveal-shade to-left"></div>
@@ -577,7 +611,19 @@
 								<div class="cover-shade to-left"></div>
 							{/if}
 						{:else}
-							<PageFace kind="live" side="single" header date={view.date} mood={view.mood} weather={view.weather}>
+							<PageFace
+								kind="live"
+								side="single"
+								header
+								date={view.date}
+								mood={view.mood}
+								weather={view.weather}
+								interactive
+								{moodPresets}
+								{weatherPresets}
+								onMoodSelect={handleMoodSelect}
+								onWeatherSelect={handleWeatherSelect}
+							>
 								{#key view.date}
 									<TiptapEditor
 										content={view.content}

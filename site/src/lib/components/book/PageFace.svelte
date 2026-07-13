@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { parseDate } from '$lib/utils/date';
+	import MoodWeatherPicker from '$lib/components/book/MoodWeatherPicker.svelte';
 
 	/**
 	 * A single paper page of the diary book.
@@ -21,6 +22,13 @@
 	/** initial scroll offset for static content snapshots (matches the live page) */
 	export let scrollTop = 0;
 
+	/** when true, mood/weather become clickable pickers instead of static text */
+	export let interactive = false;
+	export let moodPresets: string[] = [];
+	export let weatherPresets: string[] = [];
+	export let onMoodSelect: (emoji: string) => void = () => {};
+	export let onWeatherSelect: (emoji: string) => void = () => {};
+
 	function initScroll(node: HTMLElement) {
 		if (scrollTop > 0) node.scrollTop = scrollTop;
 	}
@@ -41,7 +49,18 @@
 			<div class="meta-month">{monthLabel} {d.getFullYear()}</div>
 			<div class="meta-day">{d.getDate()}</div>
 			<div class="meta-weekday">{weekdayLabel}</div>
-			{#if mood || weather}
+			{#if interactive}
+				<div class="meta-emojis interactive">
+					<MoodWeatherPicker label="Mood" value={mood} options={moodPresets} onSelect={onMoodSelect} />
+					<MoodWeatherPicker
+						label="Weather"
+						value={weather}
+						options={weatherPresets}
+						align="right"
+						onSelect={onWeatherSelect}
+					/>
+				</div>
+			{:else if mood || weather}
 				<div class="meta-emojis">
 					{#if mood}<span title="Mood">{mood}</span>{/if}
 					{#if weather}<span title="Weather">{weather}</span>{/if}
@@ -58,7 +77,24 @@
 						<span class="content-header-day">{d.getDate()}</span>
 						<span class="content-header-rest">{monthLabel} {d.getFullYear()} · {weekdayLabel}</span>
 					</div>
-					{#if mood || weather}
+					{#if interactive}
+						<div class="content-header-emojis interactive">
+							<MoodWeatherPicker
+								label="Mood"
+								value={mood}
+								options={moodPresets}
+								align="right"
+								onSelect={onMoodSelect}
+							/>
+							<MoodWeatherPicker
+								label="Weather"
+								value={weather}
+								options={weatherPresets}
+								align="right"
+								onSelect={onWeatherSelect}
+							/>
+						</div>
+					{:else if mood || weather}
 						<div class="content-header-emojis">{mood} {weather}</div>
 					{/if}
 				</div>
@@ -189,8 +225,12 @@
 	.meta-emojis {
 		margin-top: 1.1rem;
 		display: flex;
+		align-items: center;
 		gap: 0.75rem;
 		font-size: 1.6rem;
+	}
+	.meta-emojis.interactive {
+		gap: 0.4rem;
 	}
 	.meta-flourish {
 		margin-top: 1.4rem;
@@ -232,6 +272,11 @@
 	.content-header-emojis {
 		font-size: 1.1rem;
 		flex-shrink: 0;
+	}
+	.content-header-emojis.interactive {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
 	}
 	.content-scroll {
 		flex: 1;
