@@ -744,7 +744,6 @@
 		border-radius: 12px;
 		background: hsl(42 35% 90%);
 		box-shadow:
-			0 18px 30px hsl(25 40% 12% / 0.28),
 			0 2px 0 hsl(43 30% 84%),
 			0 4px 0 hsl(44 32% 88%),
 			0 6px 0 hsl(43 28% 82%),
@@ -756,7 +755,6 @@
 	:global(.dark) .book::before {
 		background: hsl(27 20% 16%);
 		box-shadow:
-			0 18px 30px hsl(0 0% 0% / 0.45),
 			0 2px 0 hsl(27 18% 12%),
 			0 4px 0 hsl(27 20% 15%),
 			0 6px 0 hsl(27 16% 10%),
