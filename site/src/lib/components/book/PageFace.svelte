@@ -21,9 +21,6 @@
 	export let header = false;
 	/** initial scroll offset for static content snapshots (matches the live page) */
 	export let scrollTop = 0;
-	/** false while this date's data is still being fetched (kind 'content' only) —
-	 *  shows a spinner instead of assuming the page is blank */
-	export let loaded = true;
 
 	/** when true, mood/weather become clickable pickers instead of static text */
 	export let interactive = false;
@@ -119,18 +116,26 @@
 					     flash and then get corrected, so show a soft, lively settling
 					     animation instead of asserting anything. -->
 					<div class="page-settling" aria-hidden="true">
-						<svg class="settling-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+						<svg class="settling-pen" viewBox="0 0 24 24" fill="none">
 							<path
-								d="M20 4c-3.2 3.2-13.6 2.4-16 6.4-2 3.3-1.6 8.4-1.6 8.4s5.1.4 8.4-1.6c4-2.4 3.2-12.8 6.4-16"
-								stroke-width="1.5"
-								stroke-linecap="round"
+								d="M4.5 19.5l1-4.2L15.8 4.9a1.7 1.7 0 012.4 0l1 1a1.7 1.7 0 010 2.4L8.8 18.6l-4.3.9z"
+								fill="hsl(35 45% 88%)"
+								stroke="currentColor"
+								stroke-width="1.3"
 								stroke-linejoin="round"
 							/>
-							<path d="M13.2 10.8L3.6 20.4" stroke-width="1.5" stroke-linecap="round" />
+							<path d="M14.5 6.2l3.3 3.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
 						</svg>
-						<div class="settling-dots">
-							<span></span><span></span><span></span>
-						</div>
+						<svg class="settling-line" viewBox="0 0 64 10" preserveAspectRatio="none">
+							<path
+								d="M2 6c4-4 8 4 12 0s8-4 12 0 8 4 12 0 8-4 12 0 8 4 12 0"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.6"
+								stroke-linecap="round"
+								pathLength="100"
+							/>
+						</svg>
 					</div>
 				{/if}
 			</div>
@@ -315,40 +320,63 @@
 		white-space: pre-wrap;
 		white-space: break-spaces;
 	}
-	.empty-page {
+	/* transient placeholder shown on a "content" snapshot that hasn't settled
+	   yet — either still fetching, or genuinely blank a moment before the
+	   live editor's own empty-state prompt takes over. Never asserts
+	   anything, just a soft, lively hint that something is on its way. */
+	.page-settling {
 		height: 100%;
 		min-height: 12rem;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		font-family: ui-serif, Georgia, serif;
-		font-style: italic;
-		font-size: 0.9rem;
-		color: hsl(30 20% 55% / 0.55);
+		gap: 0.85rem;
+		color: hsl(30 20% 50% / 0.5);
 	}
-
-	.loading-page {
-		height: 100%;
-		min-height: 12rem;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: hsl(30 20% 55% / 0.55);
+	:global(.dark) .page-settling {
+		color: hsl(40 20% 65% / 0.5);
 	}
-	.loading-spinner {
-		width: 1.5rem;
-		height: 1.5rem;
-		animation: spin 0.8s linear infinite;
+	.settling-pen {
+		width: 1.9rem;
+		height: 1.9rem;
+		transform-origin: 75% 75%;
+		animation: pen-write 1.1s ease-in-out infinite;
 	}
-	.loading-spinner .opacity-25 {
-		opacity: 0.25;
+	@keyframes pen-write {
+		0%,
+		100% {
+			transform: rotate(-7deg) translate(-1px, 0.5px);
+		}
+		50% {
+			transform: rotate(7deg) translate(1px, -0.5px);
+		}
 	}
-	.loading-spinner .opacity-75 {
-		opacity: 0.75;
+	.settling-line {
+		width: 3.6rem;
+		height: 0.7rem;
+		overflow: visible;
 	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
+	.settling-line path {
+		stroke-dasharray: 100;
+		animation: line-write 1.8s ease-in-out infinite;
+	}
+	@keyframes line-write {
+		0% {
+			stroke-dashoffset: 100;
+			opacity: 0.3;
+		}
+		55% {
+			stroke-dashoffset: 0;
+			opacity: 0.9;
+		}
+		80% {
+			stroke-dashoffset: 0;
+			opacity: 0.9;
+		}
+		100% {
+			stroke-dashoffset: -100;
+			opacity: 0.3;
 		}
 	}
 

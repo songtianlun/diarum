@@ -543,7 +543,6 @@
 								content={baseRight.content}
 								mood={baseRight.mood}
 								weather={baseRight.weather}
-								loaded={baseRight.loaded}
 								scrollTop={flip.dir === 'back' ? flip.fromScroll : 0}
 							/>
 							{#if flip.dir === 'fwd'}
@@ -578,7 +577,6 @@
 									content={leafFront.content}
 									mood={leafFront.mood}
 									weather={leafFront.weather}
-									loaded={leafFront.loaded}
 									scrollTop={flip.dir === 'fwd' ? flip.fromScroll : 0}
 								/>
 								<div class="shade"></div>
@@ -608,7 +606,6 @@
 								content={mobileBase.content}
 								mood={mobileBase.mood}
 								weather={mobileBase.weather}
-								loaded={mobileBase.loaded}
 								scrollTop={flip.dir === 'back' ? flip.fromScroll : 0}
 							/>
 							{#if flip.dir === 'fwd'}
@@ -657,7 +654,6 @@
 									content={leafFront.content}
 									mood={leafFront.mood}
 									weather={leafFront.weather}
-									loaded={leafFront.loaded}
 									scrollTop={flip.dir === 'fwd' ? flip.fromScroll : 0}
 								/>
 								<div class="shade"></div>
