@@ -24,6 +24,27 @@ export interface MemosSettings {
 	token_exists: boolean;
 }
 
+export type HomepagePreference = 'today' | 'overview';
+export type VisualStylePreference = 'classic' | 'immersive';
+
+export interface GeneralSettings {
+	homepage: HomepagePreference;
+	visual_style: VisualStylePreference;
+}
+
+const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
+	homepage: 'today',
+	visual_style: 'classic'
+};
+
+function sanitizeHomepage(value: unknown): HomepagePreference {
+	return value === 'overview' ? 'overview' : 'today';
+}
+
+function sanitizeVisualStyle(value: unknown): VisualStylePreference {
+	return value === 'immersive' ? 'immersive' : 'classic';
+}
+
 async function getSettingValue(key: string): Promise<unknown> {
 	const response = await fetch(`/api/v1/settings/${encodeURIComponent(key)}`, {
 		headers: {
@@ -147,6 +168,46 @@ export async function saveDiaryEmojiSettings(settings: DiaryEmojiSettings): Prom
 	if (!response.ok) {
 		const data = await response.json().catch(() => ({}));
 		throw new Error(data.message || 'Failed to save diary emoji settings');
+	}
+
+	return await response.json();
+}
+
+export async function getGeneralSettings(): Promise<GeneralSettings> {
+	try {
+		const [homepage, visualStyle] = await Promise.all([
+			getSettingValue('general.homepage'),
+			getSettingValue('general.visual_style')
+		]);
+
+		return {
+			homepage: sanitizeHomepage(homepage),
+			visual_style: sanitizeVisualStyle(visualStyle)
+		};
+	} catch (error) {
+		console.error('Error fetching general settings:', error);
+		return { ...DEFAULT_GENERAL_SETTINGS };
+	}
+}
+
+export async function saveGeneralSettings(settings: GeneralSettings): Promise<{ success: boolean }> {
+	const response = await fetch('/api/v1/settings/batch', {
+		method: 'PUT',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			settings: {
+				'general.homepage': sanitizeHomepage(settings.homepage),
+				'general.visual_style': sanitizeVisualStyle(settings.visual_style)
+			}
+		})
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || 'Failed to save general settings');
 	}
 
 	return await response.json();

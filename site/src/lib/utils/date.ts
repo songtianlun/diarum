@@ -79,6 +79,34 @@ export function isToday(dateStr: string): boolean {
 }
 
 /**
+ * Add months to a date, clamping the day to the last valid day of the target month
+ * (e.g. Jan 31 + 1 month = Feb 28/29)
+ */
+export function addMonths(dateStr: string, n: number): string {
+	const date = parseDate(dateStr);
+	const day = date.getDate();
+	const target = new Date(date.getFullYear(), date.getMonth() + n, 1);
+	const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+	target.setDate(Math.min(day, lastDay));
+	return formatDate(target);
+}
+
+/**
+ * Add years to a date, clamping the day (e.g. Feb 29 + 1 year = Feb 28)
+ */
+export function addYears(dateStr: string, n: number): string {
+	return addMonths(dateStr, n * 12);
+}
+
+/**
+ * Clamp a date string so it never exceeds today
+ */
+export function clampToToday(dateStr: string): string {
+	const today = getToday();
+	return dateStr > today ? today : dateStr;
+}
+
+/**
  * Get start and end of month
  */
 export function getMonthRange(year: number, month: number): { start: string; end: string } {

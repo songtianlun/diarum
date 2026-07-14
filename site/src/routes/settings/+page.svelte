@@ -11,8 +11,11 @@
 		getMemosSettings,
 		saveMemosSettings,
 		resetMemosWebhookToken,
+		getGeneralSettings,
+		saveGeneralSettings,
 		type MemosSettings,
-		type ApiTokenStatus
+		type ApiTokenStatus,
+		type GeneralSettings
 	} from '$lib/api/settings';
 	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
@@ -29,9 +32,10 @@
 		sanitizeWeatherOptions
 	} from '$lib/utils/diaryEmoji';
 
-	type SettingsTab = 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
+	type SettingsTab = 'general' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
 
 	const settingsTabs: { id: SettingsTab; label: string }[] = [
+		{ id: 'general', label: 'General' },
 		{ id: 'ai-assistant', label: 'AI Assistant' },
 		{ id: 'mood-weather', label: 'Mood & Weather' },
 		{ id: 'api-access', label: 'API Access' },
@@ -40,7 +44,7 @@
 		{ id: 'data-management', label: 'Data Management' }
 	];
 
-	let activeTab: SettingsTab = 'ai-assistant';
+	let activeTab: SettingsTab = 'general';
 
 	function isSettingsTab(value: string): value is SettingsTab {
 		return settingsTabs.some((tab) => tab.id === value);
@@ -65,6 +69,14 @@
 	}
 
 	let loading = true;
+
+	// General settings (homepage + visual style)
+	let generalSettings: GeneralSettings = { homepage: 'today', visual_style: 'classic' };
+	let originalGeneralSettings: GeneralSettings = { ...generalSettings };
+	let generalSaving = false;
+	let generalError = '';
+	let generalSuccess = '';
+
 	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '' };
 	let copied = false;
 	let resetting = false;
@@ -151,6 +163,26 @@
 
 	async function loadTokenStatus() {
 		tokenStatus = await getApiToken();
+	}
+
+	async function loadGeneralSettingsLocal() {
+		generalSettings = await getGeneralSettings();
+		originalGeneralSettings = { ...generalSettings };
+	}
+
+	async function handleSaveGeneralSettings() {
+		generalError = '';
+		generalSuccess = '';
+		generalSaving = true;
+		try {
+			await saveGeneralSettings(generalSettings);
+			originalGeneralSettings = { ...generalSettings };
+			generalSuccess = 'General settings saved successfully';
+			setTimeout(() => generalSuccess = '', 3000);
+		} catch (e) {
+			generalError = e instanceof Error ? e.message : 'Failed to save general settings';
+		}
+		generalSaving = false;
 	}
 
 	async function loadDiaryEmojiSettingsLocal() {
@@ -513,6 +545,10 @@
 	// Check if AI can be enabled
 	$: canEnableAI = aiSettings.api_key && aiSettings.base_url && aiSettings.chat_model && aiSettings.embedding_model;
 
+	$: generalSettingsChanged =
+		generalSettings.homepage !== originalGeneralSettings.homepage ||
+		generalSettings.visual_style !== originalGeneralSettings.visual_style;
+
 	$: emojiSettingsChanged =
 		JSON.stringify(moodOptions) !== JSON.stringify(originalMoodOptions) ||
 		JSON.stringify(weatherOptions) !== JSON.stringify(originalWeatherOptions);
@@ -671,7 +707,7 @@
 		}
 
 		loading = true;
-		await Promise.all([loadTokenStatus(), loadDiaryEmojiSettingsLocal(), loadMemosSettingsLocal(), loadAISettings(), loadImageUploadSettingsLocal()]);
+		await Promise.all([loadGeneralSettingsLocal(), loadTokenStatus(), loadDiaryEmojiSettingsLocal(), loadMemosSettingsLocal(), loadAISettings(), loadImageUploadSettingsLocal()]);
 		loading = false;
 		// Load vector stats if AI is enabled
 		if (aiSettings.enabled) {
@@ -768,6 +804,114 @@
 			</div>
 		{:else}
 			<div class="space-y-6">
+				{#if activeTab === 'general'}
+				<!-- General Settings Section -->
+				<div id="general" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
+					<h2 class="text-lg font-semibold text-foreground mb-4">General</h2>
+					<p class="text-sm text-muted-foreground mb-6">
+						Choose what you see when you open Diarum and how diary entries look.
+					</p>
+
+					{#if generalError}
+						<div class="mb-4 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+							{generalError}
+						</div>
+					{/if}
+
+					{#if generalSuccess}
+						<div class="mb-4 p-3 bg-green-500/10 text-green-600 rounded-lg text-sm">
+							{generalSuccess}
+						</div>
+					{/if}
+
+					<!-- Homepage -->
+					<div class="py-4 border-b border-border/50">
+						<div class="font-medium text-foreground mb-1">Homepage</div>
+						<p class="text-sm text-muted-foreground mb-3">Choose what opens when you visit Diarum.</p>
+						<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+							<button
+								type="button"
+								on:click={() => generalSettings = { ...generalSettings, homepage: 'today' }}
+								class="text-left p-3 rounded-lg border transition-colors {generalSettings.homepage === 'today' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
+							>
+								<div class="flex items-center gap-2">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.homepage === 'today' ? 'border-primary' : 'border-muted-foreground/40'}">
+										{#if generalSettings.homepage === 'today'}
+											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+										{/if}
+									</span>
+									<span class="font-medium text-foreground text-sm">Today's diary entry</span>
+								</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">Go straight to writing (default)</div>
+							</button>
+							<button
+								type="button"
+								on:click={() => generalSettings = { ...generalSettings, homepage: 'overview' }}
+								class="text-left p-3 rounded-lg border transition-colors {generalSettings.homepage === 'overview' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
+							>
+								<div class="flex items-center gap-2">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.homepage === 'overview' ? 'border-primary' : 'border-muted-foreground/40'}">
+										{#if generalSettings.homepage === 'overview'}
+											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+										{/if}
+									</span>
+									<span class="font-medium text-foreground text-sm">Diary overview</span>
+								</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">Open the calendar / overview page</div>
+							</button>
+						</div>
+					</div>
+
+					<!-- Visual style -->
+					<div class="py-4">
+						<div class="font-medium text-foreground mb-1">Visual Style</div>
+						<p class="text-sm text-muted-foreground mb-3">Choose how diary entry pages look and feel.</p>
+						<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+							<button
+								type="button"
+								on:click={() => generalSettings = { ...generalSettings, visual_style: 'classic' }}
+								class="text-left p-3 rounded-lg border transition-colors {generalSettings.visual_style === 'classic' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
+							>
+								<div class="flex items-center gap-2">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.visual_style === 'classic' ? 'border-primary' : 'border-muted-foreground/40'}">
+										{#if generalSettings.visual_style === 'classic'}
+											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+										{/if}
+									</span>
+									<span class="font-medium text-foreground text-sm">Classic</span>
+								</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">Simple editor page (default)</div>
+							</button>
+							<button
+								type="button"
+								on:click={() => generalSettings = { ...generalSettings, visual_style: 'immersive' }}
+								class="text-left p-3 rounded-lg border transition-colors {generalSettings.visual_style === 'immersive' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
+							>
+								<div class="flex items-center gap-2">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.visual_style === 'immersive' ? 'border-primary' : 'border-muted-foreground/40'}">
+										{#if generalSettings.visual_style === 'immersive'}
+											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+										{/if}
+									</span>
+									<span class="font-medium text-foreground text-sm">Immersive</span>
+								</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">Flip-page book view</div>
+							</button>
+						</div>
+					</div>
+
+					<div class="pt-4 flex items-center gap-3">
+						<button
+							on:click={handleSaveGeneralSettings}
+							disabled={generalSaving || !generalSettingsChanged}
+							class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+						>
+							{generalSaving ? 'Saving...' : 'Save General Settings'}
+						</button>
+					</div>
+				</div>
+				{/if}
+
 				{#if activeTab === 'api-access'}
 				<!-- API Settings Section -->
 				<div id="api-access" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
