@@ -48,6 +48,12 @@ var ConfigRegistry = map[string]ConfigMeta{
 	// Diary editor presets
 	"diary.mood_options":    {Type: "json", Default: []string{"😊", "😌", "🥳", "💪", "🤔", "😴", "😔", "😤"}, Encrypted: false},
 	"diary.weather_options": {Type: "json", Default: []string{"☀️", "⛅", "☁️", "🌧️", "⛈️", "🌫️", "❄️", "🌬️"}, Encrypted: false},
+
+	// General app preferences
+	// homepage: "today" (open today's diary entry) or "overview" (open the /diary calendar overview)
+	"general.homepage": {Type: "string", Default: "today", Encrypted: false},
+	// visual_style: "classic" (standard editor page) or "immersive" (book flip view)
+	"general.visual_style": {Type: "string", Default: "classic", Encrypted: false},
 }
 
 // GetConfigMeta returns the metadata for a configuration key

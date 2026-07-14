@@ -1,16 +1,17 @@
 <script lang="ts">
 	/**
-	 * Shared top nav for the diary entry page (/diary/[date]) and the book
-	 * entry page (/book/[date]). Both pages have an identical layout —
-	 * brand, prev/next day, a date icon + date text, and a right-hand
-	 * actions cluster (assistant, share, table of contents, sync status).
+	 * Shared top nav for the diary entry route (/diary/[date]), used by both
+	 * visual styles: the classic editor view and the immersive book view.
+	 * Both have an identical layout — brand, prev/next day, a date icon +
+	 * date text, and a right-hand actions cluster (assistant, share, table
+	 * of contents, sync status).
 	 *
-	 * The only behavioral difference between the two pages is what the date
+	 * The only behavioral difference between the two views is what the date
 	 * text does when clicked:
-	 *   - diary: not clickable (pass nothing / leave onDateTextClick unset)
-	 *   - book: opens the book's own date-picker/catalog overlay
+	 *   - classic: not clickable (pass nothing / leave onDateTextClick unset)
+	 *   - immersive/book: opens the book's own date-picker/catalog overlay
 	 *
-	 * The date *icon* always navigates to /diary on both pages.
+	 * The date *icon* always navigates to /diary.
 	 */
 	import { goto } from '$app/navigation';
 	import { formatDisplayDate, formatShortDate, getDayOfWeek, isToday } from '$lib/utils/date';

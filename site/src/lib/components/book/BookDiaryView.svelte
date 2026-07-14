@@ -186,7 +186,7 @@
 		// watcher sees a stale $page.params.date and navigates backwards.
 		if ($page.params.date !== to.date) {
 			try {
-				await goto(`/book/${to.date}`, { noScroll: true, keepFocus: true });
+				await goto(`/diary/${to.date}`, { noScroll: true, keepFocus: true });
 			} catch {
 				/* ignore */
 			}
@@ -364,7 +364,7 @@
 		initial = clampToToday(initial);
 		date = initial;
 		if ($page.params.date !== initial) {
-			goto(`/book/${initial}`, { replaceState: true, noScroll: true });
+			goto(`/diary/${initial}`, { replaceState: true, noScroll: true });
 		}
 
 		void (async () => {
@@ -396,11 +396,11 @@
 </script>
 
 <svelte:head>
-	<title>{formatDisplayDate(date)} · Book - Diarum</title>
+	<title>{formatDisplayDate(date)} - Diarum</title>
 </svelte:head>
 
 <div class="book-screen">
-	<!-- Toolbar (shared with the diary entry page) -->
+	<!-- Toolbar (shared with the classic diary entry view) -->
 	<EntryNav
 		date={headerDate}
 		busy={animating}
