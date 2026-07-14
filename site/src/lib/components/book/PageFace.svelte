@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { parseDate } from '$lib/utils/date';
 	import MoodWeatherPicker from '$lib/components/book/MoodWeatherPicker.svelte';
+	import BookTableOfContents from '$lib/components/book/BookTableOfContents.svelte';
 
 	/**
 	 * A single paper page of the diary book.
@@ -9,9 +10,10 @@
 	 *  - 'content' : static (read-only) rendered diary content
 	 *  - 'live'    : content page hosting the editor via <slot />
 	 *  - 'blank'   : paper backside (used for the mobile leaf back face)
+	 *  - 'toc'     : left page showing the date plus a contents outline
 	 * side controls corner rounding & spine shading.
 	 */
-	export let kind: 'meta' | 'content' | 'live' | 'blank' = 'content';
+	export let kind: 'meta' | 'content' | 'live' | 'blank' | 'toc' = 'content';
 	export let side: 'left' | 'right' | 'single' = 'single';
 	export let date = '';
 	export let content = '';
@@ -28,6 +30,9 @@
 	export let weatherPresets: string[] = [];
 	export let onMoodSelect: (emoji: string) => void = () => {};
 	export let onWeatherSelect: (emoji: string) => void = () => {};
+
+	/** kind='toc' only: called after a heading is clicked and scrolled to */
+	export let onNavigate: (() => void) | undefined = undefined;
 
 	function initScroll(node: HTMLElement) {
 		if (scrollTop > 0) node.scrollTop = scrollTop;
@@ -71,6 +76,21 @@
 				/>
 			</div>
 			<div class="meta-flourish" aria-hidden="true">✦</div>
+		</div>
+		<div class="page-footer">{shortLabel}</div>
+	{:else if kind === 'toc' && d}
+		<div class="toc-page">
+			<div class="toc-page-eyebrow">Contents</div>
+			<div class="toc-page-date">
+				<div class="toc-page-day">{d.getDate()}</div>
+				<div class="toc-page-date-info">
+					<div class="toc-page-month">{monthLabel} {d.getFullYear()}</div>
+					<div class="toc-page-weekday">{weekdayLabel}</div>
+				</div>
+			</div>
+			<div class="toc-page-scroll">
+				<BookTableOfContents {content} {onNavigate} />
+			</div>
 		</div>
 		<div class="page-footer">{shortLabel}</div>
 	{:else if kind === 'content' || kind === 'live'}
@@ -266,6 +286,73 @@
 		opacity: 0.35;
 	}
 
+	/* ---------- toc (contents) page ---------- */
+	.toc-page {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		padding: 1.6rem 1.4rem 0.5rem;
+		position: relative;
+		z-index: 2;
+	}
+	.toc-page-eyebrow {
+		flex-shrink: 0;
+		font-size: 0.7rem;
+		letter-spacing: 0.28em;
+		text-transform: uppercase;
+		color: hsl(30 20% 55% / 0.75);
+		margin-bottom: 0.6rem;
+	}
+	:global(.dark) .toc-page-eyebrow {
+		color: hsl(40 20% 65% / 0.7);
+	}
+	.toc-page-date {
+		flex-shrink: 0;
+		display: flex;
+		align-items: baseline;
+		gap: 0.65rem;
+		padding-bottom: 0.85rem;
+		margin-bottom: 0.5rem;
+		border-bottom: 1px solid hsl(30 30% 60% / 0.18);
+	}
+	.toc-page-day {
+		font-family: ui-serif, Georgia, 'Times New Roman', serif;
+		font-size: 2.2rem;
+		font-weight: 600;
+		line-height: 1;
+	}
+	.toc-page-date-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+	.toc-page-month {
+		font-size: 0.72rem;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		color: hsl(30 20% 50%);
+	}
+	.toc-page-weekday {
+		font-family: ui-serif, Georgia, serif;
+		font-style: italic;
+		font-size: 0.85rem;
+		color: hsl(30 20% 48%);
+	}
+	:global(.dark) .toc-page-month,
+	:global(.dark) .toc-page-weekday {
+		color: hsl(40 20% 62%);
+	}
+	.toc-page-scroll {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overflow-x: hidden;
+		overscroll-behavior: contain;
+		padding-top: 0.15rem;
+		scrollbar-gutter: stable;
+	}
+
 	/* ---------- content page ---------- */
 	.content-page {
 		flex: 1;
@@ -307,6 +394,7 @@
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
+		overflow-x: hidden;
 		overscroll-behavior: contain;
 		/* keep text width identical whether or not a scrollbar is present,
 		   so lines never re-wrap when swapping live page <-> flip snapshot */

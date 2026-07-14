@@ -5,6 +5,8 @@
 	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
 	import PageFace from '$lib/components/book/PageFace.svelte';
 	import BookCatalog from '$lib/components/book/BookCatalog.svelte';
+	import BookTableOfContents from '$lib/components/book/BookTableOfContents.svelte';
+	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import { getDiaryByDate, getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getDiaryEmojiSettings } from '$lib/api/settings';
@@ -56,11 +58,22 @@
 	let flipDuration = 420;
 	let commitTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// catalog
+	// catalog (full calendar overlay, opened from the date button)
 	let showCatalog = false;
 	let catalogEntries: CalendarDiaryMeta[] = [];
 	let catalogLoaded = false;
 	let catalogLoading = false;
+
+	// contents (per-entry heading outline) — desktop swaps the left page in
+	// place, mobile opens a left drawer
+	let showToc = false;
+	let showTocDrawer = false;
+
+	// share
+	let showShareModal = false;
+	let selectedContent = '';
+	let shareSelectedContent = '';
+	let shareOpenedByMouse = false;
 
 	// mood / weather presets (configured in settings)
 	let moodPresets: string[] = [...DEFAULT_MOOD_OPTIONS];
@@ -237,6 +250,28 @@
 		void navigateTo(d);
 	}
 
+	function toggleToc() {
+		if (isMobile) {
+			showTocDrawer = !showTocDrawer;
+		} else {
+			showToc = !showToc;
+		}
+	}
+
+	function captureShareSelection() {
+		shareSelectedContent = selectedContent;
+		shareOpenedByMouse = true;
+	}
+
+	function openShareModal() {
+		// Keyboard path (Enter/Space): mousedown never fired, so clear any stale snapshot
+		if (!shareOpenedByMouse) {
+			shareSelectedContent = '';
+		}
+		shareOpenedByMouse = false;
+		showShareModal = true;
+	}
+
 	/**
 	 * Force the book width to an even integer number of pixels.
 	 * The flip leaf hinges at exactly 50% width; with a fractional half-width
@@ -273,7 +308,11 @@
 			showCatalog = false;
 			return;
 		}
-		if (isEditing() || showCatalog) return;
+		if (e.key === 'Escape' && showTocDrawer) {
+			showTocDrawer = false;
+			return;
+		}
+		if (isEditing() || showCatalog || showTocDrawer) return;
 		if (e.key === 'ArrowLeft') void navigateTo(getPreviousDay(date));
 		else if (e.key === 'ArrowRight') void navigateTo(getNextDay(date));
 	}
@@ -311,7 +350,12 @@
 
 		const mq = window.matchMedia('(max-width: 859px)');
 		isMobile = mq.matches;
-		const onMq = (e: MediaQueryListEvent) => (isMobile = e.matches);
+		const onMq = (e: MediaQueryListEvent) => {
+			isMobile = e.matches;
+			// the desktop panel and mobile drawer are mutually exclusive
+			// presentations of the same feature — drop whichever doesn't apply
+			showTocDrawer = false;
+		};
 		mq.addEventListener('change', onMq);
 
 		// initial date from route
@@ -453,8 +497,31 @@
 					</button>
 				</div>
 
-				<!-- Right: save status -->
+				<!-- Right: actions + save status -->
 				<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+					<div class="hidden sm:block">
+						<button
+							on:mousedown={captureShareSelection}
+							on:click={openShareModal}
+							class="nav-btn"
+							title="Share as image"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+							</svg>
+						</button>
+					</div>
+
+					<button
+						class="nav-btn {(isMobile ? showTocDrawer : showToc) ? 'bg-muted/60' : ''}"
+						on:click={toggleToc}
+						title="Table of contents"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" />
+						</svg>
+					</button>
+
 					<button
 						class="nav-btn"
 						on:click={() => forceSyncNow()}
@@ -515,18 +582,22 @@
 				{#if !isMobile}
 					<!-- desktop: two-page spread -->
 					<div class="page-slot left">
-						<PageFace
-							kind="meta"
-							side="left"
-							date={baseLeft.date}
-							mood={baseLeft.mood}
-							weather={baseLeft.weather}
-							interactive={!flip}
-							{moodPresets}
-							{weatherPresets}
-							onMoodSelect={handleMoodSelect}
-							onWeatherSelect={handleWeatherSelect}
-						/>
+						{#if showToc && !flip}
+							<PageFace kind="toc" side="left" date={view.date} content={view.content} />
+						{:else}
+							<PageFace
+								kind="meta"
+								side="left"
+								date={baseLeft.date}
+								mood={baseLeft.mood}
+								weather={baseLeft.weather}
+								interactive={!flip}
+								{moodPresets}
+								{weatherPresets}
+								onMoodSelect={handleMoodSelect}
+								onWeatherSelect={handleWeatherSelect}
+							/>
+						{/if}
 						{#if flip && flip.dir === 'back'}
 							<div class="reveal-shade to-left"></div>
 						{/if}
@@ -555,6 +626,7 @@
 								{#key view.date}
 									<TiptapEditor
 										content={view.content}
+										bind:selectedContent
 										onChange={handleContentChange}
 										placeholder="What's on your mind today?"
 										emptyStatePrompt="✨ Reflect on today... What will you remember from this day?"
@@ -632,6 +704,7 @@
 								{#key view.date}
 									<TiptapEditor
 										content={view.content}
+										bind:selectedContent
 										onChange={handleContentChange}
 										placeholder="What's on your mind today?"
 										emptyStatePrompt="✨ Reflect on today... What will you remember from this day?"
@@ -686,7 +759,45 @@
 			{/if}
 		</div>
 	{/if}
+
+	<!-- Mobile contents drawer -->
+	{#if showTocDrawer}
+		<button
+			class="toc-backdrop"
+			on:click={() => (showTocDrawer = false)}
+			aria-label="Close contents"
+		></button>
+		<div class="toc-drawer animate-slide-in-left">
+			<div class="toc-drawer-header">
+				<div>
+					<div class="toc-drawer-title">Contents</div>
+					<div class="toc-drawer-date">{formatDisplayDate(view.date)} · {getDayOfWeek(view.date)}</div>
+				</div>
+				<button
+					on:click={() => (showTocDrawer = false)}
+					class="toc-drawer-close"
+					aria-label="Close"
+				>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			</div>
+			<div class="toc-drawer-scroll">
+				<BookTableOfContents content={view.content} onNavigate={() => (showTocDrawer = false)} />
+			</div>
+		</div>
+	{/if}
 </div>
+
+<!-- Share Modal -->
+<DiaryShareModal
+	isOpen={showShareModal}
+	{date}
+	content={view.content}
+	selectedContent={shareSelectedContent}
+	onClose={() => (showShareModal = false)}
+/>
 
 <style>
 	.book-screen {
@@ -1063,5 +1174,88 @@
 		background: hsl(var(--background) / 0.97);
 		backdrop-filter: blur(8px);
 		-webkit-backdrop-filter: blur(8px);
+	}
+
+	/* ---------- mobile contents drawer ---------- */
+	.toc-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		background: hsl(0 0% 0% / 0.4);
+		backdrop-filter: blur(3px);
+		-webkit-backdrop-filter: blur(3px);
+	}
+	.toc-drawer {
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: min(20rem, 84vw);
+		z-index: 50;
+		display: flex;
+		flex-direction: column;
+		background:
+			linear-gradient(120deg, hsl(45 42% 97%), hsl(43 38% 94%)),
+			hsl(44 40% 96%);
+		color: hsl(25 35% 25%);
+		box-shadow: 6px 0 28px hsl(25 40% 10% / 0.28);
+		border-radius: 0 14px 14px 0;
+	}
+	:global(.dark) .toc-drawer {
+		background:
+			linear-gradient(120deg, hsl(28 22% 15%), hsl(26 20% 12%)),
+			hsl(27 22% 13%);
+		color: hsl(45 25% 88%);
+	}
+	.toc-drawer-header {
+		flex-shrink: 0;
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 1.1rem 1.1rem 0.85rem;
+		border-bottom: 1px solid hsl(30 30% 60% / 0.18);
+	}
+	.toc-drawer-title {
+		font-family: ui-serif, Georgia, serif;
+		font-size: 1.15rem;
+		font-weight: 600;
+	}
+	.toc-drawer-date {
+		font-size: 0.75rem;
+		color: hsl(30 20% 50%);
+		margin-top: 0.15rem;
+	}
+	:global(.dark) .toc-drawer-date {
+		color: hsl(40 20% 62%);
+	}
+	.toc-drawer-close {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.4rem;
+		border-radius: 0.5rem;
+		color: hsl(30 20% 45%);
+		transition: background-color 0.15s ease, color 0.15s ease;
+	}
+	.toc-drawer-close:hover {
+		background: hsl(30 30% 60% / 0.16);
+		color: hsl(25 35% 25%);
+	}
+	:global(.dark) .toc-drawer-close {
+		color: hsl(40 20% 70%);
+	}
+	:global(.dark) .toc-drawer-close:hover {
+		background: hsl(40 25% 45% / 0.18);
+		color: hsl(45 25% 92%);
+	}
+	.toc-drawer-scroll {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overflow-x: hidden;
+		overscroll-behavior: contain;
+		padding: 0.75rem;
 	}
 </style>
