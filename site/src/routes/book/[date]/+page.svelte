@@ -7,6 +7,7 @@
 	import BookCatalog from '$lib/components/book/BookCatalog.svelte';
 	import BookTableOfContents from '$lib/components/book/BookTableOfContents.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
+	import EntryNav from '$lib/components/ui/EntryNav.svelte';
 	import { getDiaryByDate, getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getDiaryEmojiSettings } from '$lib/api/settings';
@@ -17,10 +18,8 @@
 		getPreviousDay,
 		getNextDay,
 		addMonths,
-		addYears,
 		clampToToday,
 		formatDisplayDate,
-		formatShortDate,
 		getDayOfWeek
 	} from '$lib/utils/date';
 	import {
@@ -90,7 +89,6 @@
 	// the toolbar shows the incoming date as soon as a flip starts, so nothing
 	// in the header changes at the landing moment
 	$: headerDate = flip ? flip.to.date : date;
-	$: headerAtToday = isToday(headerDate);
 
 	// leaf/base data derived from flip state
 	$: leafFront = flip ? (flip.dir === 'fwd' ? flip.from : flip.to) : null;
@@ -402,159 +400,23 @@
 </svelte:head>
 
 <div class="book-screen">
-	<!-- Toolbar -->
-	<header class="glass border-b border-border/50 sticky top-0 z-30">
-		<div class="max-w-6xl mx-auto px-2 sm:px-4 h-11">
-			<div class="flex items-center justify-between h-full gap-1">
-				<!-- Left: back -->
-				<a
-					href="/diary"
-					class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 flex-shrink-0"
-					title="Back to calendar"
-				>
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-					</svg>
-				</a>
-
-				<!-- Center: navigation cluster -->
-				<div class="flex items-center gap-0.5 sm:gap-1 min-w-0">
-					<button
-						class="nav-btn"
-						title="Previous year"
-						disabled={animating}
-						on:click={() => navigateTo(addYears(date, -1))}
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.5 19l-7-7 7-7M11 19l-7-7 7-7" />
-							<path stroke-linecap="round" stroke-width="2" d="M3.5 5v14" />
-						</svg>
-					</button>
-					<button
-						class="nav-btn"
-						title="Previous month"
-						disabled={animating}
-						on:click={() => navigateTo(addMonths(date, -1))}
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 19l-7-7 7-7M11 19l-7-7 7-7" />
-						</svg>
-					</button>
-					<button
-						class="nav-btn"
-						title="Previous day"
-						disabled={animating}
-						on:click={() => navigateTo(getPreviousDay(date))}
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-						</svg>
-					</button>
-
-					<button
-						class="px-1.5 text-sm text-foreground whitespace-nowrap hover:bg-muted/50 rounded-lg py-1 transition-colors min-w-0 {showCatalog ? 'bg-muted/60' : ''}"
-						title="Contents"
-						on:click={toggleCatalog}
-					>
-						<span class="hidden md:inline">{formatDisplayDate(headerDate)}</span>
-						<span class="md:hidden">{formatShortDate(headerDate)}</span>
-						<span class="hidden lg:inline text-xs text-muted-foreground ml-1">{getDayOfWeek(headerDate)}</span>
-						{#if headerAtToday}
-							<span class="text-[10px] px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">Today</span>
-						{/if}
-					</button>
-
-					<button
-						class="nav-btn"
-						title={atToday ? 'Cannot go beyond today' : 'Next day'}
-						disabled={animating || atToday}
-						on:click={() => navigateTo(getNextDay(date))}
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-						</svg>
-					</button>
-					<button
-						class="nav-btn"
-						title="Next month"
-						disabled={animating || atToday}
-						on:click={() => navigateTo(addMonths(date, 1))}
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 5l7 7-7 7M13 5l7 7-7 7" />
-						</svg>
-					</button>
-					<button
-						class="nav-btn"
-						title="Next year"
-						disabled={animating || atToday}
-						on:click={() => navigateTo(addYears(date, 1))}
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.5 5l7 7-7 7M13 5l7 7-7 7" />
-							<path stroke-linecap="round" stroke-width="2" d="M20.5 5v14" />
-						</svg>
-					</button>
-				</div>
-
-				<!-- Right: actions + save status -->
-				<div class="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
-					<div class="hidden sm:block">
-						<button
-							on:mousedown={captureShareSelection}
-							on:click={openShareModal}
-							class="nav-btn"
-							title="Share as image"
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-							</svg>
-						</button>
-					</div>
-
-					<button
-						class="nav-btn {(isMobile ? showTocDrawer : showToc) ? 'bg-muted/60' : ''}"
-						on:click={toggleToc}
-						title="Table of contents"
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" />
-						</svg>
-					</button>
-
-					<button
-						class="nav-btn"
-						on:click={() => forceSyncNow()}
-						title={!$onlineState.isOnline
-							? 'Offline - changes saved locally'
-							: isAnySyncing
-								? 'Syncing...'
-								: currentDateIsDirty
-									? 'Click to save now'
-									: 'All changes saved'}
-					>
-						{#if !$onlineState.isOnline}
-							<svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3"></path>
-							</svg>
-						{:else if isAnySyncing}
-							<svg class="w-4 h-4 text-yellow-500 animate-spin" fill="none" viewBox="0 0 24 24">
-								<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 20" stroke-linecap="round"></circle>
-							</svg>
-						{:else if currentDateIsDirty}
-							<svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7.828a2 2 0 00-.586-1.414l-1.828-1.828A2 2 0 0016.172 4H15M8 4v4h6V4M8 4h6m-6 0H8m8 12a2 2 0 11-4 0 2 2 0 014 0z"></path>
-							</svg>
-						{:else}
-							<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-							</svg>
-						{/if}
-					</button>
-				</div>
-			</div>
-		</div>
-	</header>
+	<!-- Toolbar (shared with the diary entry page) -->
+	<EntryNav
+		date={headerDate}
+		busy={animating}
+		onPrevDay={() => navigateTo(getPreviousDay(date))}
+		onNextDay={() => navigateTo(getNextDay(date))}
+		onDateTextClick={toggleCatalog}
+		dateTextActive={showCatalog}
+		onShareMouseDown={captureShareSelection}
+		onShareClick={openShareModal}
+		tocActive={isMobile ? showTocDrawer : showToc}
+		onTocClick={toggleToc}
+		isOnline={$onlineState.isOnline}
+		isSyncing={isAnySyncing}
+		isDirty={currentDateIsDirty}
+		onSyncClick={() => forceSyncNow()}
+	/>
 
 	<!-- Book -->
 	<main class="book-main">
@@ -805,21 +667,6 @@
 		background: hsl(var(--background));
 		display: flex;
 		flex-direction: column;
-	}
-
-	.nav-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0.35rem;
-		border-radius: 0.5rem;
-		transition: background-color 0.2s ease, opacity 0.2s ease;
-	}
-	.nav-btn:hover:not(:disabled) {
-		background: hsl(var(--muted) / 0.5);
-	}
-	.nav-btn:disabled {
-		opacity: 0.4;
 	}
 
 	.book-main {

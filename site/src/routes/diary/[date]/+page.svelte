@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
 	import TableOfContents from '$lib/components/ui/TableOfContents.svelte';
+	import EntryNav from '$lib/components/ui/EntryNav.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import { getDiaryByDate } from '$lib/api/diaries';
@@ -11,8 +12,6 @@
 	import { getDiaryEmojiSettings } from '$lib/api/settings';
 	import {
 		formatDisplayDate,
-		formatShortDate,
-		getDayOfWeek,
 		getPreviousDay,
 		getNextDay,
 		getToday,
@@ -65,7 +64,6 @@
 	}
 
 	$: date = $page.params.date ?? getToday();
-	$: canGoNext = !isToday(date);
 	$: currentDateIsDirty = date ? $diaryCache[date]?.isDirty || false : false;
 	$: isAnySyncing = $syncState.isSyncing;
 
@@ -79,10 +77,6 @@
 		if (isToday(currentDate)) return;
 		const nextDate = getNextDay(currentDate);
 		goto(`/diary/${nextDate}`);
-	}
-
-	function goToCalendar() {
-		goto('/diary');
 	}
 
 	async function loadDiary(targetDate: string) {
@@ -165,6 +159,14 @@
 		await forceSyncNow();
 	}
 
+	function toggleToc() {
+		if (window.innerWidth >= 1024) {
+			showDesktopToc = !showDesktopToc;
+		} else {
+			showDrawer = !showDrawer;
+		}
+	}
+
 	function handleKeyboard(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key === 's') {
 			event.preventDefault();
@@ -204,135 +206,20 @@
 </svelte:head>
 
 <div class="min-h-screen bg-background">
-	<!-- Sticky Header Container -->
-	<div class="sticky top-0 z-20">
-		<!-- Compact Glass Header -->
-		<header class="glass border-b border-border/50">
-			<div class="max-w-6xl mx-auto px-4 h-11">
-				<div class="flex items-center justify-between h-full">
-					<!-- Left: Brand -->
-					<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
-						<img src="/logo.png" alt="Diarum" class="w-6 h-6" />
-						<span class="hidden sm:inline text-lg font-semibold text-foreground hover:text-primary transition-colors">Diarum</span>
-					</a>
-
-					<!-- Center: Date and Navigation -->
-					<div class="flex items-center gap-2">
-						<button
-							on:click={goToPreviousDay}
-							disabled={loading}
-							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
-							title="Previous day"
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-							</svg>
-						</button>
-
-						<button
-							on:click={goToCalendar}
-							disabled={loading}
-							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
-							title="Calendar"
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-									d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-							</svg>
-						</button>
-
-						<div class="text-sm text-foreground">
-							<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
-							<span class="sm:hidden">{formatShortDate(date)}</span>
-							<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
-							{#if isToday(date)}
-								<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">Today</span>
-							{/if}
-						</div>
-
-						<button
-							on:click={goToNextDay}
-							disabled={loading || !canGoNext}
-							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 disabled:opacity-50"
-							title={canGoNext ? "Next day" : "Cannot go beyond today"}
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-							</svg>
-						</button>
-					</div>
-
-					<!-- Right: Actions -->
-					<div class="flex items-center gap-2">
-						<a href="/assistant" class="hidden sm:block p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200" title="AI Assistant">
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<rect x="4" y="6" width="16" height="12" rx="2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-								<line x1="12" y1="6" x2="12" y2="2" stroke-width="2" stroke-linecap="round"/>
-								<circle cx="12" cy="2" r="1" fill="currentColor"/>
-								<circle cx="9" cy="11" r="1.5" fill="currentColor"/>
-								<circle cx="15" cy="11" r="1.5" fill="currentColor"/>
-								<path d="M9 15h6" stroke-width="2" stroke-linecap="round"/>
-								<rect x="1" y="10" width="2" height="4" rx="1" fill="currentColor"/>
-								<rect x="21" y="10" width="2" height="4" rx="1" fill="currentColor"/>
-							</svg>
-						</a>
-
-						<button
-							on:mousedown={captureShareSelection}
-							on:click={openShareModal}
-							class="hidden sm:block p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200"
-							title="Share as image"
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-							</svg>
-						</button>
-
-						<button
-							on:click={() => {
-								if (window.innerWidth >= 1024) {
-									showDesktopToc = !showDesktopToc;
-								} else {
-									showDrawer = !showDrawer;
-								}
-							}}
-							class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 {(showDesktopToc || showDrawer) ? 'bg-muted/50' : ''}"
-							title="Table of contents"
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" />
-							</svg>
-						</button>
-
-						<button
-							on:click={handleManualSave}
-							class="flex items-center p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200"
-							title={!$onlineState.isOnline ? 'Offline - changes saved locally' : isAnySyncing ? 'Syncing...' : currentDateIsDirty ? 'Click to save now' : 'All changes saved'}
-						>
-							{#if !$onlineState.isOnline}
-								<svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3"></path>
-								</svg>
-							{:else if isAnySyncing}
-								<svg class="w-4 h-4 text-yellow-500 animate-spin" fill="none" viewBox="0 0 24 24">
-									<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 20" stroke-linecap="round"></circle>
-								</svg>
-							{:else if currentDateIsDirty}
-								<svg class="w-4 h-4 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7.828a2 2 0 00-.586-1.414l-1.828-1.828A2 2 0 0016.172 4H15M8 4v4h6V4M8 4h6m-6 0H8m8 12a2 2 0 11-4 0 2 2 0 014 0z"></path>
-								</svg>
-							{:else}
-								<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-								</svg>
-							{/if}
-						</button>
-					</div>
-				</div>
-			</div>
-		</header>
-
-			</div>
+	<EntryNav
+		{date}
+		busy={loading}
+		onPrevDay={goToPreviousDay}
+		onNextDay={goToNextDay}
+		onShareMouseDown={captureShareSelection}
+		onShareClick={openShareModal}
+		tocActive={showDesktopToc || showDrawer}
+		onTocClick={toggleToc}
+		isOnline={$onlineState.isOnline}
+		isSyncing={isAnySyncing}
+		isDirty={currentDateIsDirty}
+		onSyncClick={handleManualSave}
+	/>
 
 	<!-- Main Content -->
 	<div class="px-4 py-6">
