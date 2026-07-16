@@ -1,3 +1,5 @@
+import { getIntlLocale } from '$lib/i18n';
+
 /**
  * Format date to YYYY-MM-DD (local timezone)
  */
@@ -45,7 +47,7 @@ export function getNextDay(dateStr: string): string {
  */
 export function formatDisplayDate(dateStr: string): string {
 	const date = parseDate(dateStr);
-	return date.toLocaleDateString('en-US', {
+	return date.toLocaleDateString(getIntlLocale(), {
 		year: 'numeric',
 		month: 'long',
 		day: 'numeric'
@@ -57,7 +59,7 @@ export function formatDisplayDate(dateStr: string): string {
  */
 export function formatShortDate(dateStr: string): string {
 	const date = parseDate(dateStr);
-	return date.toLocaleDateString('en-US', {
+	return date.toLocaleDateString(getIntlLocale(), {
 		month: 'short',
 		day: 'numeric'
 	});
@@ -68,7 +70,7 @@ export function formatShortDate(dateStr: string): string {
  */
 export function getDayOfWeek(dateStr: string): string {
 	const date = parseDate(dateStr);
-	return date.toLocaleDateString('en-US', { weekday: 'short' });
+	return date.toLocaleDateString(getIntlLocale(), { weekday: 'short' });
 }
 
 /**

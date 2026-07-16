@@ -1,0 +1,243 @@
+/**
+ * English translations. This file is the source of truth and the fallback
+ * locale: every key that appears anywhere in the app must exist here.
+ */
+export const en = {
+	common: {
+		loading: 'Loading...',
+		save: 'Save',
+		saving: 'Saving...',
+		cancel: 'Cancel',
+		copy: 'Copy',
+		copied: 'Copied!',
+		add: 'Add',
+		today: 'Today'
+	},
+	nav: {
+		home: 'Diarum Home',
+		diary: 'Diary',
+		calendar: 'Calendar',
+		mediaLibrary: 'Media Library',
+		search: 'Search',
+		assistant: 'AI Assistant',
+		settings: 'Settings'
+	},
+	theme: {
+		toggle: 'Toggle theme',
+		light: 'Light',
+		dark: 'Dark',
+		system: 'System'
+	},
+	footer: {
+		personalDiary: 'Your personal diary',
+		poweredByAi: 'Your personal diary, powered by AI',
+		searchMemories: 'Search through your memories'
+	},
+	landing: {
+		title: 'Diarum',
+		login: 'Login',
+		heroTitlePrefix: 'Your Personal Space for',
+		heroTitleHighlight: 'Daily Reflection',
+		heroSubtitle:
+			'Capture your thoughts, track your journey, and gain insights with AI-powered journaling. A beautiful, private diary that grows with you.',
+		startWriting: 'Start Writing Today',
+		learnMore: 'Learn More',
+		desktopAlt: 'Diarum Desktop Interface',
+		mobileAlt: 'Diarum Mobile Interface',
+		highlightEditorTitle: 'Beautiful Editor',
+		highlightEditorDesc: 'Rich text formatting with an intuitive, distraction-free interface',
+		highlightCalendarTitle: 'Smart Calendar',
+		highlightCalendarDesc: 'Track your writing streaks and navigate entries effortlessly',
+		highlightResponsiveTitle: 'Responsive Design',
+		highlightResponsiveDesc: 'Perfect experience on desktop, tablet, and mobile devices',
+		screenshotsCaption: 'Clean, distraction-free writing experience across all your devices',
+		featuresTitle: 'Everything You Need to Journal',
+		featuresSubtitle:
+			'Powerful features designed to make daily journaling effortless and meaningful.',
+		feature1Title: 'Daily Journaling',
+		feature1Desc:
+			'Write and organize your thoughts with a beautiful rich text editor. Support for formatting, lists, and more.',
+		feature2Title: 'AI Assistant',
+		feature2Desc:
+			'Chat with an intelligent assistant that understands your diary entries and helps you reflect on your journey.',
+		feature3Title: 'Calendar View',
+		feature3Desc:
+			'Navigate through your entries with an intuitive calendar. See your writing streaks and activity at a glance.',
+		feature4Title: 'Powerful Search',
+		feature4Desc:
+			'Find any memory instantly. Search through all your entries with full-text search capabilities.',
+		feature5Title: 'Media Library',
+		feature5Desc:
+			'Attach photos and images to your entries. Build a visual timeline of your life moments.',
+		feature6Title: 'Dark Mode',
+		feature6Desc:
+			'Easy on the eyes, day or night. Seamlessly switch between light and dark themes.',
+		aiTitle: 'Your AI-Powered Reflection Partner',
+		aiSubtitle:
+			"Diarum's intelligent assistant reads your diary entries and helps you discover patterns, gain insights, and reflect on your personal growth journey.",
+		aiPoint1: 'Ask questions about your past entries',
+		aiPoint2: 'Get personalized writing prompts',
+		aiPoint3: 'Discover mood patterns and trends',
+		aiPoint4: 'Private and secure conversations',
+		aiAssistant: 'AI Assistant',
+		aiMockMessage1:
+			"Based on your recent entries, I noticed you've been feeling more energetic this week. Would you like to explore what might be contributing to this positive change?",
+		aiMockReply: "Yes, I'd love to understand that better!",
+		aiMockMessage2:
+			'Looking at your entries from the past two weeks, I see you started a morning routine and have been more consistent with exercise...',
+		ctaTitle: 'Start Your Journaling Journey Today',
+		ctaSubtitle:
+			'Join thousands of people who use Diarum to capture their daily thoughts and grow through reflection.',
+		ctaButton: 'Create Your Free Account',
+		ctaNote: 'No credit card required. Your data stays private.'
+	},
+	login: {
+		tagline: 'Your personal diary',
+		loginTab: 'Login',
+		registerTab: 'Register',
+		usernameOrEmail: 'Username or Email',
+		usernameOrEmailPlaceholder: 'Enter your username or email',
+		password: 'Password',
+		passwordPlaceholder: 'Enter your password',
+		loginButton: 'Login',
+		loggingIn: 'Logging in...',
+		username: 'Username',
+		usernamePlaceholder: 'Choose a username',
+		email: 'Email',
+		emailPlaceholder: 'Enter your email',
+		registerPasswordPlaceholder: 'Choose a password (min 8 chars)',
+		confirmPassword: 'Confirm Password',
+		confirmPasswordPlaceholder: 'Confirm your password',
+		createAccount: 'Create Account',
+		creatingAccount: 'Creating account...',
+		loginFailed: 'Login failed',
+		registrationFailed: 'Registration failed',
+		passwordsMismatch: 'Passwords do not match'
+	},
+	diaryOverview: {
+		title: 'Calendar',
+		thisYear: 'This year',
+		thisMonth: 'This month',
+		streak: 'Streak',
+		total: 'Total',
+		recentEntries: 'Recent Entries',
+		noEntries: 'No entries yet. Start writing today!',
+		tagline: 'Your personal diary'
+	},
+	search: {
+		pageTitle: 'Search',
+		heading: 'Search Diaries',
+		subtitle: 'Find entries by keywords in your diary',
+		placeholder: 'Search your diaries...',
+		clear: 'Clear search',
+		searching: 'Searching...',
+		noResults: 'No results found',
+		noResultsHint: 'Try different keywords or check your spelling',
+		foundPrefix: 'Found',
+		entrySingular: 'entry',
+		entryPlural: 'entries',
+		startSearching: 'Start searching',
+		startSearchingHint: 'Enter at least 2 characters to search',
+		enterToSearch: 'to search',
+		escToClear: 'to clear',
+		tagline: 'Search through your memories'
+	},
+	entryNav: {
+		previousDay: 'Previous day',
+		calendar: 'Calendar',
+		contents: 'Contents',
+		cannotGoBeyondToday: 'Cannot go beyond today',
+		nextDay: 'Next day',
+		assistant: 'AI Assistant',
+		shareAsImage: 'Share as image',
+		tableOfContents: 'Table of contents',
+		offline: 'Offline - changes saved locally',
+		syncing: 'Syncing...',
+		clickToSave: 'Click to save now',
+		allSaved: 'All changes saved'
+	},
+	calendar: {
+		months: [
+			'January',
+			'February',
+			'March',
+			'April',
+			'May',
+			'June',
+			'July',
+			'August',
+			'September',
+			'October',
+			'November',
+			'December'
+		],
+		monthsShort: [
+			'Jan',
+			'Feb',
+			'Mar',
+			'Apr',
+			'May',
+			'Jun',
+			'Jul',
+			'Aug',
+			'Sep',
+			'Oct',
+			'Nov',
+			'Dec'
+		],
+		weekdaysShort: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+		previousMonth: 'Previous month',
+		nextMonth: 'Next month',
+		previousYear: 'Previous year',
+		nextYear: 'Next year',
+		today: 'Today',
+		thisYearButton: 'This Year',
+		backToMonth: 'Back to month view',
+		selectMonth: 'Select month',
+		scrollToSwitchYear: 'Scroll to switch year',
+		weatherLabel: 'Weather: {value}',
+		moodLabel: 'Mood: {value}'
+	},
+	settings: {
+		pageTitle: 'Settings',
+		title: 'Settings',
+		loading: 'Loading...',
+		tabs: {
+			general: 'General',
+			aiAssistant: 'AI Assistant',
+			moodWeather: 'Mood & Weather',
+			apiAccess: 'API Access',
+			memosSync: 'Memos Sync',
+			imageUpload: 'Image Upload',
+			dataManagement: 'Data Management'
+		},
+		chooseSection: 'Choose settings section',
+		general: {
+			heading: 'General',
+			description: 'Choose what you see when you open Diarum and how diary entries look.',
+			saved: 'General settings saved successfully',
+			saveFailed: 'Failed to save general settings',
+			save: 'Save General Settings',
+			language: 'Language',
+			languageDesc: 'Choose the display language. Auto follows your browser language.',
+			languageAuto: 'Automatic',
+			languageAutoDesc: 'Follow your browser language (default)',
+			languageEnglish: 'English',
+			languageEnglishDesc: 'Always display in English',
+			languageChinese: '简体中文',
+			languageChineseDesc: 'Always display in Simplified Chinese',
+			homepage: 'Homepage',
+			homepageDesc: 'Choose what opens when you visit Diarum.',
+			homepageToday: "Today's diary entry",
+			homepageTodayDesc: 'Go straight to writing (default)',
+			homepageOverview: 'Diary overview',
+			homepageOverviewDesc: 'Open the calendar / overview page',
+			visualStyle: 'Visual Style',
+			visualStyleDesc: 'Choose how diary entry pages look and feel.',
+			visualStyleClassic: 'Classic',
+			visualStyleClassicDesc: 'Simple editor page (default)',
+			visualStyleImmersive: 'Immersive',
+			visualStyleImmersiveDesc: 'Flip-page book view'
+		}
+	}
+} as const;

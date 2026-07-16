@@ -22,6 +22,7 @@
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
 	import { loadImageUploadSettings } from '$lib/stores/imageUpload';
 	import Footer from '$lib/components/ui/Footer.svelte';
+	import { t, setLocalePreference, type LocalePreference } from '$lib/i18n';
 	import {
 		DEFAULT_MOOD_OPTIONS,
 		DEFAULT_WEATHER_OPTIONS,
@@ -34,15 +35,25 @@
 
 	type SettingsTab = 'general' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
 
-	const settingsTabs: { id: SettingsTab; label: string }[] = [
-		{ id: 'general', label: 'General' },
-		{ id: 'ai-assistant', label: 'AI Assistant' },
-		{ id: 'mood-weather', label: 'Mood & Weather' },
-		{ id: 'api-access', label: 'API Access' },
-		{ id: 'memos-sync', label: 'Memos Sync' },
-		{ id: 'image-upload', label: 'Image Upload' },
-		{ id: 'data-management', label: 'Data Management' }
+	const settingsTabs: { id: SettingsTab }[] = [
+		{ id: 'general' },
+		{ id: 'ai-assistant' },
+		{ id: 'mood-weather' },
+		{ id: 'api-access' },
+		{ id: 'memos-sync' },
+		{ id: 'image-upload' },
+		{ id: 'data-management' }
 	];
+
+	const tabLabelKey: Record<SettingsTab, string> = {
+		'general': 'settings.tabs.general',
+		'ai-assistant': 'settings.tabs.aiAssistant',
+		'mood-weather': 'settings.tabs.moodWeather',
+		'api-access': 'settings.tabs.apiAccess',
+		'memos-sync': 'settings.tabs.memosSync',
+		'image-upload': 'settings.tabs.imageUpload',
+		'data-management': 'settings.tabs.dataManagement'
+	};
 
 	let activeTab: SettingsTab = 'general';
 
@@ -71,7 +82,7 @@
 	let loading = true;
 
 	// General settings (homepage + visual style)
-	let generalSettings: GeneralSettings = { homepage: 'today', visual_style: 'classic' };
+	let generalSettings: GeneralSettings = { homepage: 'today', visual_style: 'classic', language: 'auto' };
 	let originalGeneralSettings: GeneralSettings = { ...generalSettings };
 	let generalSaving = false;
 	let generalError = '';
@@ -168,6 +179,14 @@
 	async function loadGeneralSettingsLocal() {
 		generalSettings = await getGeneralSettings();
 		originalGeneralSettings = { ...generalSettings };
+		// Apply the persisted language preference so it takes effect immediately.
+		setLocalePreference(generalSettings.language);
+	}
+
+	function selectLanguage(lang: LocalePreference) {
+		generalSettings = { ...generalSettings, language: lang };
+		// Apply instantly for live preview; Save persists it to the server.
+		setLocalePreference(lang);
 	}
 
 	async function handleSaveGeneralSettings() {
@@ -177,10 +196,10 @@
 		try {
 			await saveGeneralSettings(generalSettings);
 			originalGeneralSettings = { ...generalSettings };
-			generalSuccess = 'General settings saved successfully';
+			generalSuccess = $t('settings.general.saved');
 			setTimeout(() => generalSuccess = '', 3000);
 		} catch (e) {
-			generalError = e instanceof Error ? e.message : 'Failed to save general settings';
+			generalError = e instanceof Error ? e.message : $t('settings.general.saveFailed');
 		}
 		generalSaving = false;
 	}
@@ -547,7 +566,8 @@
 
 	$: generalSettingsChanged =
 		generalSettings.homepage !== originalGeneralSettings.homepage ||
-		generalSettings.visual_style !== originalGeneralSettings.visual_style;
+		generalSettings.visual_style !== originalGeneralSettings.visual_style ||
+		generalSettings.language !== originalGeneralSettings.language;
 
 	$: emojiSettingsChanged =
 		JSON.stringify(moodOptions) !== JSON.stringify(originalMoodOptions) ||
@@ -724,7 +744,7 @@
 </script>
 
 <svelte:head>
-	<title>Settings - Diarum</title>
+	<title>{$t('settings.pageTitle')} - Diarum</title>
 </svelte:head>
 
 <div class="min-h-screen bg-background">
@@ -735,20 +755,20 @@
 			<div class="max-w-6xl mx-auto px-4 h-11">
 				<div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 h-full">
 					<div class="flex items-center gap-2 min-w-0">
-						<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Diarum Home">
+						<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity" title={$t('nav.home')}>
 							<img src="/logo.png" alt="Diarum" class="w-6 h-6" />
 							<span class="hidden sm:inline text-lg font-semibold text-foreground hover:text-primary transition-colors">Diarum</span>
 						</a>
 					</div>
 
 					<!-- Center: Title -->
-					<div class="text-sm font-medium text-foreground text-center">Settings</div>
+					<div class="text-sm font-medium text-foreground text-center">{$t('settings.title')}</div>
 
 					<!-- Right: Actions -->
 					<a
 						href="/diary"
 						class="justify-self-end p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200"
-						title="Diary"
+						title={$t('nav.diary')}
 					>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -766,7 +786,7 @@
 			<main class="w-full max-w-4xl">
 				<div class="mb-4 space-y-3">
 					<div class="sm:hidden">
-						<label for="settings-tab-select" class="sr-only">Choose settings section</label>
+						<label for="settings-tab-select" class="sr-only">{$t('settings.chooseSection')}</label>
 						<div class="relative">
 							<select
 								id="settings-tab-select"
@@ -775,7 +795,7 @@
 								class="w-full pl-3 pr-9 py-2 bg-card border border-border/60 rounded-lg text-sm text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-primary"
 							>
 								{#each settingsTabs as tab}
-									<option value={tab.id}>{tab.label}</option>
+									<option value={tab.id}>{$t(tabLabelKey[tab.id])}</option>
 								{/each}
 							</select>
 							<svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -789,7 +809,7 @@
 								on:click={() => setActiveTab(tab.id)}
 								class="px-3 py-1.5 rounded-lg text-sm whitespace-nowrap border transition-colors {activeTab === tab.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-foreground border-border/60 hover:bg-muted/50'}"
 							>
-								{tab.label}
+								{$t(tabLabelKey[tab.id])}
 							</button>
 						{/each}
 					</div>
@@ -800,16 +820,16 @@
 					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 					<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 				</svg>
-				<div class="text-muted-foreground text-sm">Loading...</div>
+				<div class="text-muted-foreground text-sm">{$t('settings.loading')}</div>
 			</div>
 		{:else}
 			<div class="space-y-6">
 				{#if activeTab === 'general'}
 				<!-- General Settings Section -->
 				<div id="general" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
-					<h2 class="text-lg font-semibold text-foreground mb-4">General</h2>
+					<h2 class="text-lg font-semibold text-foreground mb-4">{$t('settings.general.heading')}</h2>
 					<p class="text-sm text-muted-foreground mb-6">
-						Choose what you see when you open Diarum and how diary entries look.
+						{$t('settings.general.description')}
 					</p>
 
 					{#if generalError}
@@ -824,10 +844,39 @@
 						</div>
 					{/if}
 
+					<!-- Language -->
+					<div class="py-4 border-b border-border/50">
+						<div class="font-medium text-foreground mb-1">{$t('settings.general.language')}</div>
+						<p class="text-sm text-muted-foreground mb-3">{$t('settings.general.languageDesc')}</p>
+						<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+							{#each [
+								{ value: 'auto', label: $t('settings.general.languageAuto'), desc: $t('settings.general.languageAutoDesc') },
+								{ value: 'en', label: $t('settings.general.languageEnglish'), desc: $t('settings.general.languageEnglishDesc') },
+								{ value: 'zh', label: $t('settings.general.languageChinese'), desc: $t('settings.general.languageChineseDesc') }
+							] as option}
+								<button
+									type="button"
+									on:click={() => selectLanguage(option.value as LocalePreference)}
+									class="text-left p-3 rounded-lg border transition-colors {generalSettings.language === option.value ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
+								>
+									<div class="flex items-center gap-2">
+										<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.language === option.value ? 'border-primary' : 'border-muted-foreground/40'}">
+											{#if generalSettings.language === option.value}
+												<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+											{/if}
+										</span>
+										<span class="font-medium text-foreground text-sm">{option.label}</span>
+									</div>
+									<div class="text-xs text-muted-foreground mt-1 ml-6">{option.desc}</div>
+								</button>
+							{/each}
+						</div>
+					</div>
+
 					<!-- Homepage -->
 					<div class="py-4 border-b border-border/50">
-						<div class="font-medium text-foreground mb-1">Homepage</div>
-						<p class="text-sm text-muted-foreground mb-3">Choose what opens when you visit Diarum.</p>
+						<div class="font-medium text-foreground mb-1">{$t('settings.general.homepage')}</div>
+						<p class="text-sm text-muted-foreground mb-3">{$t('settings.general.homepageDesc')}</p>
 						<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 							<button
 								type="button"
@@ -840,9 +889,9 @@
 											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
 										{/if}
 									</span>
-									<span class="font-medium text-foreground text-sm">Today's diary entry</span>
+									<span class="font-medium text-foreground text-sm">{$t('settings.general.homepageToday')}</span>
 								</div>
-								<div class="text-xs text-muted-foreground mt-1 ml-6">Go straight to writing (default)</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">{$t('settings.general.homepageTodayDesc')}</div>
 							</button>
 							<button
 								type="button"
@@ -855,17 +904,17 @@
 											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
 										{/if}
 									</span>
-									<span class="font-medium text-foreground text-sm">Diary overview</span>
+									<span class="font-medium text-foreground text-sm">{$t('settings.general.homepageOverview')}</span>
 								</div>
-								<div class="text-xs text-muted-foreground mt-1 ml-6">Open the calendar / overview page</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">{$t('settings.general.homepageOverviewDesc')}</div>
 							</button>
 						</div>
 					</div>
 
 					<!-- Visual style -->
 					<div class="py-4">
-						<div class="font-medium text-foreground mb-1">Visual Style</div>
-						<p class="text-sm text-muted-foreground mb-3">Choose how diary entry pages look and feel.</p>
+						<div class="font-medium text-foreground mb-1">{$t('settings.general.visualStyle')}</div>
+						<p class="text-sm text-muted-foreground mb-3">{$t('settings.general.visualStyleDesc')}</p>
 						<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 							<button
 								type="button"
@@ -878,9 +927,9 @@
 											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
 										{/if}
 									</span>
-									<span class="font-medium text-foreground text-sm">Classic</span>
+									<span class="font-medium text-foreground text-sm">{$t('settings.general.visualStyleClassic')}</span>
 								</div>
-								<div class="text-xs text-muted-foreground mt-1 ml-6">Simple editor page (default)</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">{$t('settings.general.visualStyleClassicDesc')}</div>
 							</button>
 							<button
 								type="button"
@@ -893,9 +942,9 @@
 											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
 										{/if}
 									</span>
-									<span class="font-medium text-foreground text-sm">Immersive</span>
+									<span class="font-medium text-foreground text-sm">{$t('settings.general.visualStyleImmersive')}</span>
 								</div>
-								<div class="text-xs text-muted-foreground mt-1 ml-6">Flip-page book view</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">{$t('settings.general.visualStyleImmersiveDesc')}</div>
 							</button>
 						</div>
 					</div>
@@ -906,7 +955,7 @@
 							disabled={generalSaving || !generalSettingsChanged}
 							class="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
 						>
-							{generalSaving ? 'Saving...' : 'Save General Settings'}
+							{generalSaving ? $t('common.saving') : $t('settings.general.save')}
 						</button>
 					</div>
 				</div>
