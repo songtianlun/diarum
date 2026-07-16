@@ -8,6 +8,10 @@
   <em>One entry a day. Open, write, done. &nbsp;|&nbsp; 一天一篇，打开即写，刚刚好。</em>
 </p>
 
+[![GitHub Release](https://img.shields.io/github/v/release/songtianlun/diarum)](https://github.com/songtianlun/diarum/releases)
+[![GitHub License](https://img.shields.io/github/license/songtianlun/diarum)](https://github.com/songtianlun/diarum/blob/main/LICENSE)
+
+
 [English](#english) | [中文](#中文)
 
 ---
