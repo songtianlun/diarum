@@ -15,6 +15,7 @@
 	 */
 	import { goto } from '$app/navigation';
 	import { formatDisplayDate, formatShortDate, getDayOfWeek, isToday } from '$lib/utils/date';
+	import { t } from '$lib/i18n';
 
 	/** Date currently shown in the header (drives display + "Today" state). */
 	export let date: string;
@@ -60,7 +61,7 @@
 			<div class="flex items-center gap-2">
 				<button
 					class="nav-btn"
-					title="Previous day"
+					title={$t('entryNav.previousDay')}
 					disabled={busy}
 					on:click={onPrevDay}
 				>
@@ -71,7 +72,7 @@
 
 				<button
 					class="nav-btn"
-					title="Calendar"
+					title={$t('entryNav.calendar')}
 					disabled={busy}
 					on:click={goToCalendar}
 				>
@@ -84,14 +85,14 @@
 				{#if onDateTextClick}
 					<button
 						class="date-text date-text-btn {dateTextActive ? 'bg-muted/60' : ''}"
-						title="Contents"
+						title={$t('entryNav.contents')}
 						on:click={onDateTextClick}
 					>
 						<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
 						<span class="sm:hidden">{formatShortDate(date)}</span>
 						<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
 						{#if atToday}
-							<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">Today</span>
+							<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">{$t('common.today')}</span>
 						{/if}
 					</button>
 				{:else}
@@ -100,14 +101,14 @@
 						<span class="sm:hidden">{formatShortDate(date)}</span>
 						<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
 						{#if atToday}
-							<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">Today</span>
+							<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">{$t('common.today')}</span>
 						{/if}
 					</div>
 				{/if}
 
 				<button
 					class="nav-btn"
-					title={atToday ? 'Cannot go beyond today' : 'Next day'}
+					title={atToday ? $t('entryNav.cannotGoBeyondToday') : $t('entryNav.nextDay')}
 					disabled={busy || atToday}
 					on:click={onNextDay}
 				>
@@ -119,7 +120,7 @@
 
 			<!-- Right: Actions -->
 			<div class="flex items-center gap-2">
-				<a href="/assistant" class="hidden sm:block p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200" title="AI Assistant">
+				<a href="/assistant" class="hidden sm:block p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200" title={$t('entryNav.assistant')}>
 					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<rect x="4" y="6" width="16" height="12" rx="2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 						<line x1="12" y1="6" x2="12" y2="2" stroke-width="2" stroke-linecap="round"/>
@@ -136,7 +137,7 @@
 					on:mousedown={onShareMouseDown}
 					on:click={onShareClick}
 					class="hidden sm:block p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200"
-					title="Share as image"
+					title={$t('entryNav.shareAsImage')}
 				>
 					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
@@ -146,7 +147,7 @@
 				<button
 					class="nav-btn {tocActive ? 'bg-muted/60' : ''}"
 					on:click={onTocClick}
-					title="Table of contents"
+					title={$t('entryNav.tableOfContents')}
 				>
 					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7" />
@@ -157,12 +158,12 @@
 					class="nav-btn"
 					on:click={onSyncClick}
 					title={!isOnline
-						? 'Offline - changes saved locally'
+						? $t('entryNav.offline')
 						: isSyncing
-							? 'Syncing...'
+							? $t('entryNav.syncing')
 							: isDirty
-								? 'Click to save now'
-								: 'All changes saved'}
+								? $t('entryNav.clickToSave')
+								: $t('entryNav.allSaved')}
 				>
 					{#if !isOnline}
 						<svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -5,6 +5,7 @@
 	import { isAuthenticated } from '$lib/api/client';
 	import { getGeneralSettings } from '$lib/api/settings';
 	import Footer from '$lib/components/ui/Footer.svelte';
+	import { t } from '$lib/i18n';
 
 	let ready = $state(false);
 
@@ -29,43 +30,19 @@
 		}
 	});
 
-	const features = [
-		{
-			icon: '📝',
-			title: 'Daily Journaling',
-			description: 'Write and organize your thoughts with a beautiful rich text editor. Support for formatting, lists, and more.'
-		},
-		{
-			icon: '🤖',
-			title: 'AI Assistant',
-			description: 'Chat with an intelligent assistant that understands your diary entries and helps you reflect on your journey.'
-		},
-		{
-			icon: '📅',
-			title: 'Calendar View',
-			description: 'Navigate through your entries with an intuitive calendar. See your writing streaks and activity at a glance.'
-		},
-		{
-			icon: '🔍',
-			title: 'Powerful Search',
-			description: 'Find any memory instantly. Search through all your entries with full-text search capabilities.'
-		},
-		{
-			icon: '🖼️',
-			title: 'Media Library',
-			description: 'Attach photos and images to your entries. Build a visual timeline of your life moments.'
-		},
-		{
-			icon: '🌙',
-			title: 'Dark Mode',
-			description: 'Easy on the eyes, day or night. Seamlessly switch between light and dark themes.'
-		}
-	];
+	const featureIcons = ['📝', '🤖', '📅', '🔍', '🖼️', '🌙'];
+	let features = $derived(
+		featureIcons.map((icon, i) => ({
+			icon,
+			title: $t(`landing.feature${i + 1}Title`),
+			description: $t(`landing.feature${i + 1}Desc`)
+		}))
+	);
 </script>
 
 {#if !ready}
 	<div class="flex items-center justify-center min-h-screen">
-		<p class="text-muted-foreground">Loading...</p>
+		<p class="text-muted-foreground">{$t('common.loading')}</p>
 	</div>
 {:else}
 	<div class="min-h-screen flex flex-col bg-background">
@@ -81,7 +58,7 @@
 						href="/login"
 						class="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors"
 					>
-						Login
+						{$t('landing.login')}
 					</a>
 				</div>
 			</div>
@@ -91,25 +68,24 @@
 		<section class="pt-32 pb-20 px-4 sm:px-6 lg:px-8">
 			<div class="max-w-4xl mx-auto text-center animate-fade-in">
 				<h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground mb-6 leading-tight">
-					Your Personal Space for
-					<span class="text-primary">Daily Reflection</span>
+					{$t('landing.heroTitlePrefix')}
+					<span class="text-primary">{$t('landing.heroTitleHighlight')}</span>
 				</h1>
 				<p class="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-					Capture your thoughts, track your journey, and gain insights with AI-powered journaling.
-					A beautiful, private diary that grows with you.
+					{$t('landing.heroSubtitle')}
 				</p>
 				<div class="flex flex-col sm:flex-row items-center justify-center gap-4">
 					<a
 						href="/login"
 						class="w-full sm:w-auto px-8 py-3 text-lg font-medium bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-all shadow-lg hover:shadow-xl"
 					>
-						Start Writing Today
+						{$t('landing.startWriting')}
 					</a>
 					<a
 						href="#features"
 						class="w-full sm:w-auto px-8 py-3 text-lg font-medium text-foreground border border-border rounded-xl hover:bg-accent transition-all"
 					>
-						Learn More
+						{$t('landing.learnMore')}
 					</a>
 				</div>
 			</div>
@@ -124,14 +100,14 @@
 						<!-- Light Mode Screenshot -->
 						<img
 							src="/screenshots/desktop-light.png"
-							alt="Diarum Desktop Interface"
+							alt={$t('landing.desktopAlt')}
 							class="w-full h-auto dark:hidden"
 							loading="lazy"
 						/>
 						<!-- Dark Mode Screenshot -->
 						<img
 							src="/screenshots/desktop-dark.png"
-							alt="Diarum Desktop Interface"
+							alt={$t('landing.desktopAlt')}
 							class="w-full h-auto hidden dark:block"
 							loading="lazy"
 						/>
@@ -144,14 +120,14 @@
 						<!-- Light Mode Screenshot -->
 						<img
 							src="/screenshots/mobile-light.png"
-							alt="Diarum Mobile Interface"
+							alt={$t('landing.mobileAlt')}
 							class="w-full h-auto dark:hidden"
 							loading="lazy"
 						/>
 						<!-- Dark Mode Screenshot -->
 						<img
 							src="/screenshots/mobile-dark.png"
-							alt="Diarum Mobile Interface"
+							alt={$t('landing.mobileAlt')}
 							class="w-full h-auto hidden dark:block"
 							loading="lazy"
 						/>
@@ -166,8 +142,8 @@
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
 							</svg>
 						</div>
-						<h3 class="font-semibold text-foreground mb-2">Beautiful Editor</h3>
-						<p class="text-sm text-muted-foreground">Rich text formatting with an intuitive, distraction-free interface</p>
+						<h3 class="font-semibold text-foreground mb-2">{$t('landing.highlightEditorTitle')}</h3>
+						<p class="text-sm text-muted-foreground">{$t('landing.highlightEditorDesc')}</p>
 					</div>
 
 					<div class="text-center p-6 bg-card/50 rounded-xl border border-border/30">
@@ -176,8 +152,8 @@
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
 							</svg>
 						</div>
-						<h3 class="font-semibold text-foreground mb-2">Smart Calendar</h3>
-						<p class="text-sm text-muted-foreground">Track your writing streaks and navigate entries effortlessly</p>
+						<h3 class="font-semibold text-foreground mb-2">{$t('landing.highlightCalendarTitle')}</h3>
+						<p class="text-sm text-muted-foreground">{$t('landing.highlightCalendarDesc')}</p>
 					</div>
 
 					<div class="text-center p-6 bg-card/50 rounded-xl border border-border/30">
@@ -186,13 +162,13 @@
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
 							</svg>
 						</div>
-						<h3 class="font-semibold text-foreground mb-2">Responsive Design</h3>
-						<p class="text-sm text-muted-foreground">Perfect experience on desktop, tablet, and mobile devices</p>
+						<h3 class="font-semibold text-foreground mb-2">{$t('landing.highlightResponsiveTitle')}</h3>
+						<p class="text-sm text-muted-foreground">{$t('landing.highlightResponsiveDesc')}</p>
 					</div>
 				</div>
 
 				<p class="mt-6 text-center text-sm text-muted-foreground">
-					Clean, distraction-free writing experience across all your devices
+					{$t('landing.screenshotsCaption')}
 				</p>
 			</div>
 		</section>
@@ -202,10 +178,10 @@
 			<div class="max-w-6xl mx-auto">
 				<div class="text-center mb-16 animate-fade-in">
 					<h2 class="text-3xl sm:text-4xl font-bold text-foreground mb-4">
-						Everything You Need to Journal
+						{$t('landing.featuresTitle')}
 					</h2>
 					<p class="text-lg text-muted-foreground max-w-2xl mx-auto">
-						Powerful features designed to make daily journaling effortless and meaningful.
+						{$t('landing.featuresSubtitle')}
 					</p>
 				</div>
 
@@ -230,28 +206,27 @@
 				<div class="grid lg:grid-cols-2 gap-12 items-center">
 					<div class="animate-fade-in">
 						<h2 class="text-3xl sm:text-4xl font-bold text-foreground mb-6">
-							Your AI-Powered Reflection Partner
+							{$t('landing.aiTitle')}
 						</h2>
 						<p class="text-lg text-muted-foreground mb-6">
-							Diarum's intelligent assistant reads your diary entries and helps you discover patterns,
-							gain insights, and reflect on your personal growth journey.
+							{$t('landing.aiSubtitle')}
 						</p>
 						<ul class="space-y-4">
 							<li class="flex items-start gap-3">
 								<span class="text-primary text-xl">✓</span>
-								<span class="text-foreground">Ask questions about your past entries</span>
+								<span class="text-foreground">{$t('landing.aiPoint1')}</span>
 							</li>
 							<li class="flex items-start gap-3">
 								<span class="text-primary text-xl">✓</span>
-								<span class="text-foreground">Get personalized writing prompts</span>
+								<span class="text-foreground">{$t('landing.aiPoint2')}</span>
 							</li>
 							<li class="flex items-start gap-3">
 								<span class="text-primary text-xl">✓</span>
-								<span class="text-foreground">Discover mood patterns and trends</span>
+								<span class="text-foreground">{$t('landing.aiPoint3')}</span>
 							</li>
 							<li class="flex items-start gap-3">
 								<span class="text-primary text-xl">✓</span>
-								<span class="text-foreground">Private and secure conversations</span>
+								<span class="text-foreground">{$t('landing.aiPoint4')}</span>
 							</li>
 						</ul>
 					</div>
@@ -259,24 +234,24 @@
 						<div class="bg-card rounded-2xl border border-border/50 shadow-xl overflow-hidden">
 							<!-- Mock Chat Interface -->
 							<div class="bg-secondary/30 px-4 py-3 border-b border-border/50">
-								<span class="font-medium text-foreground">AI Assistant</span>
+								<span class="font-medium text-foreground">{$t('landing.aiAssistant')}</span>
 							</div>
 							<div class="p-4 space-y-4 min-h-[300px]">
 								<div class="flex gap-3">
 									<div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-sm">🤖</div>
 									<div class="flex-1 bg-muted/50 rounded-lg p-3">
-										<p class="text-sm text-foreground">Based on your recent entries, I noticed you've been feeling more energetic this week. Would you like to explore what might be contributing to this positive change?</p>
+										<p class="text-sm text-foreground">{$t('landing.aiMockMessage1')}</p>
 									</div>
 								</div>
 								<div class="flex gap-3 justify-end">
 									<div class="bg-primary/10 rounded-lg p-3 max-w-[80%]">
-										<p class="text-sm text-foreground">Yes, I'd love to understand that better!</p>
+										<p class="text-sm text-foreground">{$t('landing.aiMockReply')}</p>
 									</div>
 								</div>
 								<div class="flex gap-3">
 									<div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-sm">🤖</div>
 									<div class="flex-1 bg-muted/50 rounded-lg p-3">
-										<p class="text-sm text-foreground">Looking at your entries from the past two weeks, I see you started a morning routine and have been more consistent with exercise...</p>
+										<p class="text-sm text-foreground">{$t('landing.aiMockMessage2')}</p>
 									</div>
 								</div>
 							</div>
@@ -290,24 +265,24 @@
 		<section class="py-20 px-4 sm:px-6 lg:px-8">
 			<div class="max-w-3xl mx-auto text-center">
 				<h2 class="text-3xl sm:text-4xl font-bold text-foreground mb-6">
-					Start Your Journaling Journey Today
+					{$t('landing.ctaTitle')}
 				</h2>
 				<p class="text-lg text-muted-foreground mb-8">
-					Join thousands of people who use Diarum to capture their daily thoughts and grow through reflection.
+					{$t('landing.ctaSubtitle')}
 				</p>
 				<a
 					href="/login"
 					class="inline-block px-8 py-4 text-lg font-medium bg-primary text-primary-foreground rounded-xl hover:opacity-90 transition-all shadow-lg hover:shadow-xl"
 				>
-					Create Your Free Account
+					{$t('landing.ctaButton')}
 				</a>
 				<p class="mt-4 text-sm text-muted-foreground">
-					No credit card required. Your data stays private.
+					{$t('landing.ctaNote')}
 				</p>
 			</div>
 		</section>
 
 		<!-- Footer -->
-		<Footer maxWidth="6xl" tagline="Your personal diary, powered by AI" />
+		<Footer maxWidth="6xl" tagline={$t('footer.poweredByAi')} />
 	</div>
 {/if}

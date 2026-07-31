@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import { isAuthenticated } from '$lib/api/client';
 	import Footer from '$lib/components/ui/Footer.svelte';
+	import { t } from '$lib/i18n';
 
 	let activeTab: 'login' | 'register' = 'login';
 	let loading = false;
@@ -36,7 +37,7 @@
 			const today = new Date().toISOString().split('T')[0];
 			goto(`/diary/${today}`);
 		} else {
-			error = result.error || 'Login failed';
+			error = result.error || $t('login.loginFailed');
 		}
 		loading = false;
 	}
@@ -45,7 +46,7 @@
 		loading = true;
 		error = '';
 		if (registerForm.password !== registerForm.passwordConfirm) {
-			error = 'Passwords do not match';
+			error = $t('login.passwordsMismatch');
 			loading = false;
 			return;
 		}
@@ -54,7 +55,7 @@
 			const today = new Date().toISOString().split('T')[0];
 			goto(`/diary/${today}`);
 		} else {
-			error = result.error || 'Registration failed';
+			error = result.error || $t('login.registrationFailed');
 		}
 		loading = false;
 	}
@@ -66,7 +67,7 @@
 			<div class="text-center mb-8">
 				<img src="/logo.png" alt="Diarum" class="w-16 h-16 mx-auto mb-4" />
 				<h1 class="text-3xl font-bold text-foreground mb-2">Diarum</h1>
-				<p class="text-muted-foreground text-sm">Your personal diary</p>
+				<p class="text-muted-foreground text-sm">{$t('login.tagline')}</p>
 			</div>
 
 			<div class="bg-card rounded-xl shadow-lg border border-border/50 p-6">
@@ -79,7 +80,7 @@
 							: 'text-muted-foreground hover:text-foreground'}"
 						on:click={() => { activeTab = 'login'; error = ''; }}
 					>
-						Login
+						{$t('login.loginTab')}
 					</button>
 					<button
 						class="flex-1 py-2 px-4 text-center text-sm font-medium transition-all duration-200
@@ -88,7 +89,7 @@
 							: 'text-muted-foreground hover:text-foreground'}"
 						on:click={() => { activeTab = 'register'; error = ''; }}
 					>
-						Register
+						{$t('login.registerTab')}
 					</button>
 				</div>
 
@@ -102,7 +103,7 @@
 					<form on:submit|preventDefault={handleLogin} class="space-y-4">
 						<div>
 							<label for="usernameOrEmail" class="block text-sm font-medium text-foreground mb-1.5">
-								Username or Email
+								{$t('login.usernameOrEmail')}
 							</label>
 							<input
 								id="usernameOrEmail"
@@ -112,13 +113,13 @@
 								class="w-full px-3 py-2 bg-background border border-border rounded-lg
 									   focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
 									   text-foreground placeholder:text-muted-foreground transition-all duration-200"
-								placeholder="Enter your username or email"
+								placeholder={$t('login.usernameOrEmailPlaceholder')}
 							/>
 						</div>
 
 						<div>
 							<label for="password" class="block text-sm font-medium text-foreground mb-1.5">
-								Password
+								{$t('login.password')}
 							</label>
 							<input
 								id="password"
@@ -128,7 +129,7 @@
 								class="w-full px-3 py-2 bg-background border border-border rounded-lg
 									   focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
 									   text-foreground placeholder:text-muted-foreground transition-all duration-200"
-								placeholder="Enter your password"
+								placeholder={$t('login.passwordPlaceholder')}
 							/>
 						</div>
 
@@ -138,14 +139,14 @@
 							class="w-full py-2.5 px-4 bg-primary text-primary-foreground rounded-lg font-medium
 								   hover:opacity-90 transition-all duration-200 disabled:opacity-50"
 						>
-							{loading ? 'Logging in...' : 'Login'}
+							{loading ? $t('login.loggingIn') : $t('login.loginButton')}
 						</button>
 					</form>
 				{:else}
 					<form on:submit|preventDefault={handleRegister} class="space-y-4">
 						<div>
 							<label for="username" class="block text-sm font-medium text-foreground mb-1.5">
-								Username
+								{$t('login.username')}
 							</label>
 							<input
 								id="username"
@@ -156,13 +157,13 @@
 								class="w-full px-3 py-2 bg-background border border-border rounded-lg
 									   focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
 									   text-foreground placeholder:text-muted-foreground transition-all duration-200"
-								placeholder="Choose a username"
+								placeholder={$t('login.usernamePlaceholder')}
 							/>
 						</div>
 
 						<div>
 							<label for="email" class="block text-sm font-medium text-foreground mb-1.5">
-								Email
+								{$t('login.email')}
 							</label>
 							<input
 								id="email"
@@ -172,13 +173,13 @@
 								class="w-full px-3 py-2 bg-background border border-border rounded-lg
 									   focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
 									   text-foreground placeholder:text-muted-foreground transition-all duration-200"
-								placeholder="Enter your email"
+								placeholder={$t('login.emailPlaceholder')}
 							/>
 						</div>
 
 						<div>
 							<label for="registerPassword" class="block text-sm font-medium text-foreground mb-1.5">
-								Password
+								{$t('login.password')}
 							</label>
 							<input
 								id="registerPassword"
@@ -189,13 +190,13 @@
 								class="w-full px-3 py-2 bg-background border border-border rounded-lg
 									   focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
 									   text-foreground placeholder:text-muted-foreground transition-all duration-200"
-								placeholder="Choose a password (min 8 chars)"
+								placeholder={$t('login.registerPasswordPlaceholder')}
 							/>
 						</div>
 
 						<div>
 							<label for="passwordConfirm" class="block text-sm font-medium text-foreground mb-1.5">
-								Confirm Password
+								{$t('login.confirmPassword')}
 							</label>
 							<input
 								id="passwordConfirm"
@@ -205,7 +206,7 @@
 								class="w-full px-3 py-2 bg-background border border-border rounded-lg
 									   focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
 									   text-foreground placeholder:text-muted-foreground transition-all duration-200"
-								placeholder="Confirm your password"
+								placeholder={$t('login.confirmPasswordPlaceholder')}
 							/>
 						</div>
 
@@ -215,7 +216,7 @@
 							class="w-full py-2.5 px-4 bg-primary text-primary-foreground rounded-lg font-medium
 								   hover:opacity-90 transition-all duration-200 disabled:opacity-50"
 						>
-							{loading ? 'Creating account...' : 'Create Account'}
+							{loading ? $t('login.creatingAccount') : $t('login.createAccount')}
 						</button>
 					</form>
 				{/if}

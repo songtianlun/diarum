@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { t } from '$lib/i18n';
+
 	export let title: string;
 	export let backHref: string = '/diary';
 	export let sticky: boolean = true;
@@ -8,7 +10,7 @@
 	<div class="max-w-6xl mx-auto px-4 h-11">
 		<div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 h-full">
 			<div class="flex items-center gap-2 min-w-0">
-				<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Diarum Home">
+				<a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity" title={$t('nav.home')}>
 					<img src="/logo.png" alt="Diarum" class="w-6 h-6" />
 					<span class="hidden sm:inline text-lg font-semibold text-foreground hover:text-primary transition-colors">Diarum</span>
 				</a>
@@ -21,7 +23,7 @@
 				<a
 					href={backHref}
 					class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200"
-					title="Diary"
+					title={$t('nav.diary')}
 				>
 					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

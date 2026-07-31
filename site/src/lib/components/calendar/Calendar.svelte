@@ -3,6 +3,7 @@
 	import { tick } from 'svelte';
 	import { formatDate, getCalendarDays, getToday, getYearRange } from '$lib/utils/date';
 	import { getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
+	import { t, ta } from '$lib/i18n';
 
 	export let currentYear: number;
 	export let currentMonth: number;
@@ -19,16 +20,10 @@
 	let yearGridEl: HTMLDivElement;
 	let wheelCooldown = false;
 
-	const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-	const weekDaysShort = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-	const monthNames = [
-		'January', 'February', 'March', 'April', 'May', 'June',
-		'July', 'August', 'September', 'October', 'November', 'December'
-	];
-	const monthNamesShort = [
-		'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-		'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-	];
+	$: weekDays = $ta('calendar.weekdaysShort');
+	$: weekDaysShort = $ta('calendar.weekdaysShort').map((d) => d.charAt(0));
+	$: monthNames = $ta('calendar.months');
+	$: monthNamesShort = $ta('calendar.monthsShort');
 
 	$: calendarDays = getCalendarDays(currentYear, currentMonth);
 	$: todayStr = getToday();
@@ -206,7 +201,7 @@
 				<button
 					on:click={goToPreviousMonth}
 					class="p-2 rounded-lg hover:bg-muted/50 transition-all duration-200"
-					title="Previous month"
+					title={$t('calendar.previousMonth')}
 				>
 					<svg class="w-5 h-5 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -219,7 +214,7 @@
 						<button
 							on:click={enterYearView}
 							class="year-button"
-							title="Switch to year view"
+							title={$t('calendar.selectMonth')}
 						>
 							{currentYear}
 						</button>
@@ -228,14 +223,14 @@
 						on:click={goToToday}
 						class="px-3 py-1 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all duration-200"
 					>
-						Today
+						{$t('calendar.today')}
 					</button>
 				</div>
 
 				<button
 					on:click={goToNextMonth}
 					class="p-2 rounded-lg hover:bg-muted/50 transition-all duration-200"
-					title="Next month"
+					title={$t('calendar.nextMonth')}
 				>
 					<svg class="w-5 h-5 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
@@ -270,10 +265,10 @@
 							{#if meta?.weather || meta?.mood}
 								<div class="absolute inset-x-0 top-1.5 flex items-center justify-center gap-1 text-[11px] leading-none">
 									{#if meta?.weather}
-										<span class="emoji-chip" title={`Weather: ${meta.weather}`}>{meta.weather}</span>
+										<span class="emoji-chip" title={$t('calendar.weatherLabel', { value: meta.weather })}>{meta.weather}</span>
 									{/if}
 									{#if meta?.mood}
-										<span class="emoji-chip" title={`Mood: ${meta.mood}`}>{meta.mood}</span>
+										<span class="emoji-chip" title={$t('calendar.moodLabel', { value: meta.mood })}>{meta.mood}</span>
 									{/if}
 								</div>
 							{:else}
@@ -292,7 +287,7 @@
 				<button
 					on:click={goToPreviousYear}
 					class="p-2 rounded-lg hover:bg-muted/50 transition-all duration-200"
-					title="Previous year"
+					title={$t('calendar.previousYear')}
 				>
 					<svg class="w-5 h-5 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -305,14 +300,14 @@
 						on:click={goToCurrentYear}
 						class="px-3 py-1 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all duration-200"
 					>
-						This Year
+						{$t('calendar.thisYearButton')}
 					</button>
 				</div>
 
 				<button
 					on:click={goToNextYear}
 					class="p-2 rounded-lg hover:bg-muted/50 transition-all duration-200"
-					title="Next year"
+					title={$t('calendar.nextYear')}
 				>
 					<svg class="w-5 h-5 text-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
@@ -374,7 +369,7 @@
 
 					<!-- Scroll hint -->
 					<div class="scroll-hint">
-						<span class="scroll-hint-text">Scroll to switch year</span>
+						<span class="scroll-hint-text">{$t('calendar.scrollToSwitchYear')}</span>
 					</div>
 				{/if}
 			</div>
