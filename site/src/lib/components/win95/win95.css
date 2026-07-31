@@ -1,0 +1,1000 @@
+/*
+ * Windows 95 skin — design primitives.
+ *
+ * Everything here is deliberately scoped under `.w95-root` (or `html.w95-active`)
+ * so that importing this file never leaks into the classic / immersive views,
+ * even though all three entry views live in the same bundle.
+ *
+ * The whole look is built out of four flat colours and 2px bevels — no
+ * gradients on surfaces, no border-radius, no soft shadows. That restraint is
+ * what makes it read as authentic rather than "retro-ish".
+ */
+
+.w95-root {
+	/* Classic 3D object palette (unchanged by the light/dark preference — the
+	   bevels only read correctly against #c0c0c0). */
+	--w95-face: #c0c0c0;
+	--w95-light: #ffffff;
+	--w95-hilite: #dfdfdf;
+	--w95-shadow: #808080;
+	--w95-dark: #0a0a0a;
+	--w95-text: #000000;
+	--w95-disabled: #808080;
+	--w95-desktop: #008080;
+	--w95-window: #ffffff;
+	--w95-select: #000080;
+	--w95-select-text: #ffffff;
+	--w95-title-a1: #000080;
+	--w95-title-a2: #1084d0;
+	--w95-title-i1: #808080;
+	--w95-title-i2: #b5b5b5;
+	--w95-info: #ffffe1;
+
+	--w95-font: 'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, Geneva, Verdana,
+		'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'WenQuanYi Micro Hei', sans-serif;
+	--w95-mono: 'Lucida Console', 'Courier New', Consolas, 'Nimbus Mono PS',
+		'SimSun', 'Songti SC', monospace;
+}
+
+/* The desktop takes over the viewport: no document scrolling, no page chrome. */
+html.w95-active,
+html.w95-active body {
+	overflow: hidden;
+	overscroll-behavior: none;
+	background: #008080;
+}
+html.w95-active {
+	scroll-behavior: auto;
+}
+
+.w95-root {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	background: var(--w95-desktop);
+	color: var(--w95-text);
+	font-family: var(--w95-font);
+	font-size: 12px;
+	line-height: 1.35;
+	/* Aliased text is the single biggest tell of the era. Chrome/Safari honour
+	   this; elsewhere it degrades to normal antialiasing, which still reads
+	   fine at these sizes. */
+	-webkit-font-smoothing: none;
+	-webkit-tap-highlight-color: transparent;
+	cursor: default;
+}
+
+/* Kill the app-wide colour transitions — Win95 repaints instantly. */
+.w95-root *,
+.w95-root *::before,
+.w95-root *::after {
+	transition: none !important;
+	border-radius: 0 !important;
+	box-sizing: border-box;
+}
+
+.w95-root ::selection {
+	background: var(--w95-select);
+	color: var(--w95-select-text);
+}
+
+/* Tailwind's preflight gives every button a pointer cursor; Win95 never did. */
+.w95-root button,
+.w95-root [role='button'] {
+	cursor: default;
+}
+
+.w95-root button:disabled {
+	cursor: default;
+}
+
+/* ------------------------------------------------------------------ bevels */
+
+/* Raised: buttons, window frames, panels. */
+.w95-out {
+	background: var(--w95-face);
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-dark),
+		inset 1px 1px 0 0 var(--w95-light),
+		inset -2px -2px 0 0 var(--w95-shadow),
+		inset 2px 2px 0 0 var(--w95-hilite);
+}
+
+/* Pressed / active button. */
+.w95-in {
+	background: var(--w95-face);
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-light),
+		inset 1px 1px 0 0 var(--w95-dark),
+		inset -2px -2px 0 0 var(--w95-hilite),
+		inset 2px 2px 0 0 var(--w95-shadow);
+}
+
+/* Sunken client area: text fields, list boxes, the editor surface. */
+.w95-field {
+	background: var(--w95-window);
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-light),
+		inset 1px 1px 0 0 var(--w95-shadow),
+		inset -2px -2px 0 0 var(--w95-hilite),
+		inset 2px 2px 0 0 var(--w95-dark);
+}
+
+/* Thin 1px sunken groove: status bar cells, separators. */
+.w95-well {
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-light),
+		inset 1px 1px 0 0 var(--w95-shadow);
+}
+
+.w95-sep {
+	height: 2px;
+	margin: 3px 2px;
+	border-top: 1px solid var(--w95-shadow);
+	border-bottom: 1px solid var(--w95-light);
+}
+
+.w95-vsep {
+	width: 2px;
+	align-self: stretch;
+	margin: 1px 3px;
+	border-left: 1px solid var(--w95-shadow);
+	border-right: 1px solid var(--w95-light);
+}
+
+/* ----------------------------------------------------------------- windows */
+
+.w95-window {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	padding: 3px;
+	background: var(--w95-face);
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-dark),
+		inset 1px 1px 0 0 var(--w95-light),
+		inset -2px -2px 0 0 var(--w95-shadow),
+		inset 2px 2px 0 0 var(--w95-hilite);
+}
+
+.w95-titlebar {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	height: 20px;
+	padding: 0 2px 0 3px;
+	background: linear-gradient(90deg, var(--w95-title-a1), var(--w95-title-a2));
+	color: #fff;
+	font-weight: 700;
+	user-select: none;
+}
+
+.w95-titlebar.inactive {
+	background: linear-gradient(90deg, var(--w95-title-i1), var(--w95-title-i2));
+}
+
+.w95-title-text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	letter-spacing: 0;
+}
+
+.w95-title-icon {
+	flex-shrink: 0;
+	width: 16px;
+	height: 16px;
+	display: block;
+}
+
+.w95-title-buttons {
+	flex-shrink: 0;
+	display: flex;
+	gap: 2px;
+}
+
+.w95-title-btn {
+	width: 16px;
+	height: 14px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--w95-face);
+	color: #000;
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-dark),
+		inset 1px 1px 0 0 var(--w95-light),
+		inset -2px -2px 0 0 var(--w95-shadow),
+		inset 2px 2px 0 0 var(--w95-hilite);
+}
+.w95-title-btn:active {
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-light),
+		inset 1px 1px 0 0 var(--w95-dark),
+		inset -2px -2px 0 0 var(--w95-hilite),
+		inset 2px 2px 0 0 var(--w95-shadow);
+}
+.w95-title-btn svg {
+	display: block;
+	shape-rendering: crispEdges;
+}
+.w95-title-btn:disabled {
+	color: var(--w95-shadow);
+}
+
+/* ----------------------------------------------------------------- buttons */
+
+.w95-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	min-height: 22px;
+	padding: 3px 9px;
+	background: var(--w95-face);
+	color: var(--w95-text);
+	font-family: inherit;
+	font-size: 12px;
+	line-height: 1;
+	white-space: nowrap;
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-dark),
+		inset 1px 1px 0 0 var(--w95-light),
+		inset -2px -2px 0 0 var(--w95-shadow),
+		inset 2px 2px 0 0 var(--w95-hilite);
+}
+
+.w95-btn:active:not(:disabled),
+.w95-btn.pressed {
+	padding: 4px 8px 2px 10px;
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-light),
+		inset 1px 1px 0 0 var(--w95-dark),
+		inset -2px -2px 0 0 var(--w95-hilite),
+		inset 2px 2px 0 0 var(--w95-shadow);
+}
+
+.w95-btn:focus-visible {
+	outline: 1px dotted #000;
+	outline-offset: -4px;
+}
+
+.w95-btn:disabled {
+	color: var(--w95-shadow);
+	text-shadow: 1px 1px 0 var(--w95-light);
+}
+
+/* Square icon button — toolbars, spinners, the date stepper. */
+.w95-iconbtn {
+	width: 23px;
+	height: 22px;
+	padding: 0;
+	flex-shrink: 0;
+}
+/* Must repeat the `.pressed` selector at equal specificity and later in the
+   file, otherwise `.w95-btn.pressed`'s text padding wins over the square
+   icon geometry. */
+.w95-iconbtn:active:not(:disabled),
+.w95-iconbtn.pressed {
+	padding: 1px 0 0 1px;
+}
+.w95-iconbtn svg {
+	display: block;
+	shape-rendering: crispEdges;
+}
+.w95-iconbtn:disabled svg {
+	opacity: 0.45;
+}
+
+.w95-btn .w95-mn {
+	text-decoration: underline;
+}
+
+/* --------------------------------------------------------------- menu bar */
+
+.w95-menubar {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	height: 19px;
+	padding: 0 1px;
+	background: var(--w95-face);
+	user-select: none;
+	/* Above the click-away scrim so a second title can be opened with one
+	   click (and one tap on the handheld layout, which has no hover). */
+	position: relative;
+	z-index: 56;
+}
+
+.w95-menubar-item {
+	padding: 2px 7px;
+	font-size: 12px;
+	line-height: 1.15;
+	color: var(--w95-text);
+	background: transparent;
+}
+
+.w95-menubar-item.open,
+.w95-menubar-item:hover {
+	background: var(--w95-select);
+	color: var(--w95-select-text);
+}
+
+.w95-menu {
+	position: absolute;
+	z-index: 60;
+	min-width: 168px;
+	padding: 2px;
+	background: var(--w95-face);
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-dark),
+		inset 1px 1px 0 0 var(--w95-light),
+		inset -2px -2px 0 0 var(--w95-shadow),
+		inset 2px 2px 0 0 var(--w95-hilite),
+		2px 2px 0 0 rgba(0, 0, 0, 0.35);
+}
+
+.w95-menu-item {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 3px 18px 3px 22px;
+	text-align: left;
+	font-size: 12px;
+	color: var(--w95-text);
+	background: transparent;
+	white-space: nowrap;
+}
+
+.w95-menu-item:hover:not(:disabled),
+.w95-menu-item.active {
+	background: var(--w95-select);
+	color: var(--w95-select-text);
+}
+
+.w95-menu-item:disabled {
+	color: var(--w95-shadow);
+	text-shadow: 1px 1px 0 var(--w95-light);
+}
+
+.w95-menu-item .shortcut {
+	margin-left: auto;
+	padding-left: 18px;
+	opacity: 0.9;
+}
+
+.w95-menu-item .checkmark {
+	position: absolute;
+	left: 6px;
+	top: 50%;
+	transform: translateY(-50%);
+	font-size: 11px;
+	line-height: 1;
+}
+
+/* -------------------------------------------------------------- status bar */
+
+.w95-statusbar {
+	flex-shrink: 0;
+	display: flex;
+	align-items: stretch;
+	gap: 2px;
+	padding: 2px 0 0;
+	background: var(--w95-face);
+	user-select: none;
+}
+
+.w95-status-cell {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	padding: 2px 6px;
+	font-size: 11px;
+	/* Fixed leading so the flex cells and the block (ellipsised) cell below
+	   end up exactly the same height. */
+	line-height: 16px;
+	color: var(--w95-text);
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-light),
+		inset 1px 1px 0 0 var(--w95-shadow);
+}
+
+/* text-overflow needs a block container, so this variant drops out of flex. */
+.w95-status-cell.grow {
+	flex: 1;
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.w95-status-cell.clickable:hover {
+	background: rgba(0, 0, 0, 0.04);
+}
+
+/* ------------------------------------------------------------------- trees */
+
+.w95-tree {
+	font-size: 12px;
+	line-height: 16px;
+	user-select: none;
+	padding: 2px 4px 6px;
+}
+
+.w95-tree-row {
+	display: flex;
+	align-items: center;
+	height: 18px;
+	white-space: nowrap;
+}
+
+/* The dotted rails. Win95's tree lines are a 1-on/1-off dither, which a
+   2px-period gradient reproduces exactly at 1× and degrades gracefully. */
+.w95-rail {
+	flex-shrink: 0;
+	align-self: stretch;
+	width: 16px;
+	position: relative;
+}
+.w95-rail.line::before {
+	content: '';
+	position: absolute;
+	left: 7px;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background-image: linear-gradient(to bottom, var(--w95-shadow) 50%, transparent 50%);
+	background-size: 1px 2px;
+}
+
+/*
+ * Junction cell. Every indent step is exactly 16px, so a node's trunk lands on
+ * the same x as its parent's expand box one column to the left — which is the
+ * detail that makes the rails read as a real tree instead of decoration.
+ * All the dither phases start on even offsets so the dotted pattern stays
+ * continuous where cells meet.
+ */
+.w95-knob,
+.w95-btncell {
+	position: relative;
+	flex-shrink: 0;
+	align-self: stretch;
+	width: 16px;
+}
+
+.w95-knob .trunk,
+.w95-knob .elbow,
+.w95-btncell .cross {
+	position: absolute;
+	background-image: linear-gradient(to bottom, var(--w95-shadow) 50%, transparent 50%);
+	background-size: 1px 2px;
+}
+.w95-knob .trunk {
+	left: 7px;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+}
+/* last child: the trunk stops at the elbow instead of running past it */
+.w95-knob .trunk.half {
+	bottom: 9px;
+}
+.w95-knob .elbow,
+.w95-btncell .cross {
+	top: 9px;
+	height: 1px;
+	background-image: linear-gradient(to right, var(--w95-shadow) 50%, transparent 50%);
+	background-size: 2px 1px;
+}
+.w95-knob .elbow {
+	left: 8px;
+	width: 8px;
+}
+/* Runs the full cell width and is painted *behind* the expand box, so it
+   reappears as the short connector on either side of it. */
+.w95-btncell .cross {
+	left: 0;
+	right: 0;
+}
+.w95-btncell.root .cross {
+	left: 12px;
+}
+
+.w95-toggle {
+	position: absolute;
+	left: 3px;
+	top: 5px;
+	width: 9px;
+	height: 9px;
+	padding: 0;
+	background: var(--w95-window);
+	border: 1px solid var(--w95-shadow);
+	display: block;
+}
+.w95-toggle::before,
+.w95-toggle::after {
+	content: '';
+	position: absolute;
+	background: #000;
+}
+/* horizontal bar of the +/- */
+.w95-toggle::before {
+	left: 1px;
+	top: 3px;
+	width: 5px;
+	height: 1px;
+}
+/* vertical bar, only when collapsed */
+.w95-toggle.plus::after {
+	left: 3px;
+	top: 1px;
+	width: 1px;
+	height: 5px;
+}
+
+.w95-node {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	padding: 1px 4px 1px 2px;
+	background: transparent;
+	color: var(--w95-text);
+	font-family: inherit;
+	font-size: 12px;
+	text-align: left;
+	white-space: nowrap;
+}
+.w95-node:hover {
+	background: rgba(0, 0, 128, 0.08);
+}
+.w95-node.selected {
+	background: var(--w95-select);
+	color: var(--w95-select-text);
+}
+.w95-node.selected .dim {
+	color: #c8c8e8;
+}
+.w95-node .dim {
+	color: var(--w95-shadow);
+	font-size: 11px;
+}
+.w95-node .label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.w95-node svg {
+	flex-shrink: 0;
+	display: block;
+	shape-rendering: crispEdges;
+}
+
+.w95-tree-empty {
+	padding: 8px 10px;
+	color: var(--w95-shadow);
+	font-size: 11px;
+}
+
+/* -------------------------------------------------------------- scrollbars */
+
+.w95-scroll {
+	overflow: auto;
+	scrollbar-width: auto;
+	scrollbar-color: var(--w95-face) #dedede;
+}
+
+.w95-root ::-webkit-scrollbar {
+	width: 16px;
+	height: 16px;
+}
+
+.w95-root ::-webkit-scrollbar-track {
+	/* the classic 50% dither of #ffffff over #c0c0c0 */
+	background-color: #c0c0c0;
+	background-image: linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%),
+		linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%);
+	background-size: 2px 2px;
+	background-position: 0 0, 1px 1px;
+}
+
+.w95-root ::-webkit-scrollbar-thumb {
+	background-color: #c0c0c0;
+	border: 0;
+	box-shadow:
+		inset -1px -1px 0 0 #0a0a0a,
+		inset 1px 1px 0 0 #ffffff,
+		inset -2px -2px 0 0 #808080,
+		inset 2px 2px 0 0 #dfdfdf;
+}
+
+.w95-root ::-webkit-scrollbar-corner {
+	background: #c0c0c0;
+}
+
+.w95-root ::-webkit-scrollbar-button:single-button {
+	display: block;
+	background-color: #c0c0c0;
+	background-repeat: no-repeat;
+	background-position: center;
+	box-shadow:
+		inset -1px -1px 0 0 #0a0a0a,
+		inset 1px 1px 0 0 #ffffff,
+		inset -2px -2px 0 0 #808080,
+		inset 2px 2px 0 0 #dfdfdf;
+	height: 16px;
+	width: 16px;
+}
+.w95-root ::-webkit-scrollbar-button:single-button:vertical:decrement {
+	background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='7' height='4'><path d='M3 0h1v1h1v1h1v1h1v1H0V3h1V2h1V1h1z' fill='%23000'/></svg>");
+}
+.w95-root ::-webkit-scrollbar-button:single-button:vertical:increment {
+	background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='7' height='4'><path d='M0 0h7v1H6v1H5v1H4v1H3V3H2V2H1V1H0z' fill='%23000'/></svg>");
+}
+.w95-root ::-webkit-scrollbar-button:single-button:horizontal:decrement {
+	background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='4' height='7'><path d='M4 0v7H3V6H2V5H1V4H0V3h1V2h1V1h1V0z' fill='%23000'/></svg>");
+}
+.w95-root ::-webkit-scrollbar-button:single-button:horizontal:increment {
+	background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='4' height='7'><path d='M0 0h1v1h1v1h1v1h1v1H3v1H2v1H1v1H0z' fill='%23000'/></svg>");
+}
+
+/* --------------------------------------------------------------- dialogues */
+
+.w95-modal-veil {
+	position: absolute;
+	inset: 0;
+	z-index: 70;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 12px;
+	background: transparent;
+}
+
+.w95-dialog {
+	max-width: min(92vw, 420px);
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-dark),
+		inset 1px 1px 0 0 var(--w95-light),
+		inset -2px -2px 0 0 var(--w95-shadow),
+		inset 2px 2px 0 0 var(--w95-hilite),
+		3px 3px 0 0 rgba(0, 0, 0, 0.35);
+}
+
+.w95-dialog-body {
+	padding: 12px;
+}
+
+.w95-dialog-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 6px;
+	padding: 0 12px 12px;
+}
+
+.w95-emoji-grid {
+	display: grid;
+	grid-template-columns: repeat(4, 34px);
+	gap: 3px;
+	padding: 4px;
+}
+
+.w95-emoji-cell {
+	width: 34px;
+	height: 30px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 17px;
+	line-height: 1;
+	background: var(--w95-face);
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-dark),
+		inset 1px 1px 0 0 var(--w95-light),
+		inset -2px -2px 0 0 var(--w95-shadow),
+		inset 2px 2px 0 0 var(--w95-hilite);
+}
+.w95-emoji-cell:active,
+.w95-emoji-cell.on {
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-light),
+		inset 1px 1px 0 0 var(--w95-dark),
+		inset -2px -2px 0 0 var(--w95-hilite),
+		inset 2px 2px 0 0 var(--w95-shadow);
+}
+.w95-emoji-cell.on {
+	background-color: #b0b0b0;
+	background-image: linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%),
+		linear-gradient(45deg, #fff 25%, transparent 25%, transparent 75%, #fff 75%);
+	background-size: 2px 2px;
+	background-position: 0 0, 1px 1px;
+}
+
+/* `groove` is the one legacy border style browsers still render as a true
+   two-tone 3D edge, which is exactly the Win95 group box. */
+.w95-groupbox {
+	position: relative;
+	margin-top: 8px;
+	padding: 10px 8px 8px;
+	border: 2px groove var(--w95-face);
+}
+.w95-groupbox > legend,
+.w95-groupbox > .legend {
+	position: absolute;
+	top: -7px;
+	left: 8px;
+	z-index: 1;
+	padding: 0 4px;
+	background: var(--w95-face);
+	font-size: 11px;
+}
+
+/* -------------------------------------------------------------- taskbar/CE */
+
+.w95-taskbar {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	height: 30px;
+	padding: 2px 3px;
+	background: var(--w95-face);
+	border-top: 1px solid var(--w95-light);
+	box-shadow: inset 0 1px 0 0 var(--w95-hilite);
+}
+
+.w95-tray {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	height: 24px;
+	margin-left: auto;
+	padding: 0 6px;
+	font-size: 11px;
+	box-shadow:
+		inset -1px -1px 0 0 var(--w95-light),
+		inset 1px 1px 0 0 var(--w95-shadow);
+}
+
+/* ---------------------------------------------------- rich text (Notepad) */
+
+/*
+ * Reuse the existing TipTap markdown rendering wholesale; only repaint it.
+ * Notepad itself was plain monospace, but the entries hold real headings,
+ * lists and images — so this keeps document structure while dropping every
+ * rounded corner, soft shadow and web-era colour.
+ */
+/* The editor must fill its sunken client area so a click anywhere in the white
+   region lands in the document — TipTap's own 500px min-heights would instead
+   force a scrollbar on every short entry. */
+.w95-root .w95-editor-scroll .tiptap-editor,
+.w95-root .w95-editor-scroll .editor-container {
+	min-height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+.w95-root .w95-editor-scroll .editor-container {
+	flex: 1;
+}
+.w95-root .w95-editor-scroll .tiptap-editor-content {
+	flex: 1;
+	cursor: text;
+}
+
+.w95-root .tiptap-editor-content {
+	padding: 6px 8px;
+	background: var(--w95-window);
+	color: #000;
+	font-family: var(--w95-mono);
+	font-size: 13px;
+	line-height: 1.55;
+	-webkit-font-smoothing: none;
+}
+
+.w95-root .tiptap-editor-content p {
+	margin-bottom: 0.7em;
+}
+
+.w95-root .tiptap-editor-content h1,
+.w95-root .tiptap-editor-content h2,
+.w95-root .tiptap-editor-content h3 {
+	font-family: var(--w95-font);
+	color: #000;
+	letter-spacing: 0;
+	margin-top: 1em;
+	margin-bottom: 0.35em;
+}
+.w95-root .tiptap-editor-content h1 {
+	font-size: 1.55em;
+	font-weight: 700;
+	border-bottom: 2px groove #c0c0c0;
+	padding-bottom: 2px;
+}
+.w95-root .tiptap-editor-content h2 {
+	font-size: 1.28em;
+	font-weight: 700;
+}
+.w95-root .tiptap-editor-content h3 {
+	font-size: 1.1em;
+	font-weight: 700;
+}
+
+.w95-root .tiptap-editor-content a,
+.w95-root .tiptap-editor-content .editor-link {
+	color: #0000c0;
+	text-decoration: underline;
+}
+
+.w95-root .tiptap-editor-content code {
+	background: #c0c0c0;
+	color: #000;
+	padding: 0 2px;
+	font-family: var(--w95-mono);
+	box-shadow:
+		inset -1px -1px 0 0 #fff,
+		inset 1px 1px 0 0 #808080;
+}
+
+.w95-root .tiptap-editor-content pre {
+	background: #000080;
+	color: #c0c0c0;
+	font-family: var(--w95-mono);
+	padding: 8px 10px;
+	box-shadow:
+		inset -1px -1px 0 0 #fff,
+		inset 1px 1px 0 0 #808080;
+}
+.w95-root .tiptap-editor-content pre code {
+	background: transparent;
+	box-shadow: none;
+	color: inherit;
+}
+
+.w95-root .tiptap-editor-content blockquote {
+	border-left: 4px solid #808080;
+	background: #efefef;
+	padding: 4px 10px;
+	margin: 0.7em 0;
+	color: #000;
+	font-style: normal;
+}
+
+.w95-root .tiptap-editor-content hr {
+	border: 0;
+	border-top: 1px solid #808080;
+	border-bottom: 1px solid #ffffff;
+	margin: 1em 0;
+}
+
+.w95-root .tiptap-editor-content mark {
+	background: #ffff00;
+	color: #000;
+}
+
+.w95-root .tiptap-editor-content img,
+.w95-root .tiptap-editor-content .image-wrapper img {
+	box-shadow:
+		inset -1px -1px 0 0 #fff,
+		inset 1px 1px 0 0 #808080;
+	border: 1px solid #808080;
+	margin: 0.6em 0;
+}
+
+.w95-root .tiptap-editor-content ul[data-type='taskList'] li > label input[type='checkbox'] {
+	accent-color: #000080;
+}
+
+.w95-root .tiptap-editor-content p.is-empty.has-focus::before {
+	color: #808080;
+	opacity: 1;
+}
+
+/* The editor chrome (bubble/floating menus etc.) inherits the flat palette. */
+.w95-root .tiptap-editor-content:focus,
+.w95-root .tiptap-editor-content *:focus {
+	outline: none;
+}
+
+/* ------------------------------------------------------- slash command menu */
+
+/*
+ * TipTap mounts the "/" command palette straight into <body>, i.e. outside the
+ * desktop, so it can't inherit `.w95-root`. Repaint it from the html flag
+ * instead — flat popup menu, navy selection, no rounding or shadow blur.
+ */
+html.w95-active .command-menu {
+	border: 0 !important;
+	border-radius: 0 !important;
+	background: #c0c0c0 !important;
+	box-shadow:
+		inset -1px -1px 0 0 #0a0a0a,
+		inset 1px 1px 0 0 #ffffff,
+		inset -2px -2px 0 0 #808080,
+		inset 2px 2px 0 0 #dfdfdf,
+		2px 2px 0 0 rgba(0, 0, 0, 0.35) !important;
+	font-family:
+		'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+	color: #000;
+	-webkit-font-smoothing: none;
+}
+
+html.w95-active .command-menu .group-label {
+	color: #000080;
+	font-weight: 700;
+}
+
+html.w95-active .command-menu .command-item {
+	border-radius: 0 !important;
+	color: #000;
+	background: transparent;
+}
+
+html.w95-active .command-menu .command-item:hover,
+html.w95-active .command-menu .command-item.selected {
+	background: #000080 !important;
+	color: #fff !important;
+}
+
+html.w95-active .command-menu .icon {
+	border-radius: 0 !important;
+	background: #c0c0c0 !important;
+	color: #000 !important;
+	box-shadow:
+		inset -1px -1px 0 0 #0a0a0a,
+		inset 1px 1px 0 0 #ffffff,
+		inset -2px -2px 0 0 #808080,
+		inset 2px 2px 0 0 #dfdfdf;
+}
+
+/* ----------------------------------------------------------------- helpers */
+
+.w95-marquee-title {
+	font-weight: 700;
+	font-size: 12px;
+}
+
+.w95-hint {
+	color: var(--w95-shadow);
+	font-size: 11px;
+}
+
+.w95-pane-caption {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	height: 18px;
+	padding: 0 4px;
+	margin-bottom: 2px;
+	background: linear-gradient(90deg, var(--w95-title-a1), var(--w95-title-a2));
+	color: #fff;
+	font-size: 11px;
+	font-weight: 700;
+	user-select: none;
+}
+
+.w95-pane-caption.muted {
+	background: linear-gradient(90deg, var(--w95-title-i1), var(--w95-title-i2));
+}
+
+.w95-blink {
+	animation: w95-blink 1s steps(1, end) infinite;
+}
+@keyframes w95-blink {
+	0%,
+	50% {
+		opacity: 1;
+	}
+	50.01%,
+	100% {
+		opacity: 0.25;
+	}
+}

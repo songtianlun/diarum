@@ -25,7 +25,7 @@ export interface MemosSettings {
 }
 
 export type HomepagePreference = 'today' | 'overview';
-export type VisualStylePreference = 'classic' | 'immersive';
+export type VisualStylePreference = 'classic' | 'immersive' | 'win95';
 export type LanguagePreference = 'auto' | 'en' | 'zh';
 
 export interface GeneralSettings {
@@ -45,7 +45,7 @@ function sanitizeHomepage(value: unknown): HomepagePreference {
 }
 
 function sanitizeVisualStyle(value: unknown): VisualStylePreference {
-	return value === 'immersive' ? 'immersive' : 'classic';
+	return value === 'immersive' || value === 'win95' ? value : 'classic';
 }
 
 function sanitizeLanguage(value: unknown): LanguagePreference {
