@@ -234,7 +234,9 @@ export const zh = {
 	},
 	win95: {
 		contentsTitle: '日记目录',
-		contentsHint: '按年 / 月 / 日浏览',
+		yesterday: '昨天',
+		expandAll: '展开所有',
+		collapseAll: '折叠所有',
 		notepadTitle: '{name} - 记事本',
 		placeholder: '在此输入日记内容…',
 		today: '今天(&T)',

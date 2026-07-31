@@ -235,6 +235,11 @@
 		openDate(getToday());
 	}
 
+	/** Yesterday proper, not "one day back from whatever is open". */
+	function goYesterday() {
+		openDate(getPreviousDay(getToday()));
+	}
+
 	function navigate(href: string) {
 		goto(href);
 	}
@@ -466,7 +471,6 @@
 						onPrev={goPrev}
 						onNext={goNext}
 						onPick={openDate}
-						onOpenOverview={() => navigate('/diary')}
 					/>
 					<button
 						type="button"
@@ -570,6 +574,7 @@
 						loading={entriesLoading}
 						onSelect={openDate}
 						onToday={goToday}
+						onYesterday={goYesterday}
 					/>
 
 					<Win95DateNav
@@ -579,7 +584,6 @@
 						onPrev={goPrev}
 						onNext={goNext}
 						onPick={openDate}
-						onOpenOverview={() => navigate('/diary')}
 					/>
 
 					{#if outlineOpen}
@@ -706,18 +710,9 @@
 				<span>{padTitle}</span>
 			</button>
 
+			<!-- No sync indicator here: the rail's status panel already owns it,
+			     and two copies of the same state read as two different things. -->
 			<div class="w95-tray">
-				<Win95Icon
-					name={!$onlineState.isOnline
-						? 'offline'
-						: isAnySyncing
-							? 'syncing'
-							: currentDateIsDirty
-								? 'dirty'
-								: 'saved'}
-					size={14}
-					title={currentDateIsDirty ? $t('win95.statusDirty') : $t('win95.statusSaved')}
-				/>
 				<span>{clock}</span>
 			</div>
 		</div>
@@ -765,6 +760,10 @@
 					onToday={() => {
 						sheet = null;
 						goToday();
+					}}
+					onYesterday={() => {
+						sheet = null;
+						goYesterday();
 					}}
 				/>
 			{:else}

@@ -36,6 +36,17 @@
 		<button
 			type="button"
 			class="w95-btn w95-iconbtn"
+			title={$t('entryNav.calendar')}
+			on:click={() => onNavigate('/diary')}
+		>
+			<Win95Icon name="calendar" size={16} />
+		</button>
+
+		<span class="w95-vsep"></span>
+
+		<button
+			type="button"
+			class="w95-btn w95-iconbtn"
 			title={$t('entryNav.assistant')}
 			on:click={() => onNavigate('/assistant')}
 		>

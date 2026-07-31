@@ -10,7 +10,7 @@
 	import { tick } from 'svelte';
 	import Win95Icon from './Win95Icon.svelte';
 	import type { CalendarDiaryMeta } from '$lib/api/diaries';
-	import { getDayOfWeek, getToday } from '$lib/utils/date';
+	import { getDayOfWeek, getPreviousDay, getToday } from '$lib/utils/date';
 	import { t, ta } from '$lib/i18n';
 
 	export let entries: CalendarDiaryMeta[] = [];
@@ -18,8 +18,14 @@
 	export let loading = false;
 	export let onSelect: (date: string) => void;
 	export let onToday: () => void;
+	export let onYesterday: () => void;
 
 	type Kind = 'root' | 'year' | 'month' | 'day';
+
+	/** An entry, or the stand-in node for a day that hasn't been written yet. */
+	interface TreeEntry extends CalendarDiaryMeta {
+		placeholder?: boolean;
+	}
 
 	interface Row {
 		key: string;
@@ -29,6 +35,8 @@
 		date: string;
 		mood: string;
 		weather: string;
+		/** A day node with no entry behind it yet — drawn as a blank page. */
+		placeholder: boolean;
 		depth: number;
 		/**
 		 * One flag per rail column left of the junction cell. Column `c` carries
@@ -43,7 +51,8 @@
 	/** Node keys that are currently expanded (`Record` keeps Svelte 4 reactive). */
 	let open: Record<string, boolean> = { root: true };
 	let scroller: HTMLDivElement | undefined;
-	let lastScrolledTo = '';
+	let lastRevealed = '';
+	let revealedAfterLoad = false;
 
 	$: monthNames = $ta('calendar.monthsShort');
 
@@ -52,7 +61,7 @@
 	interface MonthGroup {
 		key: string;
 		month: number;
-		days: CalendarDiaryMeta[];
+		days: TreeEntry[];
 	}
 	interface YearGroup {
 		key: string;
@@ -61,10 +70,22 @@
 		count: number;
 	}
 
-	$: years = groupEntries(entries);
+	/**
+	 * The open day is always represented, even before it has any content — that
+	 * way "Today"/"Yesterday" (and any fresh date) always have a node to select
+	 * and scroll to instead of silently landing on nothing.
+	 */
+	$: treeEntries = withCurrentDate(entries, currentDate);
 
-	function groupEntries(list: CalendarDiaryMeta[]): YearGroup[] {
-		const byYear = new Map<number, Map<number, CalendarDiaryMeta[]>>();
+	function withCurrentDate(list: CalendarDiaryMeta[], current: string): TreeEntry[] {
+		if (!current || list.some((e) => e.date === current)) return list;
+		return [...list, { date: current, mood: '', weather: '', placeholder: true }];
+	}
+
+	$: years = groupEntries(treeEntries);
+
+	function groupEntries(list: TreeEntry[]): YearGroup[] {
+		const byYear = new Map<number, Map<number, TreeEntry[]>>();
 
 		for (const item of list) {
 			if (!item?.date || item.date.length < 10) continue;
@@ -117,6 +138,7 @@
 			date: '',
 			mood: '',
 			weather: '',
+			placeholder: false,
 			depth: 0,
 			guides: [],
 			last: true,
@@ -135,6 +157,7 @@
 				date: '',
 				mood: '',
 				weather: '',
+				placeholder: false,
 				depth: 1,
 				guides: [],
 				last: yearLast,
@@ -152,6 +175,7 @@
 					date: '',
 					mood: '',
 					weather: '',
+					placeholder: false,
 					depth: 2,
 					guides: [!yearLast],
 					last: monthLast,
@@ -168,6 +192,7 @@
 						date: day.date,
 						mood: day.mood ?? '',
 						weather: day.weather ?? '',
+						placeholder: day.placeholder === true,
 						depth: 3,
 						guides: [!yearLast, !monthLast],
 						last: di === month.days.length - 1,
@@ -182,29 +207,76 @@
 
 	// --------------------------------------------------------- auto-expand
 
-	/**
-	 * Keep the branch holding the open entry expanded, and reveal it. Only fires
-	 * when the date actually changes so manual collapsing isn't fought.
-	 */
-	$: if (currentDate && currentDate !== lastScrolledTo) {
-		lastScrolledTo = currentDate;
+	/** Opens the year and month holding `target`, leaving everything else alone. */
+	function expandFor(target: string) {
+		if (!target) return;
 		open = {
 			...open,
 			root: true,
-			[currentDate.slice(0, 4)]: true,
-			[currentDate.slice(0, 7)]: true
+			[target.slice(0, 4)]: true,
+			[target.slice(0, 7)]: true
 		};
-		void revealSelected();
 	}
 
-	async function revealSelected() {
+	async function scrollToDate(target: string) {
+		// Two ticks: the first flushes the `open` change into new rows, the
+		// second lets those rows lay out before we measure them.
 		await tick();
-		const el = scroller?.querySelector('[data-selected="true"]') as HTMLElement | null;
+		await tick();
+		const el = scroller?.querySelector(`[data-date="${target}"]`) as HTMLElement | null;
 		el?.scrollIntoView({ block: 'nearest' });
+	}
+
+	$: if (currentDate && currentDate !== lastRevealed) {
+		lastRevealed = currentDate;
+		expandFor(currentDate);
+		void scrollToDate(currentDate);
+	}
+
+	// The tree is still showing the loading line on first paint, so the reveal
+	// above has nothing to find. Retry once the rows actually exist.
+	$: if (!loading && !revealedAfterLoad && currentDate) {
+		revealedAfterLoad = true;
+		void scrollToDate(currentDate);
+	}
+
+	/**
+	 * Today/Yesterday expand straight away so a collapsed tree reopens on the
+	 * spot. The scroll is left to the reactive block above once the route
+	 * lands — the target day may not have a node until it becomes the current
+	 * date — unless we're already on it, in which case nothing will change and
+	 * we have to scroll here.
+	 */
+	function jumpTo(target: string, navigateAway: () => void) {
+		expandFor(target);
+		if (target === currentDate) void scrollToDate(target);
+		navigateAway();
+	}
+
+	function handleToday() {
+		jumpTo(getToday(), onToday);
+	}
+
+	function handleYesterday() {
+		jumpTo(getPreviousDay(getToday()), onYesterday);
 	}
 
 	function toggle(key: string) {
 		open = { ...open, [key]: !open[key] };
+	}
+
+	function expandAll() {
+		const next: Record<string, boolean> = { root: true };
+		for (const year of years) {
+			next[year.key] = true;
+			for (const month of year.months) next[month.key] = true;
+		}
+		open = next;
+	}
+
+	/** Collapses back to the year list rather than hiding the whole tree. */
+	function collapseAll() {
+		open = { root: true };
 	}
 
 	function activate(row: Row) {
@@ -215,16 +287,13 @@
 		}
 	}
 
-	function iconFor(row: Row): 'book' | 'folder' | 'folder-open' | 'page' {
+	function iconFor(row: Row): 'book' | 'folder' | 'folder-open' | 'page' | 'page-blank' {
 		if (row.kind === 'root') return 'book';
-		if (row.kind === 'day') return 'page';
+		if (row.kind === 'day') return row.placeholder ? 'page-blank' : 'page';
 		return open[row.key] ? 'folder-open' : 'folder';
 	}
 
 	$: today = getToday();
-	$: todayHasEntry = entries.some((e) => e.date === today);
-	// Days that exist only as a route (today, before it is ever written) still
-	// need to be reachable — the button below covers that case.
 	$: monthTitle = (row: Row) =>
 		row.kind === 'month' ? $ta('calendar.months')[Number(row.key.slice(5, 7)) - 1] ?? '' : '';
 </script>
@@ -275,7 +344,7 @@
 							type="button"
 							class="w95-node"
 							class:selected={row.kind === 'day' && row.date === currentDate}
-							data-selected={row.kind === 'day' && row.date === currentDate}
+							data-date={row.date || undefined}
 							title={row.kind === 'day' ? row.date : monthTitle(row)}
 							on:click={() => activate(row)}
 							on:dblclick={() => row.hasChildren && toggle(row.key)}
@@ -298,11 +367,40 @@
 	</div>
 
 	<div class="tree-foot">
-		<button type="button" class="w95-btn today-btn" on:click={onToday}>
-			<Win95Icon name={todayHasEntry ? 'page' : 'page-blank'} size={14} />
-			<span>{$t('win95.todayPlain')}</span>
+		<button
+			type="button"
+			class="w95-btn foot-btn"
+			title={$t('win95.todayPlain')}
+			on:click={handleToday}
+		>
+			{$t('win95.todayPlain')}
 		</button>
-		<span class="w95-hint">{$t('win95.contentsHint')}</span>
+		<button
+			type="button"
+			class="w95-btn foot-btn"
+			title={$t('win95.yesterday')}
+			on:click={handleYesterday}
+		>
+			{$t('win95.yesterday')}
+		</button>
+		<button
+			type="button"
+			class="w95-btn foot-btn"
+			title={$t('win95.expandAll')}
+			aria-label={$t('win95.expandAll')}
+			on:click={expandAll}
+		>
+			<Win95Icon name="tree-expand" size={16} />
+		</button>
+		<button
+			type="button"
+			class="w95-btn foot-btn"
+			title={$t('win95.collapseAll')}
+			aria-label={$t('win95.collapseAll')}
+			on:click={collapseAll}
+		>
+			<Win95Icon name="tree-collapse" size={16} />
+		</button>
 	</div>
 </div>
 
@@ -324,19 +422,25 @@
 	.tree-foot {
 		flex-shrink: 0;
 		display: flex;
-		align-items: center;
-		gap: 6px;
+		align-items: stretch;
+		gap: 2px;
 		min-width: 0;
 	}
 
-	.today-btn {
-		flex-shrink: 0;
+	/* All four share the row evenly; the two labelled ones drop to 11px so
+	   "Yesterday" still fits a quarter of a 268px rail. */
+	.tree-foot .foot-btn {
+		flex: 1;
+		min-width: 0;
+		padding: 3px 2px;
+		font-size: 11px;
+		overflow: hidden;
+		white-space: nowrap;
 	}
 
-	.tree-foot .w95-hint {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	/* Out-specifies the shared `.w95-btn:active` text padding. */
+	.tree-foot .foot-btn:active {
+		padding: 4px 1px 2px 3px;
 	}
 
 	.emo {

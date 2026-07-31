@@ -28,8 +28,12 @@
 		| 'offline'
 		| 'syncing'
 		| 'info'
-		| 'heading'
+		| 'h1'
+		| 'h2'
+		| 'h3'
 		| 'outline'
+		| 'tree-expand'
+		| 'tree-collapse'
 		| 'star'
 		| 'diarum';
 	export let size = 16;
@@ -133,8 +137,29 @@
 	{:else if name === 'info'}
 		<circle cx="8" cy="8" r="7" fill="#000080" stroke="#000" />
 		<path d="M7 3h2v2H7zM7 6h2v7H7z" fill="#fff" />
-	{:else if name === 'heading'}
-		<path d="M3 3h2v10H3zM11 3h2v10h-2zM5 7h6v2H5z" fill="#000080" />
+	{:else if name === 'h1' || name === 'h2' || name === 'h3'}
+		<!-- "H" plus a subscript level digit, so the outline shows depth at a glance -->
+		<path d="M2 3h2v9H2zM6 3h2v9H6zM4 6h2v2H4z" fill="#000080" />
+		{#if name === 'h1'}
+			<path d="M10 7h2v1h-2zM11 8h1v3h-1zM10 11h3v1h-3z" fill="#000080" />
+		{:else if name === 'h2'}
+			<path d="M9 7h3v1H9zM11 8h1v1h-1zM9 9h3v1H9zM9 10h1v1H9zM9 11h3v1H9z" fill="#000080" />
+		{:else}
+			<path d="M9 7h3v1H9zM11 8h1v1h-1zM10 9h2v1h-2zM11 10h1v1h-1zM9 11h3v1H9z" fill="#000080" />
+		{/if}
+	{:else if name === 'tree-expand'}
+		<!-- depicts the resulting state: an open node with its children showing -->
+		<rect x="0.5" y="1.5" width="8" height="8" fill="#fff" stroke="#000" />
+		<path d="M2 5h5v1H2z" fill="#000" />
+		<path d="M10 5h6v1h-6z" fill="#000080" />
+		<path d="M4 10h1v6H4z" fill="#808080" />
+		<path d="M5 12h4v1H5zM5 15h4v1H5z" fill="#808080" />
+		<path d="M10 12h6v1h-6zM10 15h6v1h-6z" fill="#000080" />
+	{:else if name === 'tree-collapse'}
+		<!-- the closed counterpart: a single node, nothing beneath it -->
+		<rect x="0.5" y="1.5" width="8" height="8" fill="#fff" stroke="#000" />
+		<path d="M2 5h5v1H2zM4 3h1v5H4z" fill="#000" />
+		<path d="M10 5h6v1h-6z" fill="#000080" />
 	{:else if name === 'outline'}
 		<path d="M2 3h3v2H2zM7 3h7v2H7zM4 7h3v2H4zM9 7h5v2H9zM6 11h3v2H6zM11 11h3v2h-3z" fill="#000080" />
 	{:else if name === 'star'}

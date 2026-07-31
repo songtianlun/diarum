@@ -75,6 +75,11 @@
 		});
 	}
 
+	/** h1 / h2 / h3 each get their own badge so depth is readable without counting rails. */
+	function levelIcon(level: number): 'h1' | 'h2' | 'h3' {
+		return level === 1 ? 'h1' : level === 2 ? 'h2' : 'h3';
+	}
+
 	function jump(index: number) {
 		const scroller = document.querySelector(scrollSelector) as HTMLElement | null;
 		const editor = document.querySelector('.w95-root .tiptap-editor-content');
@@ -118,7 +123,7 @@
 							<span class="elbow"></span>
 						</span>
 						<button type="button" class="w95-node" title={row.text} on:click={() => jump(row.index)}>
-							<Win95Icon name="heading" size={13} />
+							<Win95Icon name={levelIcon(row.level)} size={14} />
 							<span class="label" class:h1={row.level === 1}>{row.text}</span>
 						</button>
 					</div>

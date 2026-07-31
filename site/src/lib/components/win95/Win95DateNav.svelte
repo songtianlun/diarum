@@ -19,9 +19,7 @@
 	export let onPrev: () => void;
 	export let onNext: () => void;
 	export let onPick: (date: string) => void;
-	/** Opens the full calendar page (the `/diary` overview). */
-	export let onOpenOverview: () => void;
-	/** Drops the caption and the secondary button row (Windows CE layout). */
+	/** Drops the pane caption (Windows CE layout). */
 	export let compact = false;
 	/** Anchors the drop-down above the field instead of below it. */
 	export let dropUp = false;
@@ -105,15 +103,6 @@
 			<Win95Icon name="right" size={16} />
 		</button>
 	</div>
-
-	{#if !compact}
-		<div class="nav-row second">
-			<button type="button" class="w95-btn wide" on:click={onOpenOverview}>
-				<Win95Icon name="calendar" size={14} />
-				<span>{$t('entryNav.calendar')}</span>
-			</button>
-		</div>
-	{/if}
 </div>
 
 <style>
@@ -127,10 +116,6 @@
 		display: flex;
 		align-items: stretch;
 		gap: 3px;
-	}
-
-	.nav-row.second {
-		margin-top: 3px;
 	}
 
 	.picker {
@@ -186,14 +171,6 @@
 	.picker .drop:active,
 	.picker .drop.pressed {
 		padding: 1px 0 0 1px;
-	}
-
-	.wide {
-		flex: 1;
-		min-width: 0;
-		gap: 5px;
-		font-size: 11px;
-		padding: 3px 4px;
 	}
 
 	/* Click-away layer; the dropdown itself sits above it. */

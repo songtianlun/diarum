@@ -244,7 +244,9 @@ export const en = {
 	},
 	win95: {
 		contentsTitle: 'Diary Contents',
-		contentsHint: 'Browse by year / month / day',
+		yesterday: 'Yesterday',
+		expandAll: 'Expand all',
+		collapseAll: 'Collapse all',
 		notepadTitle: '{name} - Notepad',
 		placeholder: 'Type your entry here...',
 		today: '&Today',
