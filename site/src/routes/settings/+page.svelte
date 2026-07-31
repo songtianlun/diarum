@@ -915,7 +915,7 @@
 					<div class="py-4">
 						<div class="font-medium text-foreground mb-1">{$t('settings.general.visualStyle')}</div>
 						<p class="text-sm text-muted-foreground mb-3">{$t('settings.general.visualStyleDesc')}</p>
-						<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+						<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
 							<button
 								type="button"
 								on:click={() => generalSettings = { ...generalSettings, visual_style: 'classic' }}
@@ -945,6 +945,21 @@
 									<span class="font-medium text-foreground text-sm">{$t('settings.general.visualStyleImmersive')}</span>
 								</div>
 								<div class="text-xs text-muted-foreground mt-1 ml-6">{$t('settings.general.visualStyleImmersiveDesc')}</div>
+							</button>
+							<button
+								type="button"
+								on:click={() => generalSettings = { ...generalSettings, visual_style: 'win95' }}
+								class="text-left p-3 rounded-lg border transition-colors {generalSettings.visual_style === 'win95' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
+							>
+								<div class="flex items-center gap-2">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.visual_style === 'win95' ? 'border-primary' : 'border-muted-foreground/40'}">
+										{#if generalSettings.visual_style === 'win95'}
+											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+										{/if}
+									</span>
+									<span class="font-medium text-foreground text-sm">{$t('settings.general.visualStyleWin95')}</span>
+								</div>
+								<div class="text-xs text-muted-foreground mt-1 ml-6">{$t('settings.general.visualStyleWin95Desc')}</div>
 							</button>
 						</div>
 					</div>

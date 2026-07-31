@@ -52,8 +52,11 @@ var ConfigRegistry = map[string]ConfigMeta{
 	// General app preferences
 	// homepage: "today" (open today's diary entry) or "overview" (open the /diary calendar overview)
 	"general.homepage": {Type: "string", Default: "today", Encrypted: false},
-	// visual_style: "classic" (standard editor page) or "immersive" (book flip view)
+	// visual_style: "classic" (standard editor page), "immersive" (book flip view)
+	// or "win95" (retro Windows 95 desktop / Notepad skin)
 	"general.visual_style": {Type: "string", Default: "classic", Encrypted: false},
+	// language: "auto" (follow browser), "en" or "zh"
+	"general.language": {Type: "string", Default: "auto", Encrypted: false},
 }
 
 // GetConfigMeta returns the metadata for a configuration key

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import ClassicDiaryView from '$lib/components/diary/ClassicDiaryView.svelte';
 	import BookDiaryView from '$lib/components/book/BookDiaryView.svelte';
+	import Win95DiaryView from '$lib/components/win95/Win95DiaryView.svelte';
 	import { getGeneralSettings, type VisualStylePreference } from '$lib/api/settings';
 	import { t } from '$lib/i18n';
 
@@ -21,6 +22,8 @@
 
 {#if visualStyle === 'immersive'}
 	<BookDiaryView />
+{:else if visualStyle === 'win95'}
+	<Win95DiaryView />
 {:else if visualStyle === 'classic'}
 	<ClassicDiaryView />
 {:else}
