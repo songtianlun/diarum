@@ -298,6 +298,7 @@ export const en = {
 		calendarDialogTitle: 'Select Date',
 		opening: 'Opening diary...',
 		startMenu: 'Start',
+		startHome: 'Home',
 		tabContents: 'Contents',
 		tabOutline: 'Outline',
 		notToday: "Can't go past today",

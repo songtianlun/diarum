@@ -29,9 +29,10 @@
 	import Win95Outline from './Win95Outline.svelte';
 	import Win95StatusPanel from './Win95StatusPanel.svelte';
 	import Win95MenuBar from './Win95MenuBar.svelte';
+	import Win95StartMenu from './Win95StartMenu.svelte';
 	import Win95Dialog from './Win95Dialog.svelte';
 	import Win95EmojiDialog from './Win95EmojiDialog.svelte';
-	import type { Win95Menu } from './types';
+	import type { Win95Menu, Win95StartItem } from './types';
 
 	import { getDiaryByDate, getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
@@ -87,6 +88,7 @@
 	let outlineOpen = true;
 	let emojiDialog: 'mood' | 'weather' | null = null;
 	let showAbout = false;
+	let startOpen = false;
 	let sheet: 'contents' | 'outline' | null = null;
 	let clock = '';
 	let clockTimer: ReturnType<typeof setInterval> | null = null;
@@ -369,6 +371,22 @@
 			mnemonic: mn($t('win95.menuHelp')),
 			items: [{ label: $t('win95.helpAbout'), action: openAbout }]
 		}
+	];
+
+	let startItems: Win95StartItem[] = [];
+
+	$: startItems = [
+		{ label: $t('win95.fileToday'), icon: 'page', action: goToday },
+		{ label: $t('nav.calendar'), icon: 'calendar', action: openCalendarPage },
+		{ label: $t('win95.viewSearch'), icon: 'search', action: () => navigate('/search') },
+		{ sep: true },
+		{ label: $t('win95.viewAssistant'), icon: 'robot', action: () => navigate('/assistant') },
+		{ label: $t('win95.viewMedia'), icon: 'media', action: () => navigate('/media') },
+		{ sep: true },
+		{ label: $t('win95.viewSettings'), icon: 'settings', action: () => navigate('/settings') },
+		{ label: $t('win95.helpAbout'), icon: 'info', action: openAbout },
+		{ sep: true },
+		{ label: $t('win95.startHome'), icon: 'home', action: () => navigate('/') }
 	];
 
 	// ------------------------------------------------------------ lifecycle
@@ -686,10 +704,22 @@
 		</div>
 
 		<div class="w95-taskbar">
-			<button type="button" class="w95-btn start" on:click={() => navigate('/')}>
-				<Win95Icon name="diarum" size={15} />
-				<span><u>D</u>iarum</span>
-			</button>
+			<div class="start-holder">
+				<button
+					type="button"
+					class="w95-btn start"
+					class:pressed={startOpen}
+					aria-haspopup="true"
+					aria-expanded={startOpen}
+					on:click={() => (startOpen = !startOpen)}
+				>
+					<Win95Icon name="diarum" size={15} />
+					<span><u>D</u>iarum</span>
+				</button>
+				{#if startOpen}
+					<Win95StartMenu items={startItems} onClose={() => (startOpen = false)} />
+				{/if}
+			</div>
 			<span class="w95-vsep"></span>
 			<button
 				type="button"
@@ -864,10 +894,22 @@
 
 	/* ------------------------------------------------------------- taskbar */
 
+	.start-holder {
+		position: relative;
+		flex-shrink: 0;
+	}
+
 	.start {
 		font-weight: 700;
 		gap: 5px;
 		padding: 3px 7px;
+	}
+
+	/* Out-specifies the shared `.w95-btn.pressed` padding so the button keeps
+	   its size while the menu is open. */
+	.start-holder .start.pressed,
+	.start-holder .start:active {
+		padding: 4px 6px 2px 8px;
 	}
 
 	.task {

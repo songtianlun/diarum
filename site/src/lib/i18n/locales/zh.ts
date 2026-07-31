@@ -288,6 +288,7 @@ export const zh = {
 		calendarDialogTitle: '选择日期',
 		opening: '正在打开日记...',
 		startMenu: '开始',
+		startHome: '返回主页',
 		tabContents: '目录',
 		tabOutline: '大纲',
 		notToday: '不能超过今天',

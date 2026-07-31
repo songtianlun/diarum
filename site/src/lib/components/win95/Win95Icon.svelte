@@ -6,36 +6,9 @@
 	 * `shape-rendering: crispEdges`, so it stays hard-edged at 1× the way a
 	 * real .ico would — no antialiased curves, no gradients.
 	 */
-	export let name:
-		| 'book'
-		| 'folder'
-		| 'folder-open'
-		| 'page'
-		| 'page-blank'
-		| 'notepad'
-		| 'contents'
-		| 'calendar'
-		| 'left'
-		| 'right'
-		| 'robot'
-		| 'share'
-		| 'search'
-		| 'settings'
-		| 'media'
-		| 'disk'
-		| 'saved'
-		| 'dirty'
-		| 'offline'
-		| 'syncing'
-		| 'info'
-		| 'h1'
-		| 'h2'
-		| 'h3'
-		| 'outline'
-		| 'tree-expand'
-		| 'tree-collapse'
-		| 'star'
-		| 'diarum';
+	import type { Win95IconName } from './types';
+
+	export let name: Win95IconName;
 	export let size = 16;
 	/** When set, the glyph is exposed to assistive tech with this label. */
 	export let title: string | undefined = undefined;
@@ -164,6 +137,10 @@
 		<path d="M2 3h3v2H2zM7 3h7v2H7zM4 7h3v2H4zM9 7h5v2H9zM6 11h3v2H6zM11 11h3v2h-3z" fill="#000080" />
 	{:else if name === 'star'}
 		<path d="M8 1l2 5h5l-4 3 1.5 5L8 11l-4.5 3L5 9 1 6h5z" fill="#ffd75e" stroke="#000" />
+	{:else if name === 'home'}
+		<path d="M8 1l7 6h-2v8H3V7H1z" fill="#c04040" stroke="#000" />
+		<path d="M5 9h3v6H5z" fill="#804000" stroke="#000" />
+		<path d="M10 9h3v3h-3z" fill="#a0e0ff" stroke="#000" />
 	{:else if name === 'diarum'}
 		<path d="M2 1h10l2 2v12H2z" fill="#f0e0c0" stroke="#000" />
 		<path d="M2 1h3v14H2z" fill="#804000" stroke="#000" />
