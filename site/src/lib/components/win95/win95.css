@@ -59,7 +59,8 @@ html.w95-active {
 	line-height: 1.35;
 	/* Aliased text is the single biggest tell of the era. Chrome/Safari honour
 	   this; elsewhere it degrades to normal antialiasing, which still reads
-	   fine at these sizes. */
+	   fine at these sizes. Disabled on hi-DPI — see the media query at the end
+	   of this file. */
 	-webkit-font-smoothing: none;
 	-webkit-tap-highlight-color: transparent;
 	cursor: default;
@@ -996,5 +997,24 @@ html.w95-active .command-menu .icon {
 	50.01%,
 	100% {
 		opacity: 0.25;
+	}
+}
+
+/* ------------------------------------------------------- hi-DPI text rescue */
+
+/* `-webkit-font-smoothing: none` buys the aliased, era-accurate look on a 1x
+   display. On a hi-DPI screen (macOS Retina and friends) the same rule
+   rasterises glyphs at 2x device pixels with hard on/off coverage: stems land
+   on half-pixels and come out ragged and uneven, and CJK — which has no bitmap
+   face to fall back to — turns to mush. There is no crisp bitmap rendering
+   left to preserve at that density, so hand text back to normal antialiasing.
+   Kept last in the file so it outranks the per-component `none` declarations
+   above, which share its specificity. */
+@media (-webkit-min-device-pixel-ratio: 1.5), (min-resolution: 144dpi) {
+	.w95-root,
+	.w95-root .tiptap-editor-content,
+	html.w95-active .command-menu {
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
 	}
 }
