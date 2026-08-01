@@ -21,7 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       VERSION: ${{ steps.get_version.outputs.VERSION }}
-      TAGS: ${{ steps.docker_tags.outputs.TAGS }}
+      # Only the tag suffixes (e.g. "v1.2.3,latest") cross the job boundary.
+      # The full image reference must NOT be a job output: it embeds
+      # DOCKERHUB_USERNAME, and GitHub redacts any output containing a secret
+      # to an empty string. Each job re-attaches the REGISTRY/IMAGE_NAME
+      # prefix locally from env.
+      TAG_SUFFIXES: ${{ steps.docker_tags.outputs.TAG_SUFFIXES }}
       KEEL_TAG: ${{ steps.docker_tags.outputs.KEEL_TAG }}
     steps:
       - name: Checkout
@@ -39,23 +44,23 @@ jobs:
       - name: Determine Docker Tags
         id: docker_tags
         run: |
-          TAGS=""
+          TAG_SUFFIXES=""
           KEEL_TAG=""
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             # For version tags (v*), push both the version and latest
             TAG_VERSION=${GITHUB_REF#refs/tags/}
-            TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG_VERSION},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+            TAG_SUFFIXES="${TAG_VERSION},latest"
             KEEL_TAG="${TAG_VERSION}"
             echo "Building release: $TAG_VERSION"
           else
             # For branches (main, release/*, devel/*, dev/*), push as devel
-            TAGS="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:devel"
+            TAG_SUFFIXES="devel"
             KEEL_TAG="devel"
             echo "Building development version"
           fi
-          echo "TAGS=$TAGS" >> $GITHUB_OUTPUT
+          echo "TAG_SUFFIXES=$TAG_SUFFIXES" >> $GITHUB_OUTPUT
           echo "KEEL_TAG=$KEEL_TAG" >> $GITHUB_OUTPUT
-          echo "Docker tags: $TAGS"
+          echo "Docker tags: $TAG_SUFFIXES"
 
   build:
     needs: prepare
@@ -141,18 +146,24 @@ jobs:
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAG_SUFFIXES: ${{ needs.prepare.outputs.TAG_SUFFIXES }}
         run: |
           TAG_ARGS=""
-          for tag in $(echo "${{ needs.prepare.outputs.TAGS }}" | tr ',' ' '); do
-            TAG_ARGS="$TAG_ARGS -t $tag"
+          for suffix in $(echo "$TAG_SUFFIXES" | tr ',' ' '); do
+            TAG_ARGS="$TAG_ARGS -t $IMAGE:$suffix"
           done
           docker buildx imagetools create $TAG_ARGS \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+            $(printf "$IMAGE@sha256:%s " *)
 
       - name: Inspect image
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAG_SUFFIXES: ${{ needs.prepare.outputs.TAG_SUFFIXES }}
         run: |
-          for tag in $(echo "${{ needs.prepare.outputs.TAGS }}" | tr ',' ' '); do
-            docker buildx imagetools inspect "$tag"
+          for suffix in $(echo "$TAG_SUFFIXES" | tr ',' ' '); do
+            docker buildx imagetools inspect "$IMAGE:$suffix"
           done
 
       - name: Notify Keel
