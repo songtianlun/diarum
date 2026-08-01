@@ -860,9 +860,9 @@
 									class="text-left p-3 rounded-lg border transition-colors {generalSettings.language === option.value ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
 								>
 									<div class="flex items-center gap-2">
-										<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.language === option.value ? 'border-primary' : 'border-muted-foreground/40'}">
+										<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center {generalSettings.language === option.value ? 'border-primary' : 'border-muted-foreground/40'}">
 											{#if generalSettings.language === option.value}
-												<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+												<span class="block w-2 h-2 rounded-full bg-primary"></span>
 											{/if}
 										</span>
 										<span class="font-medium text-foreground text-sm">{option.label}</span>
@@ -884,9 +884,9 @@
 								class="text-left p-3 rounded-lg border transition-colors {generalSettings.homepage === 'today' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
 							>
 								<div class="flex items-center gap-2">
-									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.homepage === 'today' ? 'border-primary' : 'border-muted-foreground/40'}">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center {generalSettings.homepage === 'today' ? 'border-primary' : 'border-muted-foreground/40'}">
 										{#if generalSettings.homepage === 'today'}
-											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+											<span class="block w-2 h-2 rounded-full bg-primary"></span>
 										{/if}
 									</span>
 									<span class="font-medium text-foreground text-sm">{$t('settings.general.homepageToday')}</span>
@@ -899,9 +899,9 @@
 								class="text-left p-3 rounded-lg border transition-colors {generalSettings.homepage === 'overview' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
 							>
 								<div class="flex items-center gap-2">
-									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.homepage === 'overview' ? 'border-primary' : 'border-muted-foreground/40'}">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center {generalSettings.homepage === 'overview' ? 'border-primary' : 'border-muted-foreground/40'}">
 										{#if generalSettings.homepage === 'overview'}
-											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+											<span class="block w-2 h-2 rounded-full bg-primary"></span>
 										{/if}
 									</span>
 									<span class="font-medium text-foreground text-sm">{$t('settings.general.homepageOverview')}</span>
@@ -922,9 +922,9 @@
 								class="text-left p-3 rounded-lg border transition-colors {generalSettings.visual_style === 'classic' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
 							>
 								<div class="flex items-center gap-2">
-									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.visual_style === 'classic' ? 'border-primary' : 'border-muted-foreground/40'}">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center {generalSettings.visual_style === 'classic' ? 'border-primary' : 'border-muted-foreground/40'}">
 										{#if generalSettings.visual_style === 'classic'}
-											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+											<span class="block w-2 h-2 rounded-full bg-primary"></span>
 										{/if}
 									</span>
 									<span class="font-medium text-foreground text-sm">{$t('settings.general.visualStyleClassic')}</span>
@@ -937,9 +937,9 @@
 								class="text-left p-3 rounded-lg border transition-colors {generalSettings.visual_style === 'immersive' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
 							>
 								<div class="flex items-center gap-2">
-									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.visual_style === 'immersive' ? 'border-primary' : 'border-muted-foreground/40'}">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center {generalSettings.visual_style === 'immersive' ? 'border-primary' : 'border-muted-foreground/40'}">
 										{#if generalSettings.visual_style === 'immersive'}
-											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+											<span class="block w-2 h-2 rounded-full bg-primary"></span>
 										{/if}
 									</span>
 									<span class="font-medium text-foreground text-sm">{$t('settings.general.visualStyleImmersive')}</span>
@@ -952,9 +952,9 @@
 								class="text-left p-3 rounded-lg border transition-colors {generalSettings.visual_style === 'win95' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
 							>
 								<div class="flex items-center gap-2">
-									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 {generalSettings.visual_style === 'win95' ? 'border-primary' : 'border-muted-foreground/40'}">
+									<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center {generalSettings.visual_style === 'win95' ? 'border-primary' : 'border-muted-foreground/40'}">
 										{#if generalSettings.visual_style === 'win95'}
-											<span class="block w-2 h-2 m-auto mt-[3px] rounded-full bg-primary"></span>
+											<span class="block w-2 h-2 rounded-full bg-primary"></span>
 										{/if}
 									</span>
 									<span class="font-medium text-foreground text-sm">{$t('settings.general.visualStyleWin95')}</span>
