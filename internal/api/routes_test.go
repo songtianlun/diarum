@@ -920,8 +920,14 @@ func TestDiaryRoutesSearchStatsAndAccessBranches(t *testing.T) {
 		}
 	})
 
-	today := time.Now().UTC().Format("2006-01-02")
-	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	// The default range of /diaries/exists is the current calendar month. On the
+	// first of a month `yesterday` falls into the previous month, so an extra
+	// fixture pinned to the 1st guarantees the default-range branch always sees
+	// a diary regardless of the date the suite runs on.
+	firstOfMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 	oldContent := strings.Repeat("x", 220) + " searchable"
 	diaryToday, _, err := s.UpsertDiary(user.ID, today, oldContent, "focused", "sunny")
 	if err != nil {
@@ -934,10 +940,14 @@ func TestDiaryRoutesSearchStatsAndAccessBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertDiary other: %v", err)
 	}
+	if firstOfMonth != today && firstOfMonth != yesterday {
+		if _, _, err := s.UpsertDiary(user.ID, firstOfMonth, "first of month", "calm", "cloudy"); err != nil {
+			t.Fatalf("UpsertDiary first of month: %v", err)
+		}
+	}
 
-	// The default range of /diaries/exists is the current calendar month, so an
-	// explicit start/end is required to cover both fixtures: when today is the
-	// first of a month, yesterday falls into the previous month.
+	// An explicit start/end covers both fixtures even across a month boundary,
+	// where yesterday falls into the previous month.
 	rec := performRequest(t, e, http.MethodGet, "/api/v1/diaries/exists?start="+yesterday+"&end="+today, nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /diaries/exists status = %d body=%s", rec.Code, rec.Body.String())
