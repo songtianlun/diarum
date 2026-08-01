@@ -935,13 +935,25 @@ func TestDiaryRoutesSearchStatsAndAccessBranches(t *testing.T) {
 		t.Fatalf("UpsertDiary other: %v", err)
 	}
 
-	rec := performRequest(t, e, http.MethodGet, "/api/v1/diaries/exists", nil, nil)
+	// The default range of /diaries/exists is the current calendar month, so an
+	// explicit start/end is required to cover both fixtures: when today is the
+	// first of a month, yesterday falls into the previous month.
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/diaries/exists?start="+yesterday+"&end="+today, nil, nil)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /diaries/exists default status = %d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("GET /diaries/exists status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	payload := decodeJSONBody(t, rec)
 	if len(payload["dates"].([]any)) < 2 {
 		t.Fatalf("exists dates = %#v", payload)
+	}
+
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/exists", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /diaries/exists default status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	payload = decodeJSONBody(t, rec)
+	if len(payload["dates"].([]any)) == 0 {
+		t.Fatalf("exists default dates = %#v", payload)
 	}
 
 	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/stats?tz=UTC", nil, nil)
