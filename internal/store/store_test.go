@@ -1752,6 +1752,106 @@ func TestSaveUploadedFileErrors(t *testing.T) {
 	}
 }
 
+func TestScanDiaryContents(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	other := newTestUser(t, s)
+
+	for _, date := range []string{"2024-03-02", "2024-03-01", "2024-03-03"} {
+		if _, err := s.InsertImportedDiary(user.ID, "", date, "content "+date, "", ""); err != nil {
+			t.Fatalf("InsertImportedDiary(%s): %v", date, err)
+		}
+	}
+	if _, err := s.InsertImportedDiary(other.ID, "", "2024-03-01", "not mine", "", ""); err != nil {
+		t.Fatalf("InsertImportedDiary(other): %v", err)
+	}
+
+	dates := make([]string, 0, 3)
+	contents := make([]string, 0, 3)
+	if err := s.ScanDiaryContents(user.ID, func(date, content string) {
+		dates = append(dates, DateOnly(date))
+		contents = append(contents, content)
+	}); err != nil {
+		t.Fatalf("ScanDiaryContents: %v", err)
+	}
+
+	want := []string{"2024-03-01", "2024-03-02", "2024-03-03"}
+	if len(dates) != len(want) {
+		t.Fatalf("scanned %d diaries, want %d", len(dates), len(want))
+	}
+	for i, date := range want {
+		if dates[i] != date {
+			t.Fatalf("dates[%d] = %q, want %q (rows must be ascending)", i, dates[i], date)
+		}
+		if contents[i] != "content "+date {
+			t.Fatalf("contents[%d] = %q, want %q", i, contents[i], "content "+date)
+		}
+	}
+}
+
+func TestScanDiaryContentsQueryError(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+	if err := s.ScanDiaryContents(user.ID, func(string, string) {}); err == nil {
+		t.Fatal("ScanDiaryContents should fail after DB close")
+	}
+}
+
+func TestDiaryFingerprintChangesWithData(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	empty := s.DiaryFingerprint(user.ID)
+	if empty == "" {
+		t.Fatal("fingerprint should never be empty")
+	}
+
+	diary, _, err := s.UpsertDiary(user.ID, "2024-03-01", "hello", "", "")
+	if err != nil {
+		t.Fatalf("UpsertDiary: %v", err)
+	}
+	afterInsert := s.DiaryFingerprint(user.ID)
+	if afterInsert == empty {
+		t.Fatal("fingerprint should change after inserting a diary")
+	}
+	if again := s.DiaryFingerprint(user.ID); again != afterInsert {
+		t.Fatalf("fingerprint changed without any edit: %q -> %q", afterInsert, again)
+	}
+
+	if _, _, err := s.UpsertDiary(user.ID, "2024-03-01", "hello again", "", ""); err != nil {
+		t.Fatalf("UpsertDiary (edit): %v", err)
+	}
+	afterEdit := s.DiaryFingerprint(user.ID)
+	if afterEdit == afterInsert {
+		t.Fatal("fingerprint should change after editing a diary")
+	}
+
+	if err := s.DeleteDiary(diary.ID, user.ID); err != nil {
+		t.Fatalf("DeleteDiary: %v", err)
+	}
+	if afterDelete := s.DiaryFingerprint(user.ID); afterDelete == afterEdit {
+		t.Fatal("fingerprint should change after deleting a diary")
+	}
+}
+
+func TestDiaryFingerprintQueryError(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+	// A failed lookup must not return a value a cache could match on.
+	first := s.DiaryFingerprint(user.ID)
+	if !strings.HasPrefix(first, "error:") {
+		t.Fatalf("fingerprint = %q, want an error sentinel", first)
+	}
+}
+
 func TestListMediaRowsError(t *testing.T) {
 	s := newTestStore(t)
 	user := newTestUser(t, s)
