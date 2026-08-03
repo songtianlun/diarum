@@ -102,8 +102,64 @@ func (s *EmbeddingService) createEmbeddingFunc(userID string) (chromem.Embedding
 	}, nil
 }
 
-// generateEmbedding calls the OpenAI-compatible embedding API
+// generateEmbedding produces an embedding for text of any length.
+//
+// Embedding models have a hard input limit (commonly 8192 tokens), so long
+// diaries are split into chunks that are embedded separately and then averaged
+// into a single vector. If the provider still reports a context-length error
+// (our token estimate is heuristic), the budget is halved and retried.
 func (s *EmbeddingService) generateEmbedding(ctx context.Context, baseURL, apiKey, model, text string) ([]float32, error) {
+	maxTokens := defaultMaxEmbeddingTokens
+
+	for attempt := 0; ; attempt++ {
+		vector, err := s.embedChunked(ctx, baseURL, apiKey, model, text, maxTokens)
+		if err == nil {
+			return vector, nil
+		}
+		if !isContextLengthError(err) || attempt >= maxEmbeddingSplitRetries {
+			return nil, err
+		}
+
+		next := maxTokens / 2
+		if next < minEmbeddingChunkTokens {
+			return nil, err
+		}
+		logger.Warn("[EmbeddingService] context length exceeded, retrying with chunk budget %d tokens: %v", next, err)
+		maxTokens = next
+	}
+}
+
+// embedChunked splits text into chunks under maxTokens, embeds each chunk and
+// merges the results into one vector.
+func (s *EmbeddingService) embedChunked(ctx context.Context, baseURL, apiKey, model, text string, maxTokens int) ([]float32, error) {
+	chunks := splitTextForEmbedding(text, maxTokens)
+	if len(chunks) == 0 {
+		// Blank input: keep the previous behaviour and let the provider decide.
+		return s.requestEmbedding(ctx, baseURL, apiKey, model, text)
+	}
+	if len(chunks) == 1 {
+		return s.requestEmbedding(ctx, baseURL, apiKey, model, chunks[0])
+	}
+
+	logger.Info("[EmbeddingService] text exceeds embedding limit (~%d tokens), splitting into %d chunks",
+		estimateTokens(text), len(chunks))
+
+	vectors := make([][]float32, 0, len(chunks))
+	weights := make([]float64, 0, len(chunks))
+	for i, chunk := range chunks {
+		vector, err := s.requestEmbedding(ctx, baseURL, apiKey, model, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("chunk %d/%d: %w", i+1, len(chunks), err)
+		}
+		vectors = append(vectors, vector)
+		weights = append(weights, float64(estimateTokens(chunk)))
+	}
+
+	return averageVectors(vectors, weights), nil
+}
+
+// requestEmbedding calls the OpenAI-compatible embedding API for a single input
+func (s *EmbeddingService) requestEmbedding(ctx context.Context, baseURL, apiKey, model, text string) ([]float32, error) {
 	url := baseURL + "/v1/embeddings"
 
 	reqBody := EmbeddingRequest{
