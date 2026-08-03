@@ -21,7 +21,16 @@
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
 	import { loadImageUploadSettings } from '$lib/stores/imageUpload';
-	import { getWordStats, type WordStats } from '$lib/api/stats';
+	import {
+		getWordStats,
+		getDailySeries,
+		localToday,
+		toLocalDate,
+		windowStart,
+		MAX_SERIES_DAYS,
+		type WordStats,
+		type DailySeries
+	} from '$lib/api/stats';
 	import LineChart from '$lib/components/stats/LineChart.svelte';
 	import type { ChartPoint } from '$lib/components/stats/types';
 	import Footer from '$lib/components/ui/Footer.svelte';
@@ -97,11 +106,20 @@
 	// Statistics — one API call feeds every number and both charts. Range
 	// changes are re-sliced locally and never hit the network again.
 	const DAILY_RANGES = [7, 14, 30, 90, 180, 365] as const;
+	const DEFAULT_DAILY_RANGE = 30;
 	let wordStats: WordStats | null = null;
 	let statsLoading = false;
 	let statsError = '';
 	let statsRequested = false;
-	let dailyRange = 30;
+	// The daily chart owns its range and refreshes on its own: changing it
+	// re-queries only that window and leaves the totals and yearly chart alone.
+	let dailyRange: number | null = DEFAULT_DAILY_RANGE;
+	let dailySeries: DailySeries | null = null;
+	let dailyLoading = false;
+	let dailyError = '';
+	let showCustomRange = false;
+	let customStart = '';
+	let customEnd = '';
 
 	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '' };
 	let copied = false;
@@ -198,12 +216,64 @@
 		statsLoading = true;
 		statsError = '';
 		try {
-			wordStats = await getWordStats();
+			const stats = await getWordStats(DEFAULT_DAILY_RANGE);
+			wordStats = stats;
+			// The overview already carries the default window, so the chart
+			// paints without a second round trip on open.
+			dailyRange = DEFAULT_DAILY_RANGE;
+			dailyError = '';
+			dailySeries = {
+				start: stats.series_start,
+				end: stats.series_end,
+				series: stats.series,
+				total: stats.series.reduce((sum, n) => sum + n, 0)
+			};
+			customEnd = stats.series_end || localToday();
+			customStart = stats.series_start || windowStart(customEnd, DEFAULT_DAILY_RANGE);
 		} catch (e) {
 			statsError = e instanceof Error ? e.message : $t('settings.statistics.error');
 		}
 		statsLoading = false;
 	}
+
+	/** Refresh only the daily chart, for one explicit window. */
+	async function loadDailySeries(start: string, end: string) {
+		dailyLoading = true;
+		dailyError = '';
+		try {
+			dailySeries = await getDailySeries(start, end);
+		} catch (e) {
+			dailyError = e instanceof Error ? e.message : $t('settings.statistics.error');
+		}
+		dailyLoading = false;
+	}
+
+	async function selectPreset(days: number) {
+		const end = localToday();
+		const start = windowStart(end, days);
+		dailyRange = days;
+		customStart = start;
+		customEnd = end;
+		await loadDailySeries(start, end);
+	}
+
+	async function applyCustomRange() {
+		if (!customRangeValid) return;
+		const [start, end] = customStart <= customEnd ? [customStart, customEnd] : [customEnd, customStart];
+		dailyRange = null; // no preset is active any more
+		await loadDailySeries(start, end);
+	}
+
+	/** Inclusive day count between two YYYY-MM-DD strings. */
+	function daysBetween(start: string, end: string): number {
+		const from = new Date(`${start}T00:00:00`).getTime();
+		const to = new Date(`${end}T00:00:00`).getTime();
+		if (Number.isNaN(from) || Number.isNaN(to)) return 0;
+		return Math.abs(Math.round((to - from) / 86_400_000)) + 1;
+	}
+
+	$: customSpanDays = customStart && customEnd ? daysBetween(customStart, customEnd) : 0;
+	$: customRangeValid = customSpanDays > 0 && customSpanDays <= MAX_SERIES_DAYS;
 
 	// Fetch lazily the first time the tab is opened, so the rest of Settings
 	// stays instant for people who never look at their stats.
@@ -221,29 +291,22 @@
 		return date;
 	}
 
-	function toIsoDate(date: Date): string {
-		const month = String(date.getMonth() + 1).padStart(2, '0');
-		const day = String(date.getDate()).padStart(2, '0');
-		return `${date.getFullYear()}-${month}-${day}`;
-	}
-
-	/** Slice the dense daily series down to the selected range. */
-	function buildDailyPoints(stats: WordStats | null, days: number): ChartPoint[] {
-		if (!stats || !stats.series.length || !stats.series_start) return [];
-		const { series, series_start: seriesStart } = stats;
-		const offset = Math.max(series.length - days, 0);
-		return series.slice(offset).map((value, index) => {
-			const date = addDays(seriesStart, offset + index);
+	/** Turn a dense daily window into chart points. */
+	function buildDailyPoints(source: DailySeries | null): ChartPoint[] {
+		if (!source || !source.series.length || !source.start) return [];
+		const { series, start } = source;
+		return series.map((value, index) => {
+			const date = addDays(start, index);
 			return {
 				label: `${date.getMonth() + 1}/${date.getDate()}`,
-				title: toIsoDate(date),
+				title: toLocalDate(date),
 				value
 			};
 		});
 	}
 
-	$: dailyPoints = buildDailyPoints(wordStats, dailyRange);
-	$: dailyTotal = dailyPoints.reduce((sum, point) => sum + point.value, 0);
+	$: dailyPoints = buildDailyPoints(dailySeries);
+	$: dailyTotal = dailySeries?.total ?? 0;
 	$: dailyAverage = dailyPoints.length ? Math.round(dailyTotal / dailyPoints.length) : 0;
 	$: yearlyPoints = (wordStats?.yearly ?? []).map((item) => ({
 		label: String(item.year),
@@ -1142,25 +1205,91 @@
 										<div class="text-xs text-muted-foreground mt-0.5 tabular-nums">
 											{$t('settings.statistics.dailySummary', { words: formatNumber(dailyTotal), average: formatNumber(dailyAverage) })}
 										</div>
+										{#if dailySeries?.start && dailySeries?.end}
+											<div class="text-xs text-muted-foreground/70 mt-0.5 tabular-nums">
+												{$t('settings.statistics.span', { start: dailySeries.start, end: dailySeries.end })}
+											</div>
+										{/if}
 									</div>
 									<div class="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-1">
 										{#each DAILY_RANGES as range}
 											<button
-												on:click={() => dailyRange = range}
-												class="px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors {dailyRange === range ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
+												on:click={() => selectPreset(range)}
+												disabled={dailyLoading}
+												class="px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors disabled:opacity-60 {dailyRange === range ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
 											>
 												{$t(`settings.statistics.range${range}`)}
 											</button>
 										{/each}
+										<button
+											on:click={() => showCustomRange = !showCustomRange}
+											class="px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors {dailyRange === null ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
+											aria-expanded={showCustomRange}
+										>
+											{$t('settings.statistics.customRange')}
+										</button>
 									</div>
 								</div>
-								<LineChart
-									points={dailyPoints}
-									height={210}
-									unit={$t('settings.statistics.wordsUnit')}
-									emptyLabel={$t('settings.statistics.noData')}
-									showDots
-								/>
+
+								{#if showCustomRange}
+									<div class="mb-3 flex flex-wrap items-end gap-2 rounded-lg bg-muted/40 p-3">
+										<div class="min-w-0 flex-1 sm:flex-none">
+											<label for="stats-range-start" class="block text-[11px] text-muted-foreground mb-1">{$t('settings.statistics.from')}</label>
+											<input
+												id="stats-range-start"
+												type="date"
+												bind:value={customStart}
+												max={customEnd || undefined}
+												class="w-full sm:w-auto px-2.5 py-1.5 bg-background rounded-lg text-xs text-foreground border border-border/50 focus:outline-none focus:ring-2 focus:ring-primary"
+											/>
+										</div>
+										<div class="min-w-0 flex-1 sm:flex-none">
+											<label for="stats-range-end" class="block text-[11px] text-muted-foreground mb-1">{$t('settings.statistics.to')}</label>
+											<input
+												id="stats-range-end"
+												type="date"
+												bind:value={customEnd}
+												min={customStart || undefined}
+												class="w-full sm:w-auto px-2.5 py-1.5 bg-background rounded-lg text-xs text-foreground border border-border/50 focus:outline-none focus:ring-2 focus:ring-primary"
+											/>
+										</div>
+										<button
+											on:click={applyCustomRange}
+											disabled={!customRangeValid || dailyLoading}
+											class="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+										>
+											{$t('settings.statistics.apply')}
+										</button>
+										{#if customSpanDays > MAX_SERIES_DAYS}
+											<div class="w-full text-[11px] text-destructive">
+												{$t('settings.statistics.rangeTooLong', { days: formatNumber(MAX_SERIES_DAYS) })}
+											</div>
+										{/if}
+									</div>
+								{/if}
+
+								{#if dailyError}
+									<div class="mb-3 p-2.5 bg-destructive/10 text-destructive rounded-lg text-xs">{dailyError}</div>
+								{/if}
+
+								<div class="relative">
+									<LineChart
+										points={dailyPoints}
+										height={210}
+										unit={$t('settings.statistics.wordsUnit')}
+										emptyLabel={$t('settings.statistics.noData')}
+										showDots
+										zoomable
+									/>
+									{#if dailyLoading}
+										<div class="absolute inset-0 flex items-center justify-center rounded-lg bg-card/60">
+											<svg class="w-5 h-5 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
+												<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+												<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+											</svg>
+										</div>
+									{/if}
+								</div>
 							</div>
 
 							<!-- Yearly words -->

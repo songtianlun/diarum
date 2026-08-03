@@ -226,6 +226,11 @@ export const zh = {
 			range90: '90天',
 			range180: '180天',
 			range365: '1年',
+			customRange: '自定义',
+			from: '开始',
+			to: '结束',
+			apply: '确定',
+			rangeTooLong: '范围最长 {days} 天，请重新选择。',
 			wordsUnit: '字',
 			empty: '还没有日记内容，开始记录后这里就会出现统计数据。',
 			noData: '暂无数据'

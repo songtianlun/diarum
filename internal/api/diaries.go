@@ -168,7 +168,12 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		}
 
 		yearly = fillMissingYears(yearly, today.Year())
-		seriesStart, series := buildDailySeries(daily, today)
+
+		// Only the initial chart window travels with the overview. Changing the
+		// range hits /word-series instead, so we never ship days nobody asked for.
+		seriesDays := clampSeriesDays(c.QueryParam("series_days"), defaultDailySeriesDays)
+		seriesStart := today.AddDate(0, 0, -(seriesDays - 1))
+		series := buildSeriesBetween(daily, seriesStart, today)
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"total_words":              totalWords,
@@ -178,10 +183,44 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			"last_twelve_months_words": yearWords,
 			"first_date":               firstDate,
 			"last_date":                lastDate,
-			"series_start":             seriesStart,
+			"series_start":             seriesStart.Format(dateLayout),
 			"series_end":               todayStr,
 			"series":                   series,
 			"yearly":                   yearly,
+		})
+	})
+
+	// Daily word counts for one explicit window. Kept separate from the
+	// overview so re-ranging the chart costs a small, bounded response and
+	// leaves the headline totals alone.
+	group.GET("/word-series", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+
+		end := parseDateParam(c.QueryParam("end"), time.Now().UTC())
+		start := parseDateParam(c.QueryParam("start"), end.AddDate(0, 0, -(defaultDailySeriesDays - 1)))
+		if start.After(end) {
+			start, end = end, start
+		}
+		// Trim rather than reject: the reader still gets a usable chart.
+		if span := int(end.Sub(start).Hours()/24) + 1; span > maxDailySeriesDays {
+			start = end.AddDate(0, 0, -(maxDailySeriesDays - 1))
+		}
+
+		daily, err := dailyWordCounts(s, user.ID)
+		if err != nil {
+			return serverError("Failed to compute word statistics", err)
+		}
+		series := buildSeriesBetween(daily, start, end)
+
+		total := 0
+		for _, words := range series {
+			total += words
+		}
+		return c.JSON(http.StatusOK, map[string]any{
+			"start":  start.Format(dateLayout),
+			"end":    end.Format(dateLayout),
+			"series": series,
+			"total":  total,
 		})
 	})
 

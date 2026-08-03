@@ -65,10 +65,12 @@ func dailyWordCounts(s *store.Store, owner string) ([]DayWordCount, error) {
 
 const (
 	dateLayout = "2006-01-02"
-	// The adjustable daily chart never looks back further than this, which
-	// keeps the response small no matter how long the diary has been kept.
-	// Longer horizons are served by the per-year series instead.
-	maxDailySeriesDays = 1096
+	// Window shown by the daily chart before the reader picks a range.
+	defaultDailySeriesDays = 30
+	// Hard ceiling on any daily series, so a decade-old diary can never turn
+	// one chart into a multi-megabyte response. Longer horizons are served by
+	// the per-year series instead.
+	maxDailySeriesDays = 3700
 )
 
 // parseDateParam reads a "YYYY-MM-DD" query parameter as UTC midnight. The
@@ -81,24 +83,26 @@ func parseDateParam(raw string, fallback time.Time) time.Time {
 	return time.Date(fallback.Year(), fallback.Month(), fallback.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// buildDailySeries turns sparse per-entry counts into a dense day-by-day array
-// ending today, so the client can slice any range without extra requests.
-func buildDailySeries(daily []DayWordCount, today time.Time) (string, []int) {
-	start := today.AddDate(0, 0, -(maxDailySeriesDays - 1))
-	if len(daily) > 0 {
-		if first, err := time.ParseInLocation(dateLayout, daily[0].Date, time.UTC); err == nil && first.After(start) {
-			start = first
-		}
-	} else {
-		start = today.AddDate(0, 0, -29)
+// buildSeriesBetween turns sparse per-entry counts into a dense day-by-day
+// array covering [start, end] inclusive. Only the requested window is walked,
+// so asking for a month never pays for a decade.
+func buildSeriesBetween(daily []DayWordCount, start, end time.Time) []int {
+	if end.Before(start) {
+		return []int{}
 	}
-	if start.After(today) {
-		start = today
+	length := int(end.Sub(start).Hours()/24) + 1
+	if length > maxDailySeriesDays {
+		length = maxDailySeriesDays
 	}
 
-	length := int(today.Sub(start).Hours()/24) + 1
+	startStr := start.Format(dateLayout)
+	endStr := end.Format(dateLayout)
 	series := make([]int, length)
 	for _, day := range daily {
+		// Cheap string comparison first: most entries fall outside the window.
+		if day.Date < startStr || day.Date > endStr {
+			continue
+		}
 		parsed, err := time.ParseInLocation(dateLayout, day.Date, time.UTC)
 		if err != nil {
 			continue
@@ -109,7 +113,22 @@ func buildDailySeries(daily []DayWordCount, today time.Time) (string, []int) {
 		}
 		series[offset] += day.Words
 	}
-	return start.Format(dateLayout), series
+	return series
+}
+
+// clampSeriesDays keeps a requested day count inside sane bounds.
+func clampSeriesDays(raw string, fallback int) int {
+	days := fallback
+	if parsed, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
+		days = parsed
+	}
+	if days < 1 {
+		days = 1
+	}
+	if days > maxDailySeriesDays {
+		days = maxDailySeriesDays
+	}
+	return days
 }
 
 // fillMissingYears makes the yearly chart continuous from the first year on

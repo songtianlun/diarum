@@ -41,21 +41,46 @@ export const emptyWordStats: WordStats = {
 	yearly: []
 };
 
-/** Local calendar date as YYYY-MM-DD (never UTC-shifted). */
-function localToday(): string {
-	const now = new Date();
-	const month = String(now.getMonth() + 1).padStart(2, '0');
-	const day = String(now.getDate()).padStart(2, '0');
-	return `${now.getFullYear()}-${month}-${day}`;
+/** Daily word counts for one explicit window. */
+export interface DailySeries {
+	start: string;
+	end: string;
+	series: number[];
+	total: number;
+}
+
+/** Longest window the server will return day-by-day. */
+export const MAX_SERIES_DAYS = 3700;
+
+/** Format a Date as a local YYYY-MM-DD (never UTC-shifted). */
+export function toLocalDate(date: Date): string {
+	const month = String(date.getMonth() + 1).padStart(2, '0');
+	const day = String(date.getDate()).padStart(2, '0');
+	return `${date.getFullYear()}-${month}-${day}`;
+}
+
+export function localToday(): string {
+	return toLocalDate(new Date());
+}
+
+/** The date `days - 1` before `end`, i.e. the start of an inclusive window. */
+export function windowStart(end: string, days: number): string {
+	const date = new Date(`${end}T00:00:00`);
+	date.setDate(date.getDate() - (days - 1));
+	return toLocalDate(date);
 }
 
 /**
- * Fetch all diary word statistics in one call.
- * The server sends its own local date so rolling windows match the calendar
- * the user is looking at.
+ * Fetch the statistics overview: headline totals, the per-year series, and the
+ * initial daily window. The client sends its own local date so rolling windows
+ * match the calendar the user is looking at.
  */
-export async function getWordStats(): Promise<WordStats> {
-	const response = await fetch(`/api/v1/diaries/word-stats?today=${localToday()}`, {
+export async function getWordStats(seriesDays = 30): Promise<WordStats> {
+	const params = new URLSearchParams({
+		today: localToday(),
+		series_days: String(seriesDays)
+	});
+	const response = await fetch(`/api/v1/diaries/word-stats?${params}`, {
 		headers: {
 			Authorization: `Bearer ${pb.authStore.token}`
 		}
@@ -71,5 +96,32 @@ export async function getWordStats(): Promise<WordStats> {
 		...data,
 		series: Array.isArray(data.series) ? data.series : [],
 		yearly: Array.isArray(data.yearly) ? data.yearly : []
+	};
+}
+
+/**
+ * Fetch daily word counts for one window only. Used whenever the reader
+ * re-ranges the daily chart, so the headline totals and the yearly chart are
+ * never refetched.
+ */
+export async function getDailySeries(start: string, end: string): Promise<DailySeries> {
+	const params = new URLSearchParams({ start, end });
+	const response = await fetch(`/api/v1/diaries/word-series?${params}`, {
+		headers: {
+			Authorization: `Bearer ${pb.authStore.token}`
+		}
+	});
+
+	if (!response.ok) {
+		throw new Error(`Failed to load daily words (HTTP ${response.status})`);
+	}
+
+	const data = await response.json();
+	const series: number[] = Array.isArray(data.series) ? data.series : [];
+	return {
+		start: data.start ?? start,
+		end: data.end ?? end,
+		series,
+		total: typeof data.total === 'number' ? data.total : series.reduce((sum, n) => sum + n, 0)
 	};
 }

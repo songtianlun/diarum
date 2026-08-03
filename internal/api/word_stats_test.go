@@ -36,17 +36,17 @@ func TestCountWords(t *testing.T) {
 	}
 }
 
-func TestBuildDailySeriesIsDenseAndEndsToday(t *testing.T) {
-	today := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+func utcDay(y int, m time.Month, d int) time.Time {
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+}
+
+func TestBuildSeriesBetweenIsDense(t *testing.T) {
 	daily := []DayWordCount{
 		{Date: "2026-08-01", Words: 10},
 		{Date: "2026-08-03", Words: 5},
 	}
 
-	start, series := buildDailySeries(daily, today)
-	if start != "2026-08-01" {
-		t.Fatalf("start = %q, want 2026-08-01", start)
-	}
+	series := buildSeriesBetween(daily, utcDay(2026, 8, 1), utcDay(2026, 8, 3))
 	want := []int{10, 0, 5}
 	if len(series) != len(want) {
 		t.Fatalf("series length = %d, want %d", len(series), len(want))
@@ -58,21 +58,53 @@ func TestBuildDailySeriesIsDenseAndEndsToday(t *testing.T) {
 	}
 }
 
-func TestBuildDailySeriesIsBounded(t *testing.T) {
-	today := time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)
+func TestBuildSeriesBetweenExcludesOutsideWindow(t *testing.T) {
+	daily := []DayWordCount{
+		{Date: "2026-07-31", Words: 99},
+		{Date: "2026-08-02", Words: 7},
+		{Date: "2026-08-04", Words: 99},
+	}
+
+	series := buildSeriesBetween(daily, utcDay(2026, 8, 1), utcDay(2026, 8, 3))
+	want := []int{0, 7, 0}
+	for i := range want {
+		if series[i] != want[i] {
+			t.Fatalf("series[%d] = %d, want %d", i, series[i], want[i])
+		}
+	}
+}
+
+func TestBuildSeriesBetweenIsBounded(t *testing.T) {
 	daily := []DayWordCount{{Date: "2005-01-01", Words: 42}}
 
-	start, series := buildDailySeries(daily, today)
+	series := buildSeriesBetween(daily, utcDay(2000, 1, 1), utcDay(2026, 8, 3))
 	if len(series) != maxDailySeriesDays {
 		t.Fatalf("series length = %d, want %d", len(series), maxDailySeriesDays)
 	}
-	if start == "2005-01-01" {
-		t.Fatal("series should be clamped to the recent window, not the first ever entry")
+}
+
+func TestBuildSeriesBetweenRejectsInvertedRange(t *testing.T) {
+	series := buildSeriesBetween(nil, utcDay(2026, 8, 3), utcDay(2026, 8, 1))
+	if len(series) != 0 {
+		t.Fatalf("series length = %d, want 0", len(series))
 	}
-	// The out-of-window entry must not leak into the clamped series.
-	for i, value := range series {
-		if value != 0 {
-			t.Fatalf("series[%d] = %d, want 0", i, value)
+}
+
+func TestClampSeriesDays(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want int
+	}{
+		{"", defaultDailySeriesDays},
+		{"nonsense", defaultDailySeriesDays},
+		{"90", 90},
+		{"0", 1},
+		{"-5", 1},
+		{"999999", maxDailySeriesDays},
+	}
+	for _, tc := range cases {
+		if got := clampSeriesDays(tc.raw, defaultDailySeriesDays); got != tc.want {
+			t.Fatalf("clampSeriesDays(%q) = %d, want %d", tc.raw, got, tc.want)
 		}
 	}
 }

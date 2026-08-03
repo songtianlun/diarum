@@ -236,6 +236,11 @@ export const en = {
 			range90: '90D',
 			range180: '180D',
 			range365: '1Y',
+			customRange: 'Custom',
+			from: 'From',
+			to: 'To',
+			apply: 'Apply',
+			rangeTooLong: 'Pick a range of {days} days or fewer.',
 			wordsUnit: 'words',
 			empty: 'No entries yet — start writing and your statistics will appear here.',
 			noData: 'No data'
