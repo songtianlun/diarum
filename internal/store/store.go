@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -934,6 +935,37 @@ func (s *Store) CountDiaries(owner string) int {
 	var total int
 	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM diaries WHERE owner = ?`, owner).Scan(&total)
 	return total
+}
+
+// ScanDiaryContents streams every diary of a user in ascending date order.
+// Callers aggregate as rows arrive, so no request ever materialises the whole
+// corpus in memory.
+func (s *Store) ScanDiaryContents(owner string, fn func(date, content string)) error {
+	rows, err := s.DB.Query(`SELECT date, content FROM diaries WHERE owner = ? ORDER BY date ASC`, owner)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var date, content string
+		if err := rows.Scan(&date, &content); err != nil {
+			return err
+		}
+		fn(date, content)
+	}
+	return rows.Err()
+}
+
+// DiaryFingerprint is a cheap value that changes whenever a user's diaries are
+// added, edited or removed. Used to invalidate derived statistics caches.
+func (s *Store) DiaryFingerprint(owner string) string {
+	var count int
+	var latest sql.NullString
+	if err := s.DB.QueryRow(`SELECT COUNT(*), MAX(updated) FROM diaries WHERE owner = ?`, owner).Scan(&count, &latest); err != nil {
+		// Never return a value that could match a cached fingerprint.
+		return "error:" + nowString()
+	}
+	return strconv.Itoa(count) + ":" + latest.String
 }
 
 func scanDiary(row interface{ Scan(dest ...any) error }) (*Diary, error) {

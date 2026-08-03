@@ -21,8 +21,11 @@
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
 	import { loadImageUploadSettings } from '$lib/stores/imageUpload';
+	import { getWordStats, type WordStats } from '$lib/api/stats';
+	import LineChart from '$lib/components/stats/LineChart.svelte';
+	import type { ChartPoint } from '$lib/components/stats/types';
 	import Footer from '$lib/components/ui/Footer.svelte';
-	import { t, setLocalePreference, type LocalePreference } from '$lib/i18n';
+	import { t, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
 	import {
 		DEFAULT_MOOD_OPTIONS,
 		DEFAULT_WEATHER_OPTIONS,
@@ -33,10 +36,11 @@
 		sanitizeWeatherOptions
 	} from '$lib/utils/diaryEmoji';
 
-	type SettingsTab = 'general' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
+	type SettingsTab = 'general' | 'statistics' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
 
 	const settingsTabs: { id: SettingsTab }[] = [
 		{ id: 'general' },
+		{ id: 'statistics' },
 		{ id: 'ai-assistant' },
 		{ id: 'mood-weather' },
 		{ id: 'api-access' },
@@ -47,6 +51,7 @@
 
 	const tabLabelKey: Record<SettingsTab, string> = {
 		'general': 'settings.tabs.general',
+		'statistics': 'settings.tabs.statistics',
 		'ai-assistant': 'settings.tabs.aiAssistant',
 		'mood-weather': 'settings.tabs.moodWeather',
 		'api-access': 'settings.tabs.apiAccess',
@@ -87,6 +92,15 @@
 	let generalSaving = false;
 	let generalError = '';
 	let generalSuccess = '';
+
+	// Statistics — one API call feeds every number and both charts. Range
+	// changes are re-sliced locally and never hit the network again.
+	const DAILY_RANGES = [7, 14, 30, 90, 180, 365] as const;
+	let wordStats: WordStats | null = null;
+	let statsLoading = false;
+	let statsError = '';
+	let statsRequested = false;
+	let dailyRange = 30;
 
 	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '' };
 	let copied = false;
@@ -175,6 +189,74 @@
 	async function loadTokenStatus() {
 		tokenStatus = await getApiToken();
 	}
+
+	// --- Statistics -------------------------------------------------------
+
+	async function loadWordStats() {
+		statsRequested = true;
+		statsLoading = true;
+		statsError = '';
+		try {
+			wordStats = await getWordStats();
+		} catch (e) {
+			statsError = e instanceof Error ? e.message : $t('settings.statistics.error');
+		}
+		statsLoading = false;
+	}
+
+	// Fetch lazily the first time the tab is opened, so the rest of Settings
+	// stays instant for people who never look at their stats.
+	$: if (activeTab === 'statistics' && !statsRequested && !loading) {
+		void loadWordStats();
+	}
+
+	function formatNumber(value: number): string {
+		return value.toLocaleString(getIntlLocale());
+	}
+
+	function addDays(iso: string, days: number): Date {
+		const date = new Date(`${iso}T00:00:00`);
+		date.setDate(date.getDate() + days);
+		return date;
+	}
+
+	function toIsoDate(date: Date): string {
+		const month = String(date.getMonth() + 1).padStart(2, '0');
+		const day = String(date.getDate()).padStart(2, '0');
+		return `${date.getFullYear()}-${month}-${day}`;
+	}
+
+	/** Slice the dense daily series down to the selected range. */
+	function buildDailyPoints(stats: WordStats | null, days: number): ChartPoint[] {
+		if (!stats || !stats.series.length || !stats.series_start) return [];
+		const { series, series_start: seriesStart } = stats;
+		const offset = Math.max(series.length - days, 0);
+		return series.slice(offset).map((value, index) => {
+			const date = addDays(seriesStart, offset + index);
+			return {
+				label: `${date.getMonth() + 1}/${date.getDate()}`,
+				title: toIsoDate(date),
+				value
+			};
+		});
+	}
+
+	$: dailyPoints = buildDailyPoints(wordStats, dailyRange);
+	$: dailyTotal = dailyPoints.reduce((sum, point) => sum + point.value, 0);
+	$: dailyAverage = dailyPoints.length ? Math.round(dailyTotal / dailyPoints.length) : 0;
+	$: yearlyPoints = (wordStats?.yearly ?? []).map((item) => ({
+		label: String(item.year),
+		title: String(item.year),
+		value: item.words
+	}));
+	$: statCards = wordStats
+		? [
+			{ key: 'total', label: $t('settings.statistics.totalWords'), value: wordStats.total_words },
+			{ key: 'y1', label: $t('settings.statistics.lastTwelveMonths'), value: wordStats.last_twelve_months_words },
+			{ key: 'm6', label: $t('settings.statistics.lastSixMonths'), value: wordStats.last_six_months_words },
+			{ key: 'm1', label: $t('settings.statistics.lastMonth'), value: wordStats.last_month_words }
+		]
+		: [];
 
 	async function loadGeneralSettingsLocal() {
 		generalSettings = await getGeneralSettings();
@@ -973,6 +1055,118 @@
 							{generalSaving ? $t('common.saving') : $t('settings.general.save')}
 						</button>
 					</div>
+				</div>
+				{/if}
+
+				{#if activeTab === 'statistics'}
+				<!-- Statistics Section -->
+				<div id="statistics" class="bg-card rounded-xl shadow-sm border border-border/50 p-4 sm:p-6 animate-fade-in scroll-mt-16">
+					<div class="flex items-start justify-between gap-3 mb-4">
+						<div class="min-w-0">
+							<h2 class="text-lg font-semibold text-foreground">{$t('settings.statistics.heading')}</h2>
+							<p class="text-sm text-muted-foreground mt-1">{$t('settings.statistics.description')}</p>
+						</div>
+						<button
+							on:click={loadWordStats}
+							disabled={statsLoading}
+							title={$t('settings.statistics.refresh')}
+							aria-label={$t('settings.statistics.refresh')}
+							class="flex-shrink-0 p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+						>
+							<svg class="w-4 h-4 {statsLoading ? 'animate-spin' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+							</svg>
+						</button>
+					</div>
+
+					{#if statsError}
+						<div class="p-3 bg-destructive/10 text-destructive rounded-lg text-sm flex items-center justify-between gap-3">
+							<span>{statsError}</span>
+							<button on:click={loadWordStats} class="underline whitespace-nowrap">{$t('settings.statistics.retry')}</button>
+						</div>
+					{:else if !wordStats && statsLoading}
+						<div class="flex flex-col items-center justify-center py-16 gap-3">
+							<svg class="w-6 h-6 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							<div class="text-muted-foreground text-sm">{$t('settings.statistics.loading')}</div>
+						</div>
+					{:else if wordStats}
+						<!-- Headline numbers -->
+						<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+							{#each statCards as card (card.key)}
+								<div class="rounded-xl border border-border/50 bg-muted/30 px-4 py-3.5">
+									<div class="text-xs text-muted-foreground truncate">{card.label}</div>
+									<div class="mt-1 text-2xl font-semibold tabular-nums text-foreground tracking-tight">
+										{formatNumber(card.value)}
+									</div>
+								</div>
+							{/each}
+						</div>
+
+						<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+							<span>{$t('settings.statistics.entriesCount', { count: formatNumber(wordStats.total_entries) })}</span>
+							{#if wordStats.first_date && wordStats.last_date}
+								<span class="opacity-50">·</span>
+								<span class="tabular-nums">{$t('settings.statistics.span', { start: wordStats.first_date, end: wordStats.last_date })}</span>
+							{/if}
+						</div>
+
+						{#if wordStats.total_entries === 0}
+							<div class="mt-6 rounded-xl border border-dashed border-border/60 px-4 py-10 text-center text-sm text-muted-foreground">
+								{$t('settings.statistics.empty')}
+							</div>
+						{:else}
+							<!-- Daily words -->
+							<div class="mt-6 rounded-xl border border-border/50 p-4">
+								<div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+									<div class="min-w-0">
+										<div class="text-sm font-medium text-foreground">{$t('settings.statistics.dailyHeading')}</div>
+										<div class="text-xs text-muted-foreground mt-0.5 tabular-nums">
+											{$t('settings.statistics.dailySummary', { words: formatNumber(dailyTotal), average: formatNumber(dailyAverage) })}
+										</div>
+									</div>
+									<div class="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-1">
+										{#each DAILY_RANGES as range}
+											<button
+												on:click={() => dailyRange = range}
+												class="px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors {dailyRange === range ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
+											>
+												{$t(`settings.statistics.range${range}`)}
+											</button>
+										{/each}
+									</div>
+								</div>
+								<LineChart
+									points={dailyPoints}
+									height={210}
+									unit={$t('settings.statistics.wordsUnit')}
+									emptyLabel={$t('settings.statistics.noData')}
+									showDots
+								/>
+							</div>
+
+							<!-- Yearly words -->
+							<div class="mt-4 rounded-xl border border-border/50 p-4">
+								<div class="mb-3">
+									<div class="text-sm font-medium text-foreground">{$t('settings.statistics.yearlyHeading')}</div>
+									{#if yearlyPoints.length}
+										<div class="text-xs text-muted-foreground mt-0.5 tabular-nums">
+											{$t('settings.statistics.yearlySummary', { start: yearlyPoints[0].label, end: yearlyPoints[yearlyPoints.length - 1].label })}
+										</div>
+									{/if}
+								</div>
+								<LineChart
+									points={yearlyPoints}
+									height={210}
+									unit={$t('settings.statistics.wordsUnit')}
+									emptyLabel={$t('settings.statistics.noData')}
+									showDots
+								/>
+							</div>
+						{/if}
+					{/if}
 				</div>
 				{/if}
 

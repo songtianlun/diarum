@@ -110,6 +110,81 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		return c.JSON(http.StatusOK, map[string]any{"total": total, "streak": streak})
 	})
 
+	// Everything the statistics page needs, in a single response: headline
+	// totals, a dense daily series for the adjustable line chart, and one
+	// bucket per calendar year. The client never has to call back to change
+	// the chart range.
+	group.GET("/word-stats", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		daily, err := dailyWordCounts(s, user.ID)
+		if err != nil {
+			return serverError("Failed to compute word statistics", err)
+		}
+
+		// The client sends its own local date so window boundaries match what
+		// the user sees, without depending on a tz database being present.
+		today := parseDateParam(c.QueryParam("today"), time.Now().UTC())
+		todayStr := today.Format(dateLayout)
+		cutoffMonth := today.AddDate(0, -1, 0).Format(dateLayout)
+		cutoffHalfYear := today.AddDate(0, -6, 0).Format(dateLayout)
+		cutoffYear := today.AddDate(-1, 0, 0).Format(dateLayout)
+
+		totalWords, monthWords, halfYearWords, yearWords := 0, 0, 0, 0
+		yearIndex := make(map[int]int)
+		yearly := make([]YearWordCount, 0, 8)
+		firstDate, lastDate := "", ""
+
+		for _, day := range daily {
+			totalWords += day.Words
+			if firstDate == "" {
+				firstDate = day.Date
+			}
+			lastDate = day.Date
+
+			if day.Date <= todayStr {
+				if day.Date >= cutoffYear {
+					yearWords += day.Words
+				}
+				if day.Date >= cutoffHalfYear {
+					halfYearWords += day.Words
+				}
+				if day.Date >= cutoffMonth {
+					monthWords += day.Words
+				}
+			}
+
+			year, ok := yearFromDate(day.Date)
+			if !ok {
+				continue
+			}
+			position, seen := yearIndex[year]
+			if !seen {
+				yearIndex[year] = len(yearly)
+				yearly = append(yearly, YearWordCount{Year: year})
+				position = len(yearly) - 1
+			}
+			yearly[position].Words += day.Words
+			yearly[position].Entries++
+		}
+
+		yearly = fillMissingYears(yearly, today.Year())
+		seriesStart, series := buildDailySeries(daily, today)
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"total_words":              totalWords,
+			"total_entries":            len(daily),
+			"last_month_words":         monthWords,
+			"last_six_months_words":    halfYearWords,
+			"last_twelve_months_words": yearWords,
+			"first_date":               firstDate,
+			"last_date":                lastDate,
+			"series_start":             seriesStart,
+			"series_end":               todayStr,
+			"series":                   series,
+			"yearly":                   yearly,
+		})
+	})
+
 	group.GET("/search", func(c echo.Context) error {
 		user := auth.CurrentUser(c)
 		query := c.QueryParam("q")
