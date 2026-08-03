@@ -21,8 +21,21 @@
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
 	import { loadImageUploadSettings } from '$lib/stores/imageUpload';
+	import {
+		getWordStats,
+		getDailySeries,
+		localToday,
+		toLocalDate,
+		windowStart,
+		MAX_SERIES_DAYS,
+		type WordStats,
+		type DailySeries
+	} from '$lib/api/stats';
+	import LineChart from '$lib/components/stats/LineChart.svelte';
+	import type { ChartPoint } from '$lib/components/stats/types';
 	import Footer from '$lib/components/ui/Footer.svelte';
-	import { t, setLocalePreference, type LocalePreference } from '$lib/i18n';
+	import { t, locale, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
+	import { formatHumanNumber } from '$lib/utils/number';
 	import {
 		DEFAULT_MOOD_OPTIONS,
 		DEFAULT_WEATHER_OPTIONS,
@@ -33,10 +46,11 @@
 		sanitizeWeatherOptions
 	} from '$lib/utils/diaryEmoji';
 
-	type SettingsTab = 'general' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
+	type SettingsTab = 'general' | 'statistics' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
 
 	const settingsTabs: { id: SettingsTab }[] = [
 		{ id: 'general' },
+		{ id: 'statistics' },
 		{ id: 'ai-assistant' },
 		{ id: 'mood-weather' },
 		{ id: 'api-access' },
@@ -47,6 +61,7 @@
 
 	const tabLabelKey: Record<SettingsTab, string> = {
 		'general': 'settings.tabs.general',
+		'statistics': 'settings.tabs.statistics',
 		'ai-assistant': 'settings.tabs.aiAssistant',
 		'mood-weather': 'settings.tabs.moodWeather',
 		'api-access': 'settings.tabs.apiAccess',
@@ -87,6 +102,24 @@
 	let generalSaving = false;
 	let generalError = '';
 	let generalSuccess = '';
+
+	// Statistics — one API call feeds every number and both charts. Range
+	// changes are re-sliced locally and never hit the network again.
+	const DAILY_RANGES = [7, 14, 30, 90, 180, 365] as const;
+	const DEFAULT_DAILY_RANGE = 30;
+	let wordStats: WordStats | null = null;
+	let statsLoading = false;
+	let statsError = '';
+	let statsRequested = false;
+	// The daily chart owns its range and refreshes on its own: changing it
+	// re-queries only that window and leaves the totals and yearly chart alone.
+	let dailyRange: number | null = DEFAULT_DAILY_RANGE;
+	let dailySeries: DailySeries | null = null;
+	let dailyLoading = false;
+	let dailyError = '';
+	let showCustomRange = false;
+	let customStart = '';
+	let customEnd = '';
 
 	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '' };
 	let copied = false;
@@ -175,6 +208,126 @@
 	async function loadTokenStatus() {
 		tokenStatus = await getApiToken();
 	}
+
+	// --- Statistics -------------------------------------------------------
+
+	async function loadWordStats() {
+		statsRequested = true;
+		statsLoading = true;
+		statsError = '';
+		try {
+			const stats = await getWordStats(DEFAULT_DAILY_RANGE);
+			wordStats = stats;
+			// The overview already carries the default window, so the chart
+			// paints without a second round trip on open.
+			dailyRange = DEFAULT_DAILY_RANGE;
+			dailyError = '';
+			dailySeries = {
+				start: stats.series_start,
+				end: stats.series_end,
+				series: stats.series,
+				total: stats.series.reduce((sum, n) => sum + n, 0)
+			};
+			customEnd = stats.series_end || localToday();
+			customStart = stats.series_start || windowStart(customEnd, DEFAULT_DAILY_RANGE);
+		} catch (e) {
+			statsError = e instanceof Error ? e.message : $t('settings.statistics.error');
+		}
+		statsLoading = false;
+	}
+
+	/** Refresh only the daily chart, for one explicit window. */
+	async function loadDailySeries(start: string, end: string) {
+		dailyLoading = true;
+		dailyError = '';
+		try {
+			dailySeries = await getDailySeries(start, end);
+		} catch (e) {
+			dailyError = e instanceof Error ? e.message : $t('settings.statistics.error');
+		}
+		dailyLoading = false;
+	}
+
+	async function selectPreset(days: number) {
+		const end = localToday();
+		const start = windowStart(end, days);
+		dailyRange = days;
+		customStart = start;
+		customEnd = end;
+		await loadDailySeries(start, end);
+	}
+
+	async function applyCustomRange() {
+		if (!customRangeValid) return;
+		const [start, end] = customStart <= customEnd ? [customStart, customEnd] : [customEnd, customStart];
+		dailyRange = null; // no preset is active any more
+		await loadDailySeries(start, end);
+	}
+
+	/** Inclusive day count between two YYYY-MM-DD strings. */
+	function daysBetween(start: string, end: string): number {
+		const from = new Date(`${start}T00:00:00`).getTime();
+		const to = new Date(`${end}T00:00:00`).getTime();
+		if (Number.isNaN(from) || Number.isNaN(to)) return 0;
+		return Math.abs(Math.round((to - from) / 86_400_000)) + 1;
+	}
+
+	$: customSpanDays = customStart && customEnd ? daysBetween(customStart, customEnd) : 0;
+	$: customRangeValid = customSpanDays > 0 && customSpanDays <= MAX_SERIES_DAYS;
+
+	// Fetch lazily the first time the tab is opened, so the rest of Settings
+	// stays instant for people who never look at their stats.
+	$: if (activeTab === 'statistics' && !statsRequested && !loading) {
+		void loadWordStats();
+	}
+
+	function formatNumber(value: number): string {
+		return value.toLocaleString(getIntlLocale());
+	}
+
+	function addDays(iso: string, days: number): Date {
+		const date = new Date(`${iso}T00:00:00`);
+		date.setDate(date.getDate() + days);
+		return date;
+	}
+
+	/** Turn a dense daily window into chart points. */
+	function buildDailyPoints(source: DailySeries | null): ChartPoint[] {
+		if (!source || !source.series.length || !source.start) return [];
+		const { series, start } = source;
+		return series.map((value, index) => {
+			const date = addDays(start, index);
+			return {
+				label: `${date.getMonth() + 1}/${date.getDate()}`,
+				title: toLocalDate(date),
+				value
+			};
+		});
+	}
+
+	$: dailyPoints = buildDailyPoints(dailySeries);
+	$: dailyTotal = dailySeries?.total ?? 0;
+	$: dailyAverage = dailyPoints.length ? Math.round(dailyTotal / dailyPoints.length) : 0;
+	$: yearlyPoints = (wordStats?.yearly ?? []).map((item) => ({
+		label: String(item.year),
+		title: String(item.year),
+		value: item.words
+	}));
+	// The headline is the abbreviated figure (1.9万 / 19.2k) so it always fits
+	// the card; the exact number rides along for the desktop footnote.
+	$: statCards = wordStats
+		? [
+			{ key: 'total', label: $t('settings.statistics.totalWords'), value: wordStats.total_words },
+			{ key: 'y1', label: $t('settings.statistics.lastTwelveMonths'), value: wordStats.last_twelve_months_words },
+			{ key: 'm6', label: $t('settings.statistics.lastSixMonths'), value: wordStats.last_six_months_words },
+			{ key: 'm1', label: $t('settings.statistics.lastMonth'), value: wordStats.last_month_words }
+		].map((card) => {
+			const display = formatHumanNumber(card.value, $locale);
+			const exact = formatNumber(card.value);
+			// Nothing to footnote when the abbreviation is the number itself.
+			return { ...card, display, exact: exact === display ? '' : exact };
+		})
+		: [];
 
 	async function loadGeneralSettingsLocal() {
 		generalSettings = await getGeneralSettings();
@@ -973,6 +1126,192 @@
 							{generalSaving ? $t('common.saving') : $t('settings.general.save')}
 						</button>
 					</div>
+				</div>
+				{/if}
+
+				{#if activeTab === 'statistics'}
+				<!-- Statistics Section -->
+				<div id="statistics" class="bg-card rounded-xl shadow-sm border border-border/50 p-4 sm:p-6 animate-fade-in scroll-mt-16">
+					<div class="flex items-start justify-between gap-3 mb-4">
+						<div class="min-w-0">
+							<h2 class="text-lg font-semibold text-foreground">{$t('settings.statistics.heading')}</h2>
+							<p class="text-sm text-muted-foreground mt-1">{$t('settings.statistics.description')}</p>
+						</div>
+						<button
+							on:click={loadWordStats}
+							disabled={statsLoading}
+							title={$t('settings.statistics.refresh')}
+							aria-label={$t('settings.statistics.refresh')}
+							class="flex-shrink-0 p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+						>
+							<svg class="w-4 h-4 {statsLoading ? 'animate-spin' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+							</svg>
+						</button>
+					</div>
+
+					{#if statsError}
+						<div class="p-3 bg-destructive/10 text-destructive rounded-lg text-sm flex items-center justify-between gap-3">
+							<span>{statsError}</span>
+							<button on:click={loadWordStats} class="underline whitespace-nowrap">{$t('settings.statistics.retry')}</button>
+						</div>
+					{:else if !wordStats && statsLoading}
+						<div class="flex flex-col items-center justify-center py-16 gap-3">
+							<svg class="w-6 h-6 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+							</svg>
+							<div class="text-muted-foreground text-sm">{$t('settings.statistics.loading')}</div>
+						</div>
+					{:else if wordStats}
+						<!-- Headline numbers -->
+						<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+							{#each statCards as card (card.key)}
+								<div class="relative overflow-hidden rounded-xl border border-border/50 bg-muted/30 px-4 pt-3.5 pb-3.5 sm:pb-6">
+									<div class="text-xs text-muted-foreground truncate">{card.label}</div>
+									<div
+										class="mt-1 text-2xl font-semibold tabular-nums text-foreground tracking-tight truncate"
+										title={card.exact || card.display}
+									>
+										{card.display}
+									</div>
+									{#if card.exact}
+										<div class="hidden sm:block pointer-events-none absolute bottom-2 right-3 max-w-[70%] truncate text-[10px] leading-none tabular-nums text-muted-foreground/50">
+											{card.exact}
+										</div>
+									{/if}
+								</div>
+							{/each}
+						</div>
+
+						<div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+							<span>{$t('settings.statistics.entriesCount', { count: formatNumber(wordStats.total_entries) })}</span>
+							{#if wordStats.first_date && wordStats.last_date}
+								<span class="opacity-50">·</span>
+								<span class="tabular-nums">{$t('settings.statistics.span', { start: wordStats.first_date, end: wordStats.last_date })}</span>
+							{/if}
+						</div>
+
+						{#if wordStats.total_entries === 0}
+							<div class="mt-6 rounded-xl border border-dashed border-border/60 px-4 py-10 text-center text-sm text-muted-foreground">
+								{$t('settings.statistics.empty')}
+							</div>
+						{:else}
+							<!-- Daily words -->
+							<div class="mt-6 rounded-xl border border-border/50 p-4">
+								<div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+									<div class="min-w-0">
+										<div class="text-sm font-medium text-foreground">{$t('settings.statistics.dailyHeading')}</div>
+										<div class="text-xs text-muted-foreground mt-0.5 tabular-nums">
+											{$t('settings.statistics.dailySummary', { words: formatNumber(dailyTotal), average: formatNumber(dailyAverage) })}
+										</div>
+										{#if dailySeries?.start && dailySeries?.end}
+											<div class="text-xs text-muted-foreground/70 mt-0.5 tabular-nums">
+												{$t('settings.statistics.span', { start: dailySeries.start, end: dailySeries.end })}
+											</div>
+										{/if}
+									</div>
+									<div class="flex flex-wrap gap-1 rounded-lg bg-muted/50 p-1">
+										{#each DAILY_RANGES as range}
+											<button
+												on:click={() => selectPreset(range)}
+												disabled={dailyLoading}
+												class="px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors disabled:opacity-60 {dailyRange === range ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
+											>
+												{$t(`settings.statistics.range${range}`)}
+											</button>
+										{/each}
+										<button
+											on:click={() => showCustomRange = !showCustomRange}
+											class="px-2.5 py-1 rounded-md text-xs whitespace-nowrap transition-colors {dailyRange === null ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
+											aria-expanded={showCustomRange}
+										>
+											{$t('settings.statistics.customRange')}
+										</button>
+									</div>
+								</div>
+
+								{#if showCustomRange}
+									<div class="mb-3 flex flex-wrap items-end gap-2 rounded-lg bg-muted/40 p-3">
+										<div class="min-w-0 flex-1 sm:flex-none">
+											<label for="stats-range-start" class="block text-[11px] text-muted-foreground mb-1">{$t('settings.statistics.from')}</label>
+											<input
+												id="stats-range-start"
+												type="date"
+												bind:value={customStart}
+												max={customEnd || undefined}
+												class="w-full sm:w-auto px-2.5 py-1.5 bg-background rounded-lg text-xs text-foreground border border-border/50 focus:outline-none focus:ring-2 focus:ring-primary"
+											/>
+										</div>
+										<div class="min-w-0 flex-1 sm:flex-none">
+											<label for="stats-range-end" class="block text-[11px] text-muted-foreground mb-1">{$t('settings.statistics.to')}</label>
+											<input
+												id="stats-range-end"
+												type="date"
+												bind:value={customEnd}
+												min={customStart || undefined}
+												class="w-full sm:w-auto px-2.5 py-1.5 bg-background rounded-lg text-xs text-foreground border border-border/50 focus:outline-none focus:ring-2 focus:ring-primary"
+											/>
+										</div>
+										<button
+											on:click={applyCustomRange}
+											disabled={!customRangeValid || dailyLoading}
+											class="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+										>
+											{$t('settings.statistics.apply')}
+										</button>
+										{#if customSpanDays > MAX_SERIES_DAYS}
+											<div class="w-full text-[11px] text-destructive">
+												{$t('settings.statistics.rangeTooLong', { days: formatNumber(MAX_SERIES_DAYS) })}
+											</div>
+										{/if}
+									</div>
+								{/if}
+
+								{#if dailyError}
+									<div class="mb-3 p-2.5 bg-destructive/10 text-destructive rounded-lg text-xs">{dailyError}</div>
+								{/if}
+
+								<div class="relative">
+									<LineChart
+										points={dailyPoints}
+										height={210}
+										unit={$t('settings.statistics.wordsUnit')}
+										emptyLabel={$t('settings.statistics.noData')}
+										showDots
+										zoomable
+									/>
+									{#if dailyLoading}
+										<div class="absolute inset-0 flex items-center justify-center rounded-lg bg-card/60">
+											<svg class="w-5 h-5 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
+												<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+												<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+											</svg>
+										</div>
+									{/if}
+								</div>
+							</div>
+
+							<!-- Yearly words -->
+							<div class="mt-4 rounded-xl border border-border/50 p-4">
+								<div class="mb-3">
+									<div class="text-sm font-medium text-foreground">{$t('settings.statistics.yearlyHeading')}</div>
+									{#if yearlyPoints.length}
+										<div class="text-xs text-muted-foreground mt-0.5 tabular-nums">
+											{$t('settings.statistics.yearlySummary', { start: yearlyPoints[0].label, end: yearlyPoints[yearlyPoints.length - 1].label })}
+										</div>
+									{/if}
+								</div>
+								<LineChart
+									points={yearlyPoints}
+									height={210}
+									unit={$t('settings.statistics.wordsUnit')}
+									emptyLabel={$t('settings.statistics.noData')}
+									showDots
+								/>
+							</div>
+						{/if}
+					{/if}
 				</div>
 				{/if}
 
