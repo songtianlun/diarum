@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { locale } from '$lib/i18n';
+	import { formatHumanNumber } from '$lib/utils/number';
 	import type { ChartPoint } from './types';
 
 	export let points: ChartPoint[] = [];
@@ -104,13 +106,6 @@
 		return result;
 	}
 
-	function formatCompact(value: number): string {
-		if (value >= 1_000_000)
-			return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
-		if (value >= 1_000) return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)}k`;
-		return Number.isInteger(value) ? String(value) : value.toFixed(1);
-	}
-
 	function handlePointer(event: PointerEvent) {
 		if (!points.length || innerWidth <= 0) return;
 		const rect = (event.currentTarget as SVGRectElement).getBoundingClientRect();
@@ -162,7 +157,7 @@
 					class="fill-muted-foreground"
 					style="font-size: 10px"
 				>
-					{formatCompact(tick)}
+					{formatHumanNumber(tick, $locale)}
 				</text>
 			{/each}
 

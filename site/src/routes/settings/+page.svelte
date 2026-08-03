@@ -25,7 +25,8 @@
 	import LineChart from '$lib/components/stats/LineChart.svelte';
 	import type { ChartPoint } from '$lib/components/stats/types';
 	import Footer from '$lib/components/ui/Footer.svelte';
-	import { t, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
+	import { t, locale, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
+	import { formatHumanNumber } from '$lib/utils/number';
 	import {
 		DEFAULT_MOOD_OPTIONS,
 		DEFAULT_WEATHER_OPTIONS,
@@ -249,13 +250,20 @@
 		title: String(item.year),
 		value: item.words
 	}));
+	// The headline is the abbreviated figure (1.9万 / 19.2k) so it always fits
+	// the card; the exact number rides along for the desktop footnote.
 	$: statCards = wordStats
 		? [
 			{ key: 'total', label: $t('settings.statistics.totalWords'), value: wordStats.total_words },
 			{ key: 'y1', label: $t('settings.statistics.lastTwelveMonths'), value: wordStats.last_twelve_months_words },
 			{ key: 'm6', label: $t('settings.statistics.lastSixMonths'), value: wordStats.last_six_months_words },
 			{ key: 'm1', label: $t('settings.statistics.lastMonth'), value: wordStats.last_month_words }
-		]
+		].map((card) => {
+			const display = formatHumanNumber(card.value, $locale);
+			const exact = formatNumber(card.value);
+			// Nothing to footnote when the abbreviation is the number itself.
+			return { ...card, display, exact: exact === display ? '' : exact };
+		})
 		: [];
 
 	async function loadGeneralSettingsLocal() {
@@ -1096,11 +1104,19 @@
 						<!-- Headline numbers -->
 						<div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
 							{#each statCards as card (card.key)}
-								<div class="rounded-xl border border-border/50 bg-muted/30 px-4 py-3.5">
+								<div class="relative overflow-hidden rounded-xl border border-border/50 bg-muted/30 px-4 pt-3.5 pb-3.5 sm:pb-6">
 									<div class="text-xs text-muted-foreground truncate">{card.label}</div>
-									<div class="mt-1 text-2xl font-semibold tabular-nums text-foreground tracking-tight">
-										{formatNumber(card.value)}
+									<div
+										class="mt-1 text-2xl font-semibold tabular-nums text-foreground tracking-tight truncate"
+										title={card.exact || card.display}
+									>
+										{card.display}
 									</div>
+									{#if card.exact}
+										<div class="hidden sm:block pointer-events-none absolute bottom-2 right-3 max-w-[70%] truncate text-[10px] leading-none tabular-nums text-muted-foreground/50">
+											{card.exact}
+										</div>
+									{/if}
 								</div>
 							{/each}
 						</div>
