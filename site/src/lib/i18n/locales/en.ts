@@ -296,6 +296,7 @@ export const en = {
 		fileCalendar: 'Open Calendar...',
 		fileSave: 'Save',
 		fileShare: 'Share as Image...',
+		shareChars: '{count} characters',
 		fileExit: 'Back to Overview',
 		editMood: 'Mood...',
 		editWeather: 'Weather...',

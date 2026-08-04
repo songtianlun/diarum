@@ -827,6 +827,7 @@
 	{date}
 	{content}
 	selectedContent={shareSelectedContent}
+	visualStyle="win95"
 	onClose={() => (showShareModal = false)}
 />
 
