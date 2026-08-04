@@ -581,7 +581,7 @@
 				on:focusin={() => (activeWindow = 'rail')}
 			>
 				<div class="w95-titlebar" class:inactive={activeWindow !== 'rail'}>
-					<Win95Icon name="diarum" size={14} />
+					<Win95Icon name="diarum-pixel" size={14} />
 					<span class="w95-title-text">Diarum</span>
 				</div>
 
@@ -786,6 +786,7 @@
 					{entries}
 					currentDate={date}
 					loading={entriesLoading}
+					showCaption={false}
 					onSelect={openDate}
 					onToday={() => {
 						sheet = null;
@@ -797,7 +798,7 @@
 					}}
 				/>
 			{:else}
-				<Win95Outline {content} onNavigate={() => (sheet = null)} />
+				<Win95Outline {content} showCaption={false} onNavigate={() => (sheet = null)} />
 			{/if}
 		</Win95Dialog>
 	{/if}
@@ -827,6 +828,7 @@
 	{date}
 	{content}
 	selectedContent={shareSelectedContent}
+	visualStyle="win95"
 	onClose={() => (showShareModal = false)}
 />
 

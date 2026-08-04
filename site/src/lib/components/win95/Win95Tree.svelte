@@ -19,6 +19,8 @@
 	export let onSelect: (date: string) => void;
 	export let onToday: () => void;
 	export let onYesterday: () => void;
+	/** The CE sheet already has a title bar saying the same thing — drop the caption there. */
+	export let showCaption = true;
 
 	type Kind = 'root' | 'year' | 'month' | 'day';
 
@@ -210,12 +212,7 @@
 	/** Opens the year and month holding `target`, leaving everything else alone. */
 	function expandFor(target: string) {
 		if (!target) return;
-		open = {
-			...open,
-			root: true,
-			[target.slice(0, 4)]: true,
-			[target.slice(0, 7)]: true
-		};
+		open = { ...open, root: true, [target.slice(0, 4)]: true, [target.slice(0, 7)]: true };
 	}
 
 	async function scrollToDate(target: string) {
@@ -227,9 +224,42 @@
 		el?.scrollIntoView({ block: 'nearest' });
 	}
 
+	/**
+	 * The auto-expand has to be folded into `open` *before* `rows` is derived
+	 * from it. Svelte orders reactive statements by the dependencies it can see,
+	 * and an assignment made inside a called function is invisible to it — as a
+	 * bare `$:` block calling `expandFor` this was ordered *after* the `rows`
+	 * statement. A tree mounted with `entries` already loaded (the CE sheet,
+	 * which is created fresh every time it opens) therefore built its rows from
+	 * the pre-expand map, and nothing invalidated them afterwards. The +/- glyph
+	 * reads `open` live so it showed "expanded" while the child rows were
+	 * missing — hence a year that had to be clicked twice.
+	 *
+	 * Deriving `open` here declares the dependency, so `rows` is always built
+	 * from a map that already has the current date expanded.
+	 */
+	$: open = expandInitial(open, currentDate);
+
+	/**
+	 * Expands once per date and then leaves `open` alone, so `collapseAll` and
+	 * manual toggles stick. The "have I done this date yet" flag is tracked here
+	 * rather than reusing `lastRevealed`: that one is owned by the scroll block
+	 * below, which Svelte happens to order *before* this statement, so reading it
+	 * here would see it already set to the current date and skip every expand.
+	 */
+	let lastExpanded = '';
+
+	function expandInitial(
+		current: Record<string, boolean>,
+		target: string
+	): Record<string, boolean> {
+		if (!target || target === lastExpanded) return current;
+		lastExpanded = target;
+		return { ...current, root: true, [target.slice(0, 4)]: true, [target.slice(0, 7)]: true };
+	}
+
 	$: if (currentDate && currentDate !== lastRevealed) {
 		lastRevealed = currentDate;
-		expandFor(currentDate);
 		void scrollToDate(currentDate);
 	}
 
@@ -299,10 +329,12 @@
 </script>
 
 <div class="tree-pane">
-	<div class="w95-pane-caption">
-		<Win95Icon name="contents" size={13} />
-		<span>{$t('win95.contentsTitle')}</span>
-	</div>
+	{#if showCaption}
+		<div class="w95-pane-caption">
+			<Win95Icon name="contents" size={13} />
+			<span>{$t('win95.contentsTitle')}</span>
+		</div>
+	{/if}
 
 	<div class="w95-field tree-body" bind:this={scroller}>
 		{#if loading}

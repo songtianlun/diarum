@@ -31,7 +31,8 @@ export type Win95IconName =
 	| 'tree-collapse'
 	| 'star'
 	| 'home'
-	| 'diarum';
+	| 'diarum'
+	| 'diarum-pixel';
 
 /** A row in the Start menu: either a separator or an icon + label + action. */
 export interface Win95StartItem {

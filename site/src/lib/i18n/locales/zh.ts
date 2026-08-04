@@ -286,6 +286,7 @@ export const zh = {
 		fileCalendar: '打开日历...',
 		fileSave: '保存',
 		fileShare: '分享为图片...',
+		shareChars: '{count} 个字符',
 		fileExit: '返回总览',
 		editMood: '心情...',
 		editWeather: '天气...',

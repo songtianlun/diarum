@@ -27,7 +27,14 @@ export const defaultShareOptions: ShareOptions = {
 };
 
 // Theme types
-export type ThemeId = 'warm-paper' | 'dark-elegant' | 'minimal-white' | 'nature-green';
+export type ThemeId = 'warm-paper' | 'dark-elegant' | 'minimal-white' | 'nature-green' | 'win95';
+
+/**
+ * How the preview lays itself out. `card` is the plain document look shared by
+ * the original four themes; `win95` swaps in full Notepad window chrome
+ * (title bar, menu bar, sunken client area, status bar).
+ */
+export type ThemeVariant = 'card' | 'win95';
 
 export interface Theme {
 	id: ThemeId;
@@ -39,6 +46,8 @@ export interface Theme {
 	accent: string;
 	border: string;
 	fontFamily: string;
+	/** Defaults to 'card' when omitted. */
+	variant?: ThemeVariant;
 }
 
 // Predefined themes
@@ -86,8 +95,32 @@ export const themes: Record<ThemeId, Theme> = {
 		accent: '#22c55e',
 		border: '#d1e7dd',
 		fontFamily: '"Palatino Linotype", "Book Antiqua", Palatino, serif'
+	},
+	win95: {
+		id: 'win95',
+		name: 'Windows 95',
+		nameZh: 'Windows 95',
+		// The client area is the white Notepad page; the #c0c0c0 face lives on
+		// the window frame and is applied by the preview's win95 branch.
+		background: '#ffffff',
+		foreground: '#000000',
+		mutedForeground: '#404040',
+		accent: '#000080',
+		border: '#808080',
+		fontFamily:
+			"'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, Geneva, Verdana, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'WenQuanYi Micro Hei', sans-serif",
+		variant: 'win95'
 	}
 };
+
+/**
+ * The share theme that matches a diary view. Opening the share dialog from a
+ * given view preselects its theme so the exported image looks like the page
+ * it came from; the user can still pick any other theme afterwards.
+ */
+export function shareThemeForVisualStyle(style: string | null | undefined): ThemeId {
+	return style === 'win95' ? 'win95' : defaultShareOptions.theme;
+}
 
 // Export image format
 export type ImageFormat = 'png' | 'jpeg';

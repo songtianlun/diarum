@@ -9,6 +9,7 @@
 		copyImageToClipboard,
 		shareImage,
 		canShare,
+		shareThemeForVisualStyle,
 		type ShareOptions
 	} from '$lib/utils/imageExport';
 
@@ -19,11 +20,20 @@
 	export let mood: string = '';
 	export let weather: string = '';
 	export let tags: string[] = [];
+	/** The diary view this was opened from — preselects the matching theme. */
+	export let visualStyle: string | null = null;
 	export let onClose: () => void = () => {};
 
 	$: effectiveContent = selectedContent || content;
 
 	let options: ShareOptions = { ...defaultShareOptions };
+
+	// Follow the view's style until the user picks a theme themselves, at which
+	// point their choice sticks for the rest of the session.
+	let themePickedManually = false;
+	$: if (!themePickedManually) {
+		options = { ...options, theme: shareThemeForVisualStyle(visualStyle) };
+	}
 	let previewElement: HTMLElement;
 	let isGenerating = false;
 	let error = '';
@@ -46,6 +56,7 @@
 	}
 
 	function handleOptionsChange(newOptions: ShareOptions) {
+		if (newOptions.theme !== options.theme) themePickedManually = true;
 		options = newOptions;
 	}
 

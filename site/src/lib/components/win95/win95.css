@@ -967,23 +967,32 @@ html.w95-active .command-menu .icon {
 	font-size: 11px;
 }
 
+/* These caption a *section* of a window, not a window, so they are group-box
+   labels rather than title bars: plain text on the face colour with the etched
+   rule running off to the right, the way Explorer and the control panels drew
+   them. A title-bar gradient would be wrong either way round — blue reads as
+   "focused window", grey as "unfocused/disabled", and the panes are neither. */
 .w95-pane-caption {
 	flex-shrink: 0;
 	display: flex;
 	align-items: center;
 	gap: 5px;
-	height: 18px;
-	padding: 0 4px;
-	margin-bottom: 2px;
-	background: linear-gradient(90deg, var(--w95-title-a1), var(--w95-title-a2));
-	color: #fff;
+	padding: 0 2px;
+	margin-bottom: 4px;
+	color: var(--w95-text);
 	font-size: 11px;
-	font-weight: 700;
 	user-select: none;
 }
 
-.w95-pane-caption.muted {
-	background: linear-gradient(90deg, var(--w95-title-i1), var(--w95-title-i2));
+/* The etch is the group-box frame reduced to its top edge: a shadow line with
+   a highlight line under it, so it catches the light like every other bevel. */
+.w95-pane-caption::after {
+	content: '';
+	flex: 1;
+	height: 2px;
+	margin-left: 3px;
+	border-top: 1px solid var(--w95-shadow);
+	border-bottom: 1px solid var(--w95-light);
 }
 
 .w95-blink {
