@@ -14,6 +14,8 @@
 	/** Selector of the scrollable client area to move. */
 	export let scrollSelector = '.w95-editor-scroll';
 	export let onNavigate: (() => void) | undefined = undefined;
+	/** The CE sheet already has a title bar saying the same thing — drop the caption there. */
+	export let showCaption = true;
 
 	interface Row {
 		text: string;
@@ -103,10 +105,12 @@
 </script>
 
 <div class="outline-pane">
-	<div class="w95-pane-caption muted">
-		<Win95Icon name="outline" size={13} />
-		<span>{$t('win95.outlineTitle')}</span>
-	</div>
+	{#if showCaption}
+		<div class="w95-pane-caption muted">
+			<Win95Icon name="outline" size={13} />
+			<span>{$t('win95.outlineTitle')}</span>
+		</div>
+	{/if}
 
 	<div class="w95-field outline-body">
 		{#if rows.length === 0}

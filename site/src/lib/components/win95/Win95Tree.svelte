@@ -19,6 +19,8 @@
 	export let onSelect: (date: string) => void;
 	export let onToday: () => void;
 	export let onYesterday: () => void;
+	/** The CE sheet already has a title bar saying the same thing — drop the caption there. */
+	export let showCaption = true;
 
 	type Kind = 'root' | 'year' | 'month' | 'day';
 
@@ -299,10 +301,12 @@
 </script>
 
 <div class="tree-pane">
-	<div class="w95-pane-caption">
-		<Win95Icon name="contents" size={13} />
-		<span>{$t('win95.contentsTitle')}</span>
-	</div>
+	{#if showCaption}
+		<div class="w95-pane-caption">
+			<Win95Icon name="contents" size={13} />
+			<span>{$t('win95.contentsTitle')}</span>
+		</div>
+	{/if}
 
 	<div class="w95-field tree-body" bind:this={scroller}>
 		{#if loading}

@@ -786,6 +786,7 @@
 					{entries}
 					currentDate={date}
 					loading={entriesLoading}
+					showCaption={false}
 					onSelect={openDate}
 					onToday={() => {
 						sheet = null;
@@ -797,7 +798,7 @@
 					}}
 				/>
 			{:else}
-				<Win95Outline {content} onNavigate={() => (sheet = null)} />
+				<Win95Outline {content} showCaption={false} onNavigate={() => (sheet = null)} />
 			{/if}
 		</Win95Dialog>
 	{/if}
