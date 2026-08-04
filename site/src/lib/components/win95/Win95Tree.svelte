@@ -238,17 +238,23 @@
 	 * Deriving `open` here declares the dependency, so `rows` is always built
 	 * from a map that already has the current date expanded.
 	 */
-	$: open = expandInitial(open, currentDate, lastRevealed);
+	$: open = expandInitial(open, currentDate);
+
+	/**
+	 * Expands once per date and then leaves `open` alone, so `collapseAll` and
+	 * manual toggles stick. The "have I done this date yet" flag is tracked here
+	 * rather than reusing `lastRevealed`: that one is owned by the scroll block
+	 * below, which Svelte happens to order *before* this statement, so reading it
+	 * here would see it already set to the current date and skip every expand.
+	 */
+	let lastExpanded = '';
 
 	function expandInitial(
 		current: Record<string, boolean>,
-		target: string,
-		revealed: string
+		target: string
 	): Record<string, boolean> {
-		// Only on a date change, never on every `open` write: re-expanding
-		// unconditionally would fight `collapseAll` and `toggle`, and returning a
-		// fresh object each run would retrigger this statement forever.
-		if (!target || target === revealed) return current;
+		if (!target || target === lastExpanded) return current;
+		lastExpanded = target;
 		return { ...current, root: true, [target.slice(0, 4)]: true, [target.slice(0, 7)]: true };
 	}
 
