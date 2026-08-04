@@ -5,6 +5,12 @@
 	 * Every glyph is drawn on a 16×16 grid with integer coordinates and
 	 * `shape-rendering: crispEdges`, so it stays hard-edged at 1× the way a
 	 * real .ico would — no antialiased curves, no gradients.
+	 *
+	 * `diarum` is the exception: it renders the actual project logo as a
+	 * raster, since that mark identifies the app and a hand-drawn stand-in
+	 * would misrepresent it. It deliberately opts out of `crispEdges` —
+	 * nearest-neighbour scaling of a photographic PNG produces exactly the
+	 * jagged fringe we want to avoid.
 	 */
 	import type { Win95IconName } from './types';
 
@@ -14,6 +20,19 @@
 	export let title: string | undefined = undefined;
 </script>
 
+{#if name === 'diarum'}
+	<!-- Pre-scaled to 64px so the export path inlines ~6KB, not the 490KB
+	     master. No border/background: the PNG's own soft alpha does the
+	     blending against whatever surface it sits on. -->
+	<img
+		class="w95-logo"
+		src="/logo-64.png"
+		width={size}
+		height={size}
+		alt={title ?? ''}
+		aria-hidden={title ? undefined : 'true'}
+	/>
+{:else}
 <svg
 	width={size}
 	height={size}
@@ -141,16 +160,33 @@
 		<path d="M8 1l7 6h-2v8H3V7H1z" fill="#c04040" stroke="#000" />
 		<path d="M5 9h3v6H5z" fill="#804000" stroke="#000" />
 		<path d="M10 9h3v3h-3z" fill="#a0e0ff" stroke="#000" />
-	{:else if name === 'diarum'}
+	{:else if name === 'diarum-pixel'}
+		<!-- Hand-drawn stand-in for the app, kept for the places where the
+		     photographic logo reads as out of place against flat chrome. -->
 		<path d="M2 1h10l2 2v12H2z" fill="#f0e0c0" stroke="#000" />
 		<path d="M2 1h3v14H2z" fill="#804000" stroke="#000" />
 		<path d="M7 5h5v1H7zM7 7h5v1H7zM7 9h4v1H7z" fill="#805020" />
 	{/if}
 </svg>
+{/if}
 
 <style>
 	svg {
 		display: block;
 		flex-shrink: 0;
+	}
+
+	/* Matches the svg box exactly so the logo drops into the same slot, with
+	   nothing painted around it — no border, no background, no radius. */
+	.w95-logo {
+		display: block;
+		flex-shrink: 0;
+		object-fit: contain;
+		background: none;
+		border: 0;
+		border-radius: 0;
+		/* The surrounding skin sets `image-rendering: pixelated` on some
+		   surfaces; this mark needs smooth downscaling instead. */
+		image-rendering: auto;
 	}
 </style>

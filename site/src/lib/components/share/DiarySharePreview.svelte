@@ -405,7 +405,10 @@
 		padding: 0;
 	}
 
-	.share-preview :global(img) {
+	/* Entry images only. Left unscoped this also caught the win95 chrome's
+	   logo, whose explicit height it overrode with `auto`. */
+	.share-preview .content-section :global(img),
+	.share-preview .w95-doc-body :global(img) {
 		max-width: 100%;
 		height: auto;
 		border-radius: 8px;
@@ -800,7 +803,9 @@
 		padding: 0;
 	}
 
-	.share-preview.w95 :global(img) {
+	/* Entry images only — scoped to the document body so it never frames the
+	   logo in the title bar or taskbar. */
+	.share-preview.w95 .w95-doc-body :global(img) {
 		border: 1px solid var(--w95-shadow);
 		margin: 0.6em 0;
 		box-shadow:

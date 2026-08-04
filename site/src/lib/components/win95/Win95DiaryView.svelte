@@ -581,7 +581,7 @@
 				on:focusin={() => (activeWindow = 'rail')}
 			>
 				<div class="w95-titlebar" class:inactive={activeWindow !== 'rail'}>
-					<Win95Icon name="diarum" size={14} />
+					<Win95Icon name="diarum-pixel" size={14} />
 					<span class="w95-title-text">Diarum</span>
 				</div>
 
