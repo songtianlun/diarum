@@ -44,7 +44,7 @@
 
 <div class="nav-pane" class:compact>
 	{#if !compact}
-		<div class="w95-pane-caption muted">
+		<div class="w95-pane-caption">
 			<Win95Icon name="calendar" size={13} />
 			<span>{$t('win95.calendar')}</span>
 		</div>

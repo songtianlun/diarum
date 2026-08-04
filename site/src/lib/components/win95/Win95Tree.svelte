@@ -212,12 +212,7 @@
 	/** Opens the year and month holding `target`, leaving everything else alone. */
 	function expandFor(target: string) {
 		if (!target) return;
-		open = {
-			...open,
-			root: true,
-			[target.slice(0, 4)]: true,
-			[target.slice(0, 7)]: true
-		};
+		open = { ...open, root: true, [target.slice(0, 4)]: true, [target.slice(0, 7)]: true };
 	}
 
 	async function scrollToDate(target: string) {
@@ -229,9 +224,36 @@
 		el?.scrollIntoView({ block: 'nearest' });
 	}
 
+	/**
+	 * The auto-expand has to be folded into `open` *before* `rows` is derived
+	 * from it. Svelte orders reactive statements by the dependencies it can see,
+	 * and an assignment made inside a called function is invisible to it — as a
+	 * bare `$:` block calling `expandFor` this was ordered *after* the `rows`
+	 * statement. A tree mounted with `entries` already loaded (the CE sheet,
+	 * which is created fresh every time it opens) therefore built its rows from
+	 * the pre-expand map, and nothing invalidated them afterwards. The +/- glyph
+	 * reads `open` live so it showed "expanded" while the child rows were
+	 * missing — hence a year that had to be clicked twice.
+	 *
+	 * Deriving `open` here declares the dependency, so `rows` is always built
+	 * from a map that already has the current date expanded.
+	 */
+	$: open = expandInitial(open, currentDate, lastRevealed);
+
+	function expandInitial(
+		current: Record<string, boolean>,
+		target: string,
+		revealed: string
+	): Record<string, boolean> {
+		// Only on a date change, never on every `open` write: re-expanding
+		// unconditionally would fight `collapseAll` and `toggle`, and returning a
+		// fresh object each run would retrigger this statement forever.
+		if (!target || target === revealed) return current;
+		return { ...current, root: true, [target.slice(0, 4)]: true, [target.slice(0, 7)]: true };
+	}
+
 	$: if (currentDate && currentDate !== lastRevealed) {
 		lastRevealed = currentDate;
-		expandFor(currentDate);
 		void scrollToDate(currentDate);
 	}
 

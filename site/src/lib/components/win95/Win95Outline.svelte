@@ -106,7 +106,7 @@
 
 <div class="outline-pane">
 	{#if showCaption}
-		<div class="w95-pane-caption muted">
+		<div class="w95-pane-caption">
 			<Win95Icon name="outline" size={13} />
 			<span>{$t('win95.outlineTitle')}</span>
 		</div>
