@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -289,6 +290,59 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		return c.JSON(http.StatusOK, map[string]any{"diaries": result})
 	})
 
+	// "On this day": entries sharing today's month and day from earlier years.
+	// Registered before the "/:id" route below so the literal path wins.
+	group.GET("/on-this-day", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		// The client sends its local date; deriving it server-side would show
+		// the wrong day to users whose timezone differs from the server's.
+		dateStr := c.QueryParam("date")
+		if dateStr == "" {
+			dateStr = time.Now().Format("2006-01-02")
+		}
+		ref, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			return badRequest("invalid date", err)
+		}
+		limit := 5
+		if raw := c.QueryParam("limit"); raw != "" {
+			if parsed, parseErr := strconv.Atoi(raw); parseErr == nil && parsed > 0 {
+				limit = parsed
+			}
+		}
+		if limit > onThisDayMaxYears {
+			limit = onThisDayMaxYears
+		}
+
+		// Exclude the current year, and look no further back than 10 years.
+		maxYear := ref.Year() - 1
+		minYear := ref.Year() - onThisDayMaxYears
+		diaries, err := s.ListDiariesByMonthDay(user.ID, ref.Format("01-02"), minYear, maxYear, limit)
+		if err != nil {
+			return serverError("Failed to fetch on-this-day diaries", err)
+		}
+
+		entries := make([]map[string]any, 0, len(diaries))
+		for _, diary := range diaries {
+			date := store.DateOnly(diary.Date)
+			year, convErr := strconv.Atoi(date[:4])
+			if convErr != nil {
+				continue
+			}
+			entries = append(entries, map[string]any{
+				"id":       diary.ID,
+				"date":     date,
+				"yearsAgo": ref.Year() - year,
+				"mood":     diary.Mood,
+				"weather":  diary.Weather,
+				// Only a preview travels: full entries can embed base64 images,
+				// and the overview card never renders more than two lines.
+				"preview": diaryPreview(diary.Content, onThisDayPreviewChars),
+			})
+		}
+		return c.JSON(http.StatusOK, map[string]any{"entries": entries})
+	})
+
 	group.GET("/:id", func(c echo.Context) error {
 		user := auth.CurrentUser(c)
 		diary, err := s.GetDiaryByID(c.PathParam("id"))
@@ -325,4 +379,22 @@ func diaryResponse(diary *store.Diary, date string, exists bool) map[string]any 
 		"updated": diary.Updated,
 		"exists":  exists,
 	}
+}
+
+const (
+	// How many years back the "on this day" lookback reaches, and how long a
+	// preview may get before it is ellipsised.
+	onThisDayMaxYears     = 10
+	onThisDayPreviewChars = 120
+)
+
+// diaryPreview renders diary HTML as a short plain-text excerpt, counting
+// runes so multi-byte text is not cut mid-character.
+func diaryPreview(content string, max int) string {
+	text := strings.Join(strings.Fields(stripHTMLToText(content)), " ")
+	runes := []rune(text)
+	if len(runes) <= max {
+		return text
+	}
+	return string(runes[:max]) + "…"
 }

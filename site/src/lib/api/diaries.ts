@@ -5,6 +5,15 @@ export type DiaryByDateResult =
 	| { status: 'not_found'; diary: null }
 	| { status: 'error'; diary: null };
 
+export interface OnThisDayEntry {
+	id: string;
+	date: string;
+	yearsAgo: number;
+	mood?: string;
+	weather?: string;
+	preview: string;
+}
+
 export interface CalendarDiaryMeta {
 	date: string;
 	mood?: string;
@@ -242,6 +251,32 @@ export async function getRecentDiaries(limit: number = 5): Promise<Array<{ date:
 		}));
 	} catch (error) {
 		console.error('Error fetching recent diaries:', error);
+		return [];
+	}
+}
+
+/**
+ * Get entries from the same day in earlier years ("on this day")
+ */
+export async function getOnThisDay(date: string, limit: number = 5): Promise<OnThisDayEntry[]> {
+	try {
+		const response = await fetch(
+			`/api/v1/diaries/on-this-day?date=${encodeURIComponent(date)}&limit=${encodeURIComponent(String(limit))}`,
+			{
+				headers: {
+					'Authorization': `Bearer ${pb.authStore.token}`
+				}
+			}
+		);
+
+		if (!response.ok) {
+			return [];
+		}
+
+		const data = await response.json();
+		return data.entries || [];
+	} catch (error) {
+		console.error('Error fetching on-this-day diaries:', error);
 		return [];
 	}
 }

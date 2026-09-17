@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import Calendar from '$lib/components/calendar/Calendar.svelte';
+	import OnThisDay from '$lib/components/memory/OnThisDay.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import { getDatesWithDiaries, getRecentDiaries, getDiaryStats, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
@@ -191,6 +192,9 @@
 						</div>
 					</div>
 				</div>
+
+				<!-- On This Day -->
+				<OnThisDay />
 
 				<!-- Recent Entries -->
 				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 flex-1 min-h-0 flex flex-col overflow-hidden">

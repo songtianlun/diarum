@@ -2222,6 +2222,10 @@ func TestStoreWriteAndQueryErrorsAfterClose(t *testing.T) {
 		{"upsert diary", func() error { _, _, err := s.UpsertDiary("owner", "2024-01-01", "body", "", ""); return err }},
 		{"delete diary", func() error { return s.DeleteDiary("id", "owner") }},
 		{"list diaries", func() error { _, err := s.ListDiaries("owner", "", "", "-date", 1); return err }},
+		{"list diaries by month-day", func() error {
+			_, err := s.ListDiariesByMonthDay("owner", "01-01", 2000, 2024, 1)
+			return err
+		}},
 		{"search diaries", func() error { _, err := s.SearchDiaries("owner", "body", 1); return err }},
 		{"set setting", func() error { return s.SetSetting("owner", "key", "value", false) }},
 		{"delete setting", func() error { return s.DeleteSetting("owner", "key") }},
@@ -2259,5 +2263,54 @@ func TestSaveUploadedFileOpenError(t *testing.T) {
 	}
 	if err := s.SaveUploadedFile(filepath.Join(parent, "child"), strings.NewReader("content")); err == nil {
 		t.Fatal("expected SaveUploadedFile to fail when parent is a file")
+	}
+}
+
+func TestListDiariesByMonthDay(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	other := newTestUser(t, s)
+
+	for _, date := range []string{"2025-09-17", "2023-09-17", "2019-09-17", "2026-09-17", "2025-09-16"} {
+		if _, _, err := s.UpsertDiary(user.ID, date, "entry "+date, "", ""); err != nil {
+			t.Fatalf("UpsertDiary %s: %v", date, err)
+		}
+	}
+	if _, _, err := s.UpsertDiary(other.ID, "2025-09-17", "other owner", "", ""); err != nil {
+		t.Fatalf("UpsertDiary other: %v", err)
+	}
+
+	// 2016..2025 mirrors the ten-year lookback that excludes the current year.
+	got, err := s.ListDiariesByMonthDay(user.ID, "09-17", 2016, 2025, 0)
+	if err != nil {
+		t.Fatalf("ListDiariesByMonthDay: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("entries = %d, want 3 (%#v)", len(got), got)
+	}
+	// Newest first, with 2026 out of range and 09-16 not a month-day match.
+	if DateOnly(got[0].Date) != "2025-09-17" || DateOnly(got[2].Date) != "2019-09-17" {
+		t.Fatalf("order = %s..%s", DateOnly(got[0].Date), DateOnly(got[2].Date))
+	}
+	for _, diary := range got {
+		if diary.Owner != user.ID {
+			t.Fatalf("leaked another owner's diary: %#v", diary)
+		}
+	}
+
+	limited, err := s.ListDiariesByMonthDay(user.ID, "09-17", 2016, 2025, 2)
+	if err != nil {
+		t.Fatalf("ListDiariesByMonthDay limited: %v", err)
+	}
+	if len(limited) != 2 {
+		t.Fatalf("limited entries = %d, want 2", len(limited))
+	}
+
+	empty, err := s.ListDiariesByMonthDay(user.ID, "01-01", 2016, 2025, 0)
+	if err != nil {
+		t.Fatalf("ListDiariesByMonthDay empty: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty entries = %#v", empty)
 	}
 }

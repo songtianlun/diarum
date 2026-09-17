@@ -5,6 +5,7 @@
 	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
 	import TableOfContents from '$lib/components/ui/TableOfContents.svelte';
 	import EntryNav from '$lib/components/ui/EntryNav.svelte';
+	import OnThisDayHint from '$lib/components/memory/OnThisDayHint.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import { getDiaryByDate } from '$lib/api/diaries';
@@ -235,6 +236,7 @@
 						<div class="text-muted-foreground text-sm">Loading...</div>
 					</div>
 				{:else}
+					<OnThisDayHint {date} />
 					<div class="bg-card rounded-xl shadow-sm border border-border/50 overflow-hidden animate-fade-in">
 						<TiptapEditor
 							{content}

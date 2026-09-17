@@ -919,6 +919,26 @@ func (s *Store) ListDiaries(owner, start, end, order string, limit int) ([]*Diar
 	return scanDiaries(rows)
 }
 
+// ListDiariesByMonthDay returns the user's entries falling on the same month
+// and day as monthDay ("MM-DD"), newest first, restricted to the inclusive
+// year range [minYear, maxYear]. The "on this day" lookback uses it to skip
+// the current year and to cap how far back it reaches.
+func (s *Store) ListDiariesByMonthDay(owner, monthDay string, minYear, maxYear, limit int) ([]*Diary, error) {
+	query := `SELECT content, created, date, id, mood, owner, updated, weather, tags FROM diaries WHERE owner = ? AND substr(date, 6, 5) = ? AND substr(date, 1, 4) >= ? AND substr(date, 1, 4) <= ?`
+	args := []any{owner, monthDay, fmt.Sprintf("%04d", minYear), fmt.Sprintf("%04d", maxYear)}
+	query += ` ORDER BY date DESC`
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanDiaries(rows)
+}
+
 func (s *Store) SearchDiaries(owner, query string, limit int) ([]*Diary, error) {
 	if limit <= 0 {
 		limit = 50
