@@ -8,7 +8,6 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/songtianlun/diarum/internal/config"
-	"github.com/songtianlun/diarum/internal/logger"
 	"github.com/songtianlun/diarum/internal/store"
 )
 
@@ -188,12 +187,10 @@ func authenticateMCP(c echo.Context, configService *config.ConfigService) (strin
 		return "", unauthorized("Invalid API token")
 	}
 
+	// GetBool reports the registry default rather than an error when the
+	// setting is missing or unreadable, so an unset switch reads as disabled.
 	enabled, err := configService.GetBool(userId, "api.mcp_enabled")
-	if err != nil {
-		logger.Debug("[MCP] error checking mcp enabled: %v", err)
-		return "", serverError("Failed to check MCP status", err)
-	}
-	if !enabled {
+	if err != nil || !enabled {
 		return "", unauthorized("MCP is disabled for this user")
 	}
 

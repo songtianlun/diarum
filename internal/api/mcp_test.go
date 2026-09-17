@@ -320,18 +320,395 @@ func TestMCPSettingsToggle(t *testing.T) {
 	}
 }
 
+// A malformed toggle body is rejected before any setting is written.
+func TestMCPSettingsToggleMalformedBody(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	e := echo.New()
+	RegisterSettingsRoutes(e, s, authMiddlewareFor(user))
+
+	rec := performRequest(t, e, http.MethodPost, "/api/v1/settings/mcp/toggle",
+		strings.NewReader(`{"enabled":`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Omitting "enabled" flips the current value, which is how a plain toggle
+// button behaves.
+func TestMCPSettingsToggleWithoutExplicitValue(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	configService := config.NewConfigService(s)
+
+	if err := configService.Set(user.ID, "api.token", "tok"); err != nil {
+		t.Fatalf("set api.token: %v", err)
+	}
+	if err := configService.Set(user.ID, "api.enabled", true); err != nil {
+		t.Fatalf("set api.enabled: %v", err)
+	}
+
+	e := echo.New()
+	RegisterSettingsRoutes(e, s, authMiddlewareFor(user))
+	jsonHeaders := map[string]string{"Content-Type": "application/json"}
+
+	rec := performRequest(t, e, http.MethodPost, "/api/v1/settings/mcp/toggle", strings.NewReader(`{}`), jsonHeaders)
+	if payload := decodeJSONBody(t, rec); payload["mcp_enabled"] != true {
+		t.Fatalf("first toggle mcp_enabled = %v, want true: %s", payload["mcp_enabled"], rec.Body.String())
+	}
+
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/settings/mcp/toggle", strings.NewReader(`{}`), jsonHeaders)
+	if payload := decodeJSONBody(t, rec); payload["mcp_enabled"] != false {
+		t.Fatalf("second toggle mcp_enabled = %v, want false: %s", payload["mcp_enabled"], rec.Body.String())
+	}
+}
+
+// A store that cannot be written must report the failure instead of silently
+// reporting success.
+func TestMCPSettingsToggleStoreClosed(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	configService := config.NewConfigService(s)
+
+	if err := configService.Set(user.ID, "api.token", "tok"); err != nil {
+		t.Fatalf("set api.token: %v", err)
+	}
+	if err := configService.Set(user.ID, "api.enabled", true); err != nil {
+		t.Fatalf("set api.enabled: %v", err)
+	}
+
+	e := echo.New()
+	RegisterSettingsRoutes(e, s, authMiddlewareFor(user))
+
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+
+	// Disabling needs no precondition read, so it reaches the failing write.
+	rec := performRequest(t, e, http.MethodPost, "/api/v1/settings/mcp/toggle",
+		strings.NewReader(`{"enabled":false}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The api-token endpoints degrade gracefully when settings cannot be read: the
+// GET reports an unconfigured token rather than failing the whole page.
+func TestAPITokenEndpointsOnClosedStore(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+
+	e := echo.New()
+	RegisterSettingsRoutes(e, s, authMiddlewareFor(user))
+
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/settings/api-token", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	payload := decodeJSONBody(t, rec)
+	if payload["exists"] != false || payload["mcp_enabled"] != false {
+		t.Fatalf("GET payload = %s, want an unconfigured token", rec.Body.String())
+	}
+
+	// Writes cannot succeed against a closed store.
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/settings/api-token/toggle", nil, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("toggle status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/settings/api-token/reset", nil, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("reset status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Resetting a token while API access is off turns access back on, and reports
+// the MCP state alongside it.
+func TestAPITokenResetEnablesAccess(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	configService := config.NewConfigService(s)
+
+	if err := configService.Set(user.ID, "api.token", "old-token"); err != nil {
+		t.Fatalf("set api.token: %v", err)
+	}
+	if err := configService.Set(user.ID, "api.enabled", false); err != nil {
+		t.Fatalf("set api.enabled: %v", err)
+	}
+
+	e := echo.New()
+	RegisterSettingsRoutes(e, s, authMiddlewareFor(user))
+
+	rec := performRequest(t, e, http.MethodPost, "/api/v1/settings/api-token/reset", nil, nil)
+	payload := decodeJSONBody(t, rec)
+	if payload["enabled"] != true {
+		t.Fatalf("enabled = %v, want true: %s", payload["enabled"], rec.Body.String())
+	}
+	if payload["mcp_enabled"] != false {
+		t.Fatalf("mcp_enabled = %v, want false: %s", payload["mcp_enabled"], rec.Body.String())
+	}
+	if token, _ := payload["token"].(string); token == "old-token" || token == "" {
+		t.Fatalf("token = %q, want a freshly generated token", token)
+	}
+}
+
 // Missing required arguments surface as tool errors, not protocol errors, so
 // the model can read and correct them.
 func TestMCPMissingArgumentsReturnToolError(t *testing.T) {
 	e, _, _, token := mcpTestEnv(t, true, true)
 
-	rec := mcpCall(t, e, token, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_diary","arguments":{}}}`)
-	payload := decodeJSONBody(t, rec)
-	result, ok := payload["result"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected a result object: %s", rec.Body.String())
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"get_diary without date", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_diary","arguments":{}}}`},
+		{"list_diaries without range", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_diaries","arguments":{"start":"2026-01-01"}}}`},
+		{"search_diaries without query", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_diaries","arguments":{"query":"   "}}}`},
 	}
-	if result["isError"] != true {
-		t.Fatalf("isError = %v, want true: %s", result["isError"], rec.Body.String())
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := mcpCall(t, e, token, tc.body)
+			payload := decodeJSONBody(t, rec)
+			result, ok := payload["result"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected a result object: %s", rec.Body.String())
+			}
+			if result["isError"] != true {
+				t.Fatalf("isError = %v, want true: %s", result["isError"], rec.Body.String())
+			}
+		})
+	}
+}
+
+// A malformed body cannot be attributed to any request ID, so it comes back as
+// a parse error with a null ID.
+func TestMCPMalformedBody(t *testing.T) {
+	e, _, _, token := mcpTestEnv(t, true, true)
+
+	bodies := []string{
+		`{"jsonrpc":`,
+		`[{"jsonrpc":"2.0"`,
+		`"just a string"`,
+		`{"jsonrpc":"2.0","id":1,"method":5}`,
+		// Well-formed JSON arrays whose elements are not request objects.
+		`[1,2,3]`,
+		`[{"jsonrpc":"2.0","method":7}]`,
+	}
+
+	for _, body := range bodies {
+		rec := mcpCall(t, e, token, body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 for body %s: %s", rec.Code, body, rec.Body.String())
+		}
+		payload := decodeJSONBody(t, rec)
+		rpcErr, ok := payload["error"].(map[string]any)
+		if !ok {
+			t.Fatalf("body %s did not produce an error: %s", body, rec.Body.String())
+		}
+		if code, _ := rpcErr["code"].(float64); int(code) != jsonRPCParseError {
+			t.Fatalf("error code = %v, want %d for body %s", rpcErr["code"], jsonRPCParseError, body)
+		}
+	}
+}
+
+// Malformed tool arguments (wrong types) are a protocol-level invalid params
+// error rather than a tool error.
+func TestMCPInvalidToolArguments(t *testing.T) {
+	e, _, _, token := mcpTestEnv(t, true, true)
+
+	rec := mcpCall(t, e, token, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_diary","arguments":{"date":123}}}`)
+	payload := decodeJSONBody(t, rec)
+	rpcErr, ok := payload["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected an error object: %s", rec.Body.String())
+	}
+	if code, _ := rpcErr["code"].(float64); int(code) != jsonRPCInvalidParams {
+		t.Fatalf("error code = %v, want %d", rpcErr["code"], jsonRPCInvalidParams)
+	}
+}
+
+// tools/call with no params at all must not panic on the nil Params slice.
+func TestMCPToolCallWithoutParams(t *testing.T) {
+	e, _, _, token := mcpTestEnv(t, true, true)
+
+	rec := mcpCall(t, e, token, `{"jsonrpc":"2.0","id":1,"method":"tools/call"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	payload := decodeJSONBody(t, rec)
+	if _, ok := payload["error"].(map[string]any); !ok {
+		t.Fatalf("expected an error for an unnamed tool: %s", rec.Body.String())
+	}
+}
+
+// Every request method that can also arrive as a notification must stay silent
+// when it has no ID.
+func TestMCPNotificationsForAllMethods(t *testing.T) {
+	e, _, _, token := mcpTestEnv(t, true, true)
+
+	bodies := []string{
+		`{"jsonrpc":"2.0","method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","method":"ping"}`,
+		`{"jsonrpc":"2.0","method":"tools/list"}`,
+		`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"get_diary","arguments":{"date":"2026-01-01"}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/cancelled"}`,
+		`{"jsonrpc":"2.0","method":"some/unknown/method"}`,
+	}
+
+	for _, body := range bodies {
+		rec := mcpCall(t, e, token, body)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("status = %d, want 202 for %s: %s", rec.Code, body, rec.Body.String())
+		}
+		if strings.TrimSpace(rec.Body.String()) != "" {
+			t.Fatalf("notification %s returned a body: %s", body, rec.Body.String())
+		}
+	}
+}
+
+func TestMCPPing(t *testing.T) {
+	e, _, _, token := mcpTestEnv(t, true, true)
+
+	rec := mcpCall(t, e, token, `{"jsonrpc":"2.0","id":7,"method":"ping"}`)
+	payload := decodeJSONBody(t, rec)
+	if _, ok := payload["result"].(map[string]any); !ok {
+		t.Fatalf("ping has no result: %s", rec.Body.String())
+	}
+}
+
+// GET is declined (this server is stateless) and DELETE ends a session as a
+// no-op, both of which Streamable HTTP clients probe for.
+func TestMCPGetAndDeleteMethods(t *testing.T) {
+	e, _, _, token := mcpTestEnv(t, true, true)
+
+	headers := map[string]string{"Authorization": "Bearer " + token}
+
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/mcp", nil, headers)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET status = %d, want 405: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = performRequest(t, e, http.MethodDelete, "/api/v1/mcp", nil, headers)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE status = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A store that can no longer be queried must surface an internal error rather
+// than an empty result set that looks like "no diaries".
+func TestMCPToolStoreErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"list_diaries", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_diaries","arguments":{"start":"2026-01-01","end":"2026-12-31"}}}`},
+		{"search_diaries", `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_diaries","arguments":{"query":"anything"}}}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var req jsonRPCRequest
+			if err := json.Unmarshal([]byte(tc.body), &req); err != nil {
+				t.Fatalf("unmarshal request: %v", err)
+			}
+			resp := dispatchMCP(s, user.ID, "test-version", req)
+			if resp == nil || resp.Error == nil {
+				t.Fatalf("expected an error response, got %#v", resp)
+			}
+			if resp.Error.Code != jsonRPCInternalError {
+				t.Fatalf("error code = %d, want %d", resp.Error.Code, jsonRPCInternalError)
+			}
+		})
+	}
+}
+
+// get_diary treats a closed store the same as a missing entry: the tool cannot
+// distinguish them and reports exists=false either way.
+func TestMCPGetDiaryOnClosedStore(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	if err := s.DB.Close(); err != nil {
+		t.Fatalf("close DB: %v", err)
+	}
+
+	var req jsonRPCRequest
+	if err := json.Unmarshal([]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_diary","arguments":{"date":"2026-01-01"}}}`), &req); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	resp := dispatchMCP(s, user.ID, "test-version", req)
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("expected a tool result, got %#v", resp)
+	}
+}
+
+func TestClampLimit(t *testing.T) {
+	cases := []struct {
+		limit    int
+		fallback int
+		want     int
+	}{
+		{0, 50, 50},
+		{-5, 20, 20},
+		{10, 50, 10},
+		{200, 50, 200},
+		{5000, 50, 200},
+	}
+
+	for _, tc := range cases {
+		if got := clampLimit(tc.limit, tc.fallback); got != tc.want {
+			t.Fatalf("clampLimit(%d, %d) = %d, want %d", tc.limit, tc.fallback, got, tc.want)
+		}
+	}
+}
+
+// A payload that cannot be marshalled becomes an internal error rather than a
+// half-written result.
+func TestToolSuccessEncodingFailure(t *testing.T) {
+	resp := toolSuccess(json.RawMessage(`1`), map[string]any{"bad": make(chan int)})
+	if resp.Error == nil {
+		t.Fatalf("expected an error response, got %#v", resp)
+	}
+	if resp.Error.Code != jsonRPCInternalError {
+		t.Fatalf("error code = %d, want %d", resp.Error.Code, jsonRPCInternalError)
+	}
+}
+
+// A switch value that is not a boolean must read as disabled rather than
+// falling through to the tools.
+func TestMCPEnabledCheckError(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	configService := config.NewConfigService(s)
+
+	const token = "mcp-test-token"
+	if err := configService.Set(user.ID, "api.token", token); err != nil {
+		t.Fatalf("set api.token: %v", err)
+	}
+	if err := configService.Set(user.ID, "api.enabled", true); err != nil {
+		t.Fatalf("set api.enabled: %v", err)
+	}
+	// Store a non-boolean so GetBool cannot report an enabled MCP.
+	if err := s.SetSetting(user.ID, "api.mcp_enabled", "not-a-bool", false); err != nil {
+		t.Fatalf("set api.mcp_enabled: %v", err)
+	}
+
+	e := echo.New()
+	RegisterMCPRoutes(e, s, "test-version")
+
+	rec := mcpCall(t, e, token, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401: %s", rec.Code, rec.Body.String())
 	}
 }
