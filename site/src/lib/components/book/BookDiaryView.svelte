@@ -8,7 +8,13 @@
 	import BookTableOfContents from '$lib/components/book/BookTableOfContents.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import EntryNav from '$lib/components/ui/EntryNav.svelte';
-	import { getDiaryByDate, getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
+	import {
+		getDiaryByDate,
+		getDatesWithDiaries,
+		getOnThisDay,
+		type CalendarDiaryMeta,
+		type OnThisDayEntry
+	} from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getDiaryEmojiSettings } from '$lib/api/settings';
 	import { DEFAULT_MOOD_OPTIONS, DEFAULT_WEATHER_OPTIONS } from '$lib/utils/diaryEmoji';
@@ -47,6 +53,8 @@
 	let loading = true;
 	let date = getToday();
 	let view: View = { date, content: '', mood: '', weather: '', loaded: false };
+	let onThisDay: OnThisDayEntry[] = [];
+	const onThisDayCache = new Map<string, OnThisDayEntry[]>();
 
 	// flip animation state
 	let flip: { dir: 'fwd' | 'back'; from: View; to: View; fromScroll: number } | null = null;
@@ -96,6 +104,26 @@
 	$: baseLeft = flip ? (flip.dir === 'fwd' ? flip.from : flip.to) : view;
 	$: baseRight = flip ? (flip.dir === 'fwd' ? flip.to : flip.from) : view;
 	$: mobileBase = flip ? (flip.dir === 'fwd' ? flip.to : flip.from) : view;
+
+	// The lookback belongs to the live spread only: `baseLeft` swaps to the
+	// incoming page mid-flip, and animating someone else's memories across the
+	// turn would attribute them to the wrong date.
+	$: if (ready && date) void loadOnThisDay(date);
+
+	async function loadOnThisDay(target: string) {
+		const cached = onThisDayCache.get(target);
+		if (cached) {
+			onThisDay = cached;
+			return;
+		}
+		onThisDay = [];
+		const result = await getOnThisDay(target, 3);
+		onThisDayCache.set(target, result);
+		// Drop a reply that lost the race against faster page turning.
+		if (date === target) {
+			onThisDay = result;
+		}
+	}
 
 	async function fetchView(d: string): Promise<View> {
 		const dirty = getCachedContent(d);
@@ -454,6 +482,8 @@
 								mood={baseLeft.mood}
 								weather={baseLeft.weather}
 								interactive={!flip}
+								onThisDay={flip ? [] : onThisDay}
+								onOpenMemory={navigateTo}
 								{moodPresets}
 								{weatherPresets}
 								onMoodSelect={handleMoodSelect}
@@ -558,6 +588,8 @@
 								mood={view.mood}
 								weather={view.weather}
 								interactive
+								{onThisDay}
+								onOpenMemory={navigateTo}
 								{moodPresets}
 								{weatherPresets}
 								onMoodSelect={handleMoodSelect}

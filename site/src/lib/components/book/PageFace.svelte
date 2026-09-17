@@ -2,6 +2,8 @@
 	import { parseDate } from '$lib/utils/date';
 	import MoodWeatherPicker from '$lib/components/book/MoodWeatherPicker.svelte';
 	import BookTableOfContents from '$lib/components/book/BookTableOfContents.svelte';
+	import type { OnThisDayEntry } from '$lib/api/diaries';
+	import { t } from '$lib/i18n';
 
 	/**
 	 * A single paper page of the diary book.
@@ -33,6 +35,17 @@
 
 	/** kind='toc' only: called after a heading is clicked and scrolled to */
 	export let onNavigate: (() => void) | undefined = undefined;
+
+	/** kind='meta' only: entries from this day in earlier years. Passed in by
+	    the parent so flip snapshots never fetch, and rendered only on the live
+	    page (see `interactive`). */
+	export let onThisDay: OnThisDayEntry[] = [];
+	export let onOpenMemory: ((date: string) => void) | undefined = undefined;
+
+	function yearsAgoLabel(years: number): string {
+		const key = years === 1 ? 'diaryOverview.yearsAgoSingular' : 'diaryOverview.yearsAgoPlural';
+		return $t(key, { n: years });
+	}
 
 	function initScroll(node: HTMLElement) {
 		if (scrollTop > 0) node.scrollTop = scrollTop;
@@ -75,6 +88,21 @@
 					onSelect={onWeatherSelect}
 				/>
 			</div>
+			{#if interactive && onThisDay.length > 0}
+				<div class="meta-memories">
+					<div class="meta-memories-title">{$t('diaryOverview.onThisDay')}</div>
+					{#each onThisDay as entry (entry.date)}
+						<button
+							type="button"
+							class="meta-memory"
+							on:click={() => onOpenMemory?.(entry.date)}
+						>
+							<span class="meta-memory-years">{yearsAgoLabel(entry.yearsAgo)}</span>
+							<span class="meta-memory-preview">{entry.preview}</span>
+						</button>
+					{/each}
+				</div>
+			{/if}
 			<div class="meta-flourish" aria-hidden="true">✦</div>
 		</div>
 		<div class="page-footer">{shortLabel}</div>
@@ -121,6 +149,23 @@
 							onSelect={onWeatherSelect}
 						/>
 					</div>
+				</div>
+			{/if}
+			{#if kind === 'live' && interactive && onThisDay.length > 0}
+				<!-- single-page (mobile) has no meta page, so the margin note
+				     rides above the editor instead -->
+				<div class="meta-memories inline">
+					<div class="meta-memories-title">{$t('diaryOverview.onThisDay')}</div>
+					{#each onThisDay as entry (entry.date)}
+						<button
+							type="button"
+							class="meta-memory"
+							on:click={() => onOpenMemory?.(entry.date)}
+						>
+							<span class="meta-memory-years">{yearsAgoLabel(entry.yearsAgo)}</span>
+							<span class="meta-memory-preview">{entry.preview}</span>
+						</button>
+					{/each}
 				</div>
 			{/if}
 			<div class="content-scroll" use:initScroll>
@@ -284,6 +329,72 @@
 		margin-top: 1.4rem;
 		font-size: 0.8rem;
 		opacity: 0.35;
+	}
+
+	/* A margin note in the same ink as the rest of the page, not a UI card —
+	   a ruled line above it is all the separation the paper needs. */
+	.meta-memories.inline {
+		margin: 0 1.4rem 0.6rem;
+		width: auto;
+		max-width: none;
+		flex-shrink: 0;
+		padding-top: 0.6rem;
+	}
+	.meta-memories {
+		margin-top: 1.5rem;
+		width: 100%;
+		max-width: 22rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		padding-top: 0.9rem;
+		border-top: 1px solid hsl(30 20% 50% / 0.25);
+	}
+	.meta-memories-title {
+		font-size: 0.62rem;
+		letter-spacing: 0.24em;
+		text-transform: uppercase;
+		color: hsl(30 20% 50%);
+		margin-bottom: 0.15rem;
+	}
+	:global(.dark) .meta-memories-title {
+		color: hsl(40 20% 62%);
+	}
+	.meta-memory {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		width: 100%;
+		padding: 0.3rem 0.4rem;
+		background: transparent;
+		border: none;
+		border-radius: 0.3rem;
+		text-align: left;
+		font: inherit;
+		color: inherit;
+		cursor: pointer;
+	}
+	.meta-memory:hover {
+		background: hsl(30 20% 50% / 0.1);
+	}
+	.meta-memory-years {
+		font-family: ui-serif, Georgia, serif;
+		font-style: italic;
+		font-size: 0.8rem;
+		color: hsl(30 25% 42%);
+	}
+	:global(.dark) .meta-memory-years {
+		color: hsl(40 22% 66%);
+	}
+	.meta-memory-preview {
+		font-size: 0.75rem;
+		line-height: 1.45;
+		opacity: 0.72;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 
 	/* ---------- toc (contents) page ---------- */

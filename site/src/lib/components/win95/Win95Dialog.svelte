@@ -10,7 +10,7 @@
 	import { t } from '$lib/i18n';
 
 	export let title: string;
-	export let icon: 'info' | 'calendar' | 'star' | 'contents' | 'outline' | 'notepad' = 'info';
+	export let icon: 'info' | 'calendar' | 'star' | 'contents' | 'outline' | 'notepad' | 'page' = 'info';
 	export let onClose: () => void;
 	/** Fills the shell instead of hugging its content — used by the CE sheets. */
 	export let full = false;
