@@ -111,6 +111,9 @@ export const zh = {
 		streak: '连续',
 		total: '总计',
 		recentEntries: '最近的日记',
+		onThisDay: '那年今日',
+		yearsAgoSingular: '{n} 年前',
+		yearsAgoPlural: '{n} 年前',
 		noEntries: '还没有日记，今天就开始写吧！',
 		tagline: '你的私人日记'
 	},

@@ -1295,3 +1295,89 @@ func TestImageUploadRoutesStoreErrors(t *testing.T) {
 		t.Fatal("PUT image-upload settings should fail when store is closed")
 	}
 }
+
+func TestDiaryOnThisDayRoute(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	other := newTestUser(t, s)
+	e := echo.New()
+	RegisterDiaryRoutes(e, s, authMiddlewareFor(user), nil)
+
+	// A fixed reference date keeps the fixtures away from leap-day and
+	// month-boundary surprises regardless of when the suite runs.
+	const ref = "2026-09-17"
+	fixtures := []struct {
+		date    string
+		content string
+	}{
+		{"2025-09-17", "<p>one year ago</p>"},
+		{"2023-09-17", "<p>three years ago</p>"},
+		{"2026-09-17", "<p>current year, excluded</p>"},
+		{"2015-09-17", "<p>eleven years ago, beyond the cap</p>"},
+		{"2025-09-16", "<p>adjacent day, not a match</p>"},
+	}
+	for _, fixture := range fixtures {
+		if _, _, err := s.UpsertDiary(user.ID, fixture.date, fixture.content, "", ""); err != nil {
+			t.Fatalf("UpsertDiary %s: %v", fixture.date, err)
+		}
+	}
+	if _, _, err := s.UpsertDiary(other.ID, "2025-09-17", "<p>another user</p>", "", ""); err != nil {
+		t.Fatalf("UpsertDiary other: %v", err)
+	}
+
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/diaries/on-this-day?date="+ref, nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /diaries/on-this-day status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	entries := decodeJSONBody(t, rec)["entries"].([]any)
+	if len(entries) != 2 {
+		t.Fatalf("entries = %#v", entries)
+	}
+
+	first := entries[0].(map[string]any)
+	if first["date"].(string) != "2025-09-17" || first["yearsAgo"].(float64) != 1 {
+		t.Fatalf("first entry = %#v", first)
+	}
+	// Previews arrive as plain text so the overview card never ships raw HTML.
+	if first["preview"].(string) != "one year ago" {
+		t.Fatalf("first preview = %q", first["preview"])
+	}
+	if second := entries[1].(map[string]any); second["yearsAgo"].(float64) != 3 {
+		t.Fatalf("second entry = %#v", second)
+	}
+
+	// Without an explicit date the handler falls back to the server's today,
+	// which has no fixtures — the route still answers cleanly.
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/on-this-day", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /diaries/on-this-day default status = %d", rec.Code)
+	}
+
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/on-this-day?date=nonsense", nil, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("GET /diaries/on-this-day invalid date status = %d", rec.Code)
+	}
+
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/diaries/on-this-day?date="+ref+"&limit=1", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /diaries/on-this-day limit status = %d", rec.Code)
+	}
+	if entries := decodeJSONBody(t, rec)["entries"].([]any); len(entries) != 1 {
+		t.Fatalf("limited entries = %#v", entries)
+	}
+}
+
+func TestDiaryPreviewTruncatesOnRunes(t *testing.T) {
+	long := strings.Repeat("回", onThisDayPreviewChars+20)
+	got := diaryPreview("<p>"+long+"</p>", onThisDayPreviewChars)
+	if runes := []rune(got); len(runes) != onThisDayPreviewChars+1 || runes[len(runes)-1] != '…' {
+		t.Fatalf("preview = %q (%d runes)", got, len([]rune(got)))
+	}
+	// Tags become whitespace, which collapses so blocks do not run together.
+	if got := diaryPreview("<p>first</p><p>second</p>", 100); got != "first second" {
+		t.Fatalf("preview = %q", got)
+	}
+	if got := diaryPreview("", 100); got != "" {
+		t.Fatalf("empty preview = %q", got)
+	}
+}

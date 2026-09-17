@@ -121,6 +121,9 @@ export const en = {
 		streak: 'Streak',
 		total: 'Total',
 		recentEntries: 'Recent Entries',
+		onThisDay: 'On This Day',
+		yearsAgoSingular: '{n} year ago',
+		yearsAgoPlural: '{n} years ago',
 		noEntries: 'No entries yet. Start writing today!',
 		tagline: 'Your personal diary'
 	},
