@@ -106,18 +106,70 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 			logger.Debug("[GET /api/v1/settings/api-token] error getting enabled: %v", err)
 		}
 
+		mcpEnabled, err := configService.GetBool(userId, "api.mcp_enabled")
+		if err != nil {
+			logger.Debug("[GET /api/v1/settings/api-token] error getting mcp enabled: %v", err)
+		}
+
 		if token == "" {
 			return c.JSON(http.StatusOK, map[string]any{
-				"exists":  false,
-				"enabled": false,
-				"token":   "",
+				"exists":      false,
+				"enabled":     false,
+				"token":       "",
+				"mcp_enabled": false,
 			})
 		}
 
 		return c.JSON(http.StatusOK, map[string]any{
-			"exists":  true,
-			"enabled": enabled,
-			"token":   token,
+			"exists":      true,
+			"enabled":     enabled,
+			"token":       token,
+			"mcp_enabled": mcpEnabled,
+		})
+	})
+
+	// Toggle MCP server enabled/disabled. MCP reuses the API token, so it can
+	// only be switched on while API access itself is enabled.
+	group.POST("/mcp/toggle", func(c echo.Context) error {
+		userId := auth.CurrentUser(c).ID
+
+		var body struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return badRequest("Invalid request body", err)
+		}
+
+		current, err := configService.GetBool(userId, "api.mcp_enabled")
+		if err != nil {
+			logger.Debug("[POST /api/v1/settings/mcp/toggle] error getting mcp enabled: %v", err)
+		}
+
+		newEnabled := !current
+		if body.Enabled != nil {
+			newEnabled = *body.Enabled
+		}
+
+		if newEnabled {
+			apiEnabled, err := configService.GetBool(userId, "api.enabled")
+			if err != nil {
+				logger.Debug("[POST /api/v1/settings/mcp/toggle] error getting api enabled: %v", err)
+			}
+			token, err := configService.GetString(userId, "api.token")
+			if err != nil {
+				logger.Debug("[POST /api/v1/settings/mcp/toggle] error getting token: %v", err)
+			}
+			if !apiEnabled || token == "" {
+				return badRequest("Enable API access before enabling MCP", nil)
+			}
+		}
+
+		if err := configService.Set(userId, "api.mcp_enabled", newEnabled); err != nil {
+			return badRequest("Failed to update MCP status", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"mcp_enabled": newEnabled,
 		})
 	})
 
@@ -149,8 +201,9 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 			}
 
 			return c.JSON(http.StatusOK, map[string]any{
-				"enabled": true,
-				"token":   newToken,
+				"enabled":     true,
+				"token":       newToken,
+				"mcp_enabled": false,
 			})
 		}
 
@@ -160,9 +213,20 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 			return badRequest("Failed to update token", err)
 		}
 
+		// MCP rides on the same token, so turning API access off turns it off too.
+		mcpEnabled := false
+		if newEnabled {
+			if mcpEnabled, err = configService.GetBool(userId, "api.mcp_enabled"); err != nil {
+				logger.Debug("[POST /api/v1/settings/api-token/toggle] error getting mcp enabled: %v", err)
+			}
+		} else if err := configService.Set(userId, "api.mcp_enabled", false); err != nil {
+			logger.Debug("[POST /api/v1/settings/api-token/toggle] error disabling mcp: %v", err)
+		}
+
 		return c.JSON(http.StatusOK, map[string]any{
-			"enabled": newEnabled,
-			"token":   token,
+			"enabled":     newEnabled,
+			"token":       token,
+			"mcp_enabled": mcpEnabled,
 		})
 	})
 
@@ -193,9 +257,15 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 			enabled = true
 		}
 
+		mcpEnabled, err := configService.GetBool(userId, "api.mcp_enabled")
+		if err != nil {
+			logger.Debug("[POST /api/v1/settings/api-token/reset] error getting mcp enabled: %v", err)
+		}
+
 		return c.JSON(http.StatusOK, map[string]any{
-			"enabled": enabled,
-			"token":   newToken,
+			"enabled":     enabled,
+			"token":       newToken,
+			"mcp_enabled": mcpEnabled,
 		})
 	})
 

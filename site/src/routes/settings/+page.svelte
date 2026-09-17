@@ -6,6 +6,7 @@
 		getApiToken,
 		toggleApiToken,
 		resetApiToken,
+		toggleMcp,
 		getDiaryEmojiSettings,
 		saveDiaryEmojiSettings,
 		getMemosSettings,
@@ -121,10 +122,15 @@
 	let customStart = '';
 	let customEnd = '';
 
-	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '' };
+	let tokenStatus: ApiTokenStatus = { exists: false, enabled: false, token: '', mcp_enabled: false };
 	let copied = false;
 	let resetting = false;
 	let toggling = false;
+
+	// MCP server — reuses the API token above
+	let mcpToggling = false;
+	let mcpError = '';
+	let mcpConfigCopied = false;
 
 	// Memos sync settings
 	let memosSettings: MemosSettings = { enabled: false, base_url: '', webhook_url: '', token_exists: false };
@@ -565,6 +571,48 @@
 			copied = true;
 			setTimeout(() => copied = false, 2000);
 		}
+	}
+
+	async function handleMcpToggle() {
+		mcpToggling = true;
+		mcpError = '';
+		try {
+			const enabled = await toggleMcp(!tokenStatus.mcp_enabled);
+			tokenStatus = { ...tokenStatus, mcp_enabled: enabled };
+		} catch (e) {
+			mcpError = e instanceof Error ? e.message : 'Failed to toggle MCP';
+		}
+		mcpToggling = false;
+	}
+
+	function getMcpUrl(): string {
+		return `${getBaseUrl()}/api/v1/mcp`;
+	}
+
+	// Client config snippet in the shape Claude Desktop / Cursor expect for a
+	// remote Streamable HTTP server.
+	function getMcpClientConfig(): string {
+		return JSON.stringify(
+			{
+				mcpServers: {
+					diarum: {
+						type: 'http',
+						url: getMcpUrl(),
+						headers: {
+							Authorization: `Bearer ${tokenStatus.token}`
+						}
+					}
+				}
+			},
+			null,
+			2
+		);
+	}
+
+	async function copyMcpConfig() {
+		await navigator.clipboard.writeText(getMcpClientConfig());
+		mcpConfigCopied = true;
+		setTimeout(() => mcpConfigCopied = false, 2000);
 	}
 
 	async function loadMemosSettingsLocal() {
@@ -1385,7 +1433,7 @@
 						</div>
 
 						<!-- API Documentation -->
-						<div class="py-4">
+						<div class="py-4 border-b border-border/50">
 							<div class="font-medium text-foreground mb-3">API Usage</div>
 							<div class="space-y-4 text-sm">
 								<div>
@@ -1407,6 +1455,71 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									</code>
 								</div>
 							</div>
+						</div>
+
+						<!-- MCP Server -->
+						<div class="py-4">
+							<div class="flex items-center justify-between">
+								<div>
+									<div class="font-medium text-foreground">MCP Server</div>
+									<div class="text-sm text-muted-foreground">
+										Let AI clients read your diary through the Model Context Protocol, using the same API token
+									</div>
+								</div>
+								<button
+									on:click={handleMcpToggle}
+									disabled={mcpToggling}
+									aria-label="Toggle MCP server"
+									class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 {tokenStatus.mcp_enabled ? 'bg-primary' : 'bg-muted'}"
+								>
+									<span
+										class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 {tokenStatus.mcp_enabled ? 'translate-x-6' : 'translate-x-1'}"
+									></span>
+								</button>
+							</div>
+
+							{#if mcpError}
+								<div class="mt-3 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+									{mcpError}
+								</div>
+							{/if}
+
+							{#if tokenStatus.mcp_enabled}
+								<div class="mt-4 space-y-4 text-sm">
+									<div>
+										<div class="text-muted-foreground mb-1">Endpoint (Streamable HTTP):</div>
+										<code class="block px-3 py-2 bg-muted rounded-lg font-mono text-xs overflow-x-auto">
+											{getMcpUrl()}
+										</code>
+									</div>
+
+									<div>
+										<div class="flex items-center justify-between mb-1">
+											<div class="text-muted-foreground">Client configuration:</div>
+											<button
+												on:click={copyMcpConfig}
+												class="px-3 py-1 text-xs bg-muted hover:bg-muted/80 rounded-lg transition-colors duration-200"
+											>
+												{mcpConfigCopied ? 'Copied!' : 'Copy'}
+											</button>
+										</div>
+										<code class="block px-3 py-2 bg-muted rounded-lg font-mono text-xs overflow-x-auto whitespace-pre">{getMcpClientConfig()}</code>
+										<p class="text-xs text-muted-foreground mt-2">
+											Add this to your MCP client (Claude Desktop, Cursor, etc.). The token grants read access to your
+											diary entries, so treat this config as a secret.
+										</p>
+									</div>
+
+									<div>
+										<div class="text-muted-foreground mb-1">Available tools:</div>
+										<ul class="list-disc list-inside space-y-1 text-muted-foreground">
+											<li><code class="font-mono text-xs text-foreground">get_diary</code> — read one entry by date</li>
+											<li><code class="font-mono text-xs text-foreground">list_diaries</code> — list entries in a date range</li>
+											<li><code class="font-mono text-xs text-foreground">search_diaries</code> — search entry content</li>
+										</ul>
+									</div>
+								</div>
+							{/if}
 						</div>
 					{/if}
 				</div>
