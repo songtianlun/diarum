@@ -32,9 +32,16 @@
 	import Win95StartMenu from './Win95StartMenu.svelte';
 	import Win95Dialog from './Win95Dialog.svelte';
 	import Win95EmojiDialog from './Win95EmojiDialog.svelte';
+	import Win95OnThisDay from './Win95OnThisDay.svelte';
 	import type { Win95Menu, Win95StartItem } from './types';
 
-	import { getDiaryByDate, getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
+	import {
+		getDiaryByDate,
+		getDatesWithDiaries,
+		getOnThisDay,
+		type CalendarDiaryMeta,
+		type OnThisDayEntry
+	} from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getDiaryEmojiSettings } from '$lib/api/settings';
 	import { DEFAULT_MOOD_OPTIONS, DEFAULT_WEATHER_OPTIONS } from '$lib/utils/diaryEmoji';
@@ -66,6 +73,8 @@
 	let cacheReady = false;
 	let previousDate = '';
 	let date = getToday();
+	let onThisDay: OnThisDayEntry[] = [];
+	let onThisDayFor = '';
 
 	let selectedMood = '';
 	let selectedWeather = '';
@@ -89,7 +98,7 @@
 	let emojiDialog: 'mood' | 'weather' | null = null;
 	let showAbout = false;
 	let startOpen = false;
-	let sheet: 'contents' | 'outline' | null = null;
+	let sheet: 'contents' | 'outline' | 'onthisday' | null = null;
 	let clock = '';
 	let clockTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -274,7 +283,7 @@
 	// Menu handlers live outside the reactive block on purpose: assigning to a
 	// variable inside `$: menus = [...]` would drop that variable from the
 	// block's dependencies and freeze the checkmarks.
-	function toggleSheet(which: 'contents' | 'outline') {
+	function toggleSheet(which: 'contents' | 'outline' | 'onthisday') {
 		sheet = sheet === which ? null : which;
 	}
 
@@ -285,6 +294,12 @@
 	function viewOutline() {
 		if (isMobile) toggleSheet('outline');
 		else outlineOpen = !outlineOpen;
+	}
+
+	// Desktop keeps the pane in the rail whenever there is something to show,
+	// so the entry is a CE-only sheet toggle.
+	function viewOnThisDay() {
+		if (isMobile) toggleSheet('onthisday');
 	}
 
 	function openMoodDialog() {
@@ -357,6 +372,12 @@
 					label: $t('win95.viewOutline'),
 					checked: isMobile ? sheet === 'outline' : outlineOpen,
 					action: viewOutline
+				},
+				{
+					label: $t('diaryOverview.onThisDay'),
+					checked: isMobile ? sheet === 'onthisday' : onThisDay.length > 0,
+					disabled: onThisDay.length === 0 || !isMobile,
+					action: viewOnThisDay
 				},
 				{ sep: true },
 				{ label: $t('win95.viewAssistant'), action: () => navigate('/assistant') },
@@ -451,6 +472,19 @@
 	$: if (cacheReady && date && date !== previousDate && typeof window !== 'undefined') {
 		previousDate = date;
 		void loadDiary(date);
+		void loadOnThisDay(date);
+	}
+
+	// Kept separate from loadDiary: the lookback is decorative, so a failure or
+	// a slow reply must never hold up the entry itself.
+	async function loadOnThisDay(target: string) {
+		onThisDayFor = target;
+		onThisDay = [];
+		const result = await getOnThisDay(target, 3);
+		// Drop a reply that lost the race against faster day navigation.
+		if (onThisDayFor === target) {
+			onThisDay = result;
+		}
 	}
 </script>
 
@@ -556,6 +590,17 @@
 				<Win95Icon name="outline" size={14} />
 				<span>{$t('win95.tabOutline')}</span>
 			</button>
+			{#if onThisDay.length > 0}
+				<button
+					type="button"
+					class="w95-btn ce-task"
+					class:pressed={sheet === 'onthisday'}
+					on:click={() => (sheet = sheet === 'onthisday' ? null : 'onthisday')}
+				>
+					<Win95Icon name="page" size={14} />
+					<span>{$t('win95.tabOnThisDay')}</span>
+				</button>
+			{/if}
 
 			<div class="w95-tray">
 				<Win95Icon
@@ -606,6 +651,13 @@
 
 					{#if outlineOpen}
 						<Win95Outline {content} />
+					{/if}
+
+					{#if onThisDay.length > 0}
+						<Win95OnThisDay
+							entries={onThisDay}
+							onOpen={(d) => navigate(`/diary/${d}`)}
+						/>
 					{/if}
 
 					<Win95StatusPanel
@@ -776,8 +828,12 @@
 
 	{#if sheet}
 		<Win95Dialog
-			title={sheet === 'contents' ? $t('win95.contentsTitle') : $t('win95.outlineTitle')}
-			icon={sheet === 'contents' ? 'contents' : 'outline'}
+			title={sheet === 'contents'
+				? $t('win95.contentsTitle')
+				: sheet === 'onthisday'
+					? $t('diaryOverview.onThisDay')
+					: $t('win95.outlineTitle')}
+			icon={sheet === 'contents' ? 'contents' : sheet === 'onthisday' ? 'page' : 'outline'}
 			full
 			onClose={() => (sheet = null)}
 		>
@@ -795,6 +851,15 @@
 					onYesterday={() => {
 						sheet = null;
 						goYesterday();
+					}}
+				/>
+			{:else if sheet === 'onthisday'}
+				<Win95OnThisDay
+					entries={onThisDay}
+					showCaption={false}
+					onOpen={(d) => {
+						sheet = null;
+						navigate(`/diary/${d}`);
 					}}
 				/>
 			{:else}

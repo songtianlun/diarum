@@ -116,6 +116,7 @@ export const zh = {
 		onThisDayHintPlural: '往年的今天你写过 {n} 篇日记',
 		onThisDayExpand: '展开那年今日',
 		onThisDayCollapse: '收起那年今日',
+		onThisDayEmptyWin95: '(往年的今天没有记录)',
 		yearsAgoSingular: '{n} 年前',
 		yearsAgoPlural: '{n} 年前',
 		noEntries: '还没有日记，今天就开始写吧！',
@@ -332,6 +333,7 @@ export const zh = {
 		startHome: '返回主页',
 		tabContents: '目录',
 		tabOutline: '大纲',
+		tabOnThisDay: '那年今日',
 		notToday: '不能超过今天',
 		clear: '清除'
 	}

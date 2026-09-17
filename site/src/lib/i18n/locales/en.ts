@@ -126,6 +126,7 @@ export const en = {
 		onThisDayHintPlural: 'You wrote {n} entries on this day in earlier years',
 		onThisDayExpand: 'Show entries from earlier years',
 		onThisDayCollapse: 'Hide entries from earlier years',
+		onThisDayEmptyWin95: '(Nothing from this day in earlier years)',
 		yearsAgoSingular: '{n} year ago',
 		yearsAgoPlural: '{n} years ago',
 		noEntries: 'No entries yet. Start writing today!',
@@ -342,6 +343,7 @@ export const en = {
 		startHome: 'Home',
 		tabContents: 'Contents',
 		tabOutline: 'Outline',
+		tabOnThisDay: 'On This Day',
 		notToday: "Can't go past today",
 		clear: 'Clear'
 	}
