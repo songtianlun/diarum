@@ -10,6 +10,7 @@ export interface ApiTokenStatus {
 	exists: boolean;
 	enabled: boolean;
 	token: string;
+	mcp_enabled: boolean;
 }
 
 export interface DiaryEmojiSettings {
@@ -82,10 +83,16 @@ export async function getApiToken(): Promise<ApiTokenStatus> {
 			throw new Error('Failed to get API token');
 		}
 
-		return await response.json();
+		const data = await response.json();
+		return {
+			exists: !!data.exists,
+			enabled: !!data.enabled,
+			token: data.token ?? '',
+			mcp_enabled: !!data.mcp_enabled
+		};
 	} catch (error) {
 		console.error('Error fetching API token:', error);
-		return { exists: false, enabled: false, token: '' };
+		return { exists: false, enabled: false, token: '', mcp_enabled: false };
 	}
 }
 
@@ -106,11 +113,34 @@ export async function toggleApiToken(): Promise<ApiTokenStatus> {
 		}
 
 		const data = await response.json();
-		return { exists: true, enabled: data.enabled, token: data.token };
+		return { exists: true, enabled: data.enabled, token: data.token, mcp_enabled: !!data.mcp_enabled };
 	} catch (error) {
 		console.error('Error toggling API token:', error);
 		throw error;
 	}
+}
+
+/**
+ * Enable or disable the MCP server. MCP reuses the API token, so it can only
+ * be enabled while API access is on.
+ */
+export async function toggleMcp(enabled: boolean): Promise<boolean> {
+	const response = await fetch('/api/v1/settings/mcp/toggle', {
+		method: 'POST',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ enabled })
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || 'Failed to toggle MCP');
+	}
+
+	const data = await response.json();
+	return !!data.mcp_enabled;
 }
 
 /**
@@ -130,7 +160,7 @@ export async function resetApiToken(): Promise<ApiTokenStatus> {
 		}
 
 		const data = await response.json();
-		return { exists: true, enabled: data.enabled, token: data.token };
+		return { exists: true, enabled: data.enabled, token: data.token, mcp_enabled: !!data.mcp_enabled };
 	} catch (error) {
 		console.error('Error resetting API token:', error);
 		throw error;

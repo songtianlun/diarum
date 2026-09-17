@@ -170,6 +170,7 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterExportImportRoutes(e, appStore, authMiddleware, embeddingService)
 	api.RegisterCheveretoRoutes(e, appStore, authMiddleware)
 	api.RegisterPublicRoutes(e, appStore)
+	api.RegisterMCPRoutes(e, appStore, Version)
 	api.RegisterVersionRoutes(e, Version, Name)
 	if logger.GetLevel() <= logger.LevelDebug {
 		api.RegisterOpenAPIRoutes(e, Version, Name)

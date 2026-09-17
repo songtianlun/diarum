@@ -10,8 +10,9 @@ type ConfigMeta struct {
 // ConfigRegistry defines all available configuration items
 var ConfigRegistry = map[string]ConfigMeta{
 	// API settings
-	"api.token":   {Type: "string", Default: "", Encrypted: false},
-	"api.enabled": {Type: "bool", Default: false, Encrypted: false},
+	"api.token":       {Type: "string", Default: "", Encrypted: false},
+	"api.enabled":     {Type: "bool", Default: false, Encrypted: false},
+	"api.mcp_enabled": {Type: "bool", Default: false, Encrypted: false},
 
 	// Sync settings
 	"sync.cacheDays": {Type: "int", Default: 30, Encrypted: false},
