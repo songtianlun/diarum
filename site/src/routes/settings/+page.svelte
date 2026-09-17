@@ -683,6 +683,12 @@
 			return;
 		}
 
+		if (!incremental) {
+			if (!confirm('Rebuild all vector data from scratch? This will delete and regenerate embeddings for every diary entry, which may take a while and cannot be undone. Continue?')) {
+				return;
+			}
+		}
+
 		buildingVectors = true;
 		buildError = '';
 		buildResult = null;
