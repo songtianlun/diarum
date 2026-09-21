@@ -196,6 +196,12 @@ export const zh = {
 		weatherLabel: '天气：{value}',
 		moodLabel: '心情：{value}'
 	},
+	datePicker: {
+		jumpToYear: '跳转到年份',
+		jumpToMonth: '跳转到月份',
+		close: '关闭',
+		goToToday: '回到今天'
+	},
 	settings: {
 		pageTitle: '设置',
 		title: '设置',

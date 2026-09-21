@@ -206,6 +206,12 @@ export const en = {
 		weatherLabel: 'Weather: {value}',
 		moodLabel: 'Mood: {value}'
 	},
+	datePicker: {
+		jumpToYear: 'Jump to a year',
+		jumpToMonth: 'Jump to a month',
+		close: 'Close',
+		goToToday: 'Go to today'
+	},
 	settings: {
 		pageTitle: 'Settings',
 		title: 'Settings',
