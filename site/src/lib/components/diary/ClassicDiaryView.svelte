@@ -5,6 +5,7 @@
 	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
 	import TableOfContents from '$lib/components/ui/TableOfContents.svelte';
 	import EntryNav from '$lib/components/ui/EntryNav.svelte';
+	import MiniDatePicker from '$lib/components/ui/MiniDatePicker.svelte';
 	import OnThisDayHint from '$lib/components/memory/OnThisDayHint.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
@@ -40,6 +41,7 @@
 	let loadRequestId = 0;
 	let showDrawer = false;
 	let showDesktopToc = true;
+	let showDatePicker = false;
 	let showShareModal = false;
 	let selectedContent = '';
 	let selectedMood = '';
@@ -78,6 +80,17 @@
 		if (isToday(currentDate)) return;
 		const nextDate = getNextDay(currentDate);
 		goto(`/diary/${nextDate}`);
+	}
+
+	function toggleDatePicker() {
+		showDatePicker = !showDatePicker;
+	}
+
+	function handleDatePick(picked: string) {
+		showDatePicker = false;
+		if (picked !== date) {
+			goto(`/diary/${picked}`);
+		}
 	}
 
 	async function loadDiary(targetDate: string) {
@@ -212,6 +225,8 @@
 		busy={loading}
 		onPrevDay={goToPreviousDay}
 		onNextDay={goToNextDay}
+		onDateTextClick={toggleDatePicker}
+		dateTextActive={showDatePicker}
 		onShareMouseDown={captureShareSelection}
 		onShareClick={openShareModal}
 		tocActive={showDesktopToc || showDrawer}
@@ -220,7 +235,17 @@
 		isSyncing={isAnySyncing}
 		isDirty={currentDateIsDirty}
 		onSyncClick={handleManualSave}
-	/>
+	>
+		<svelte:fragment slot="datePicker">
+			{#if showDatePicker}
+				<MiniDatePicker
+					value={date}
+					onSelect={handleDatePick}
+					onClose={() => (showDatePicker = false)}
+				/>
+			{/if}
+		</svelte:fragment>
+	</EntryNav>
 
 	<!-- Main Content -->
 	<div class="px-4 py-6">

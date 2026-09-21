@@ -82,29 +82,32 @@
 					</svg>
 				</button>
 
-				{#if onDateTextClick}
-					<button
-						class="date-text date-text-btn {dateTextActive ? 'bg-muted/60' : ''}"
-						title={$t('entryNav.contents')}
-						on:click={onDateTextClick}
-					>
-						<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
-						<span class="sm:hidden">{formatShortDate(date)}</span>
-						<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
-						{#if atToday}
-							<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">{$t('common.today')}</span>
-						{/if}
-					</button>
-				{:else}
-					<div class="date-text text-foreground">
-						<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
-						<span class="sm:hidden">{formatShortDate(date)}</span>
-						<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
-						{#if atToday}
-							<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">{$t('common.today')}</span>
-						{/if}
-					</div>
-				{/if}
+				<div class="date-text-wrap">
+					{#if onDateTextClick}
+						<button
+							class="date-text date-text-btn {dateTextActive ? 'bg-muted/60' : ''}"
+							title={$t('entryNav.contents')}
+							on:click={onDateTextClick}
+						>
+							<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
+							<span class="sm:hidden">{formatShortDate(date)}</span>
+							<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
+							{#if atToday}
+								<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">{$t('common.today')}</span>
+							{/if}
+						</button>
+					{:else}
+						<div class="date-text text-foreground">
+							<span class="hidden sm:inline">{formatDisplayDate(date)}</span>
+							<span class="sm:hidden">{formatShortDate(date)}</span>
+							<span class="hidden sm:inline text-xs text-muted-foreground font-normal ml-1">{getDayOfWeek(date)}</span>
+							{#if atToday}
+								<span class="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded-full ml-1">{$t('common.today')}</span>
+							{/if}
+						</div>
+					{/if}
+					<slot name="datePicker" />
+				</div>
 
 				<button
 					class="nav-btn"
@@ -202,6 +205,10 @@
 	}
 	.nav-btn:disabled {
 		opacity: 0.5;
+	}
+
+	.date-text-wrap {
+		position: relative;
 	}
 
 	.date-text {
