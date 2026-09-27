@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/chat"
 	"github.com/songtianlun/diarum/internal/config"
@@ -65,6 +66,7 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		if err := configService.SetBatch(userId, settings); err != nil {
 			return badRequest("Failed to save AI settings", err)
 		}
+		recordAudit(c, audit.ActionSettingsUpdate, "ai", map[string]any{"keys": settingKeys(settings), "enabled": body.Enabled})
 		return c.JSON(http.StatusOK, map[string]any{"success": true})
 	})
 
@@ -176,6 +178,7 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		if err := s.DeleteConversation(c.PathParam("id"), userId); err != nil {
 			return notFound("Conversation not found")
 		}
+		recordAudit(c, audit.ActionConvDelete, c.PathParam("id"), nil)
 		return c.JSON(http.StatusOK, map[string]any{"success": true})
 	})
 

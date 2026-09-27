@@ -15,6 +15,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
+
 	"github.com/songtianlun/diarum/internal/logger"
 )
 
@@ -269,4 +271,27 @@ func TestRunServe(t *testing.T) {
 			t.Fatalf("run serve vector db failure should be non-fatal: %v", err)
 		}
 	})
+}
+
+func TestAwaitStopSignal(t *testing.T) {
+	auditLog, err := audit.New(t.TempDir(), audit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signals := make(chan os.Signal, 1)
+	done := make(chan struct{})
+	close(done)
+	if sig := awaitStopSignal(signals, done, auditLog); sig != nil {
+		t.Fatalf("closed done should return nil, got %v", sig)
+	}
+
+	signals <- os.Interrupt
+	if sig := awaitStopSignal(signals, make(chan struct{}), auditLog); sig != os.Interrupt {
+		t.Fatalf("expected interrupt, got %v", sig)
+	}
+	// The logger was closed by the signal: later entries are dropped, not written.
+	auditLog.Record(audit.Entry{User: "u1", Action: audit.ActionDiaryCreate})
+
+	stop := flushAuditOnSignal(auditLog)
+	stop()
 }

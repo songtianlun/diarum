@@ -14,6 +14,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/store"
@@ -79,6 +80,9 @@ func RegisterMemosRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err != nil {
 			return serverError("Failed to sync memo", err)
 		}
+		if changed {
+			recordAuditFor(c, userID, "", audit.SourceMemos, audit.ActionDiaryUpdate, memoDate(event.Memo), map[string]any{"memo": event.Memo.ID, "memo_action": event.Action})
+		}
 		if changed && onDiaryChanged != nil {
 			onDiaryChanged(userID)
 		}
@@ -122,6 +126,7 @@ func RegisterMemosRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		}); err != nil {
 			return serverError("Failed to save Memos settings", err)
 		}
+		recordAudit(c, audit.ActionSettingsUpdate, "memos", map[string]any{"keys": []string{"memos.enabled", "memos.base_url"}, "enabled": body.Enabled})
 		settings, err := loadMemosSettings(c, configService, userID)
 		if err != nil {
 			return serverError("Failed to load Memos settings", err)
@@ -138,6 +143,7 @@ func RegisterMemosRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err := configService.Set(userID, "memos.webhook_token", newToken); err != nil {
 			return serverError("Failed to save webhook token", err)
 		}
+		recordAudit(c, audit.ActionTokenUpdate, "memos.webhook_token", map[string]any{"op": "reset"})
 		settings, err := loadMemosSettings(c, configService, userID)
 		if err != nil {
 			return serverError("Failed to load Memos settings", err)

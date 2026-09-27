@@ -10,14 +10,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 
 	"github.com/songtianlun/diarum/internal/api"
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/backup"
 	"github.com/songtianlun/diarum/internal/config"
@@ -138,9 +141,31 @@ func run(args []string, stdout io.Writer) error {
 
 	configService := config.NewConfigService(appStore)
 	authService := auth.NewService(appStore)
+
+	// The audit trail is best effort: if its directory cannot be created the
+	// app still runs, just without recording.
+	auditLog, err := audit.New(appStore.DataDir, audit.Options{Retention: func(userID string) int {
+		value, err := appStore.GetSetting(userID, audit.SettingRetentionDays)
+		if number, ok := value.(float64); err == nil && ok {
+			return int(min(number, audit.MaxRetentionDays))
+		}
+		return audit.DefaultRetentionDays
+	}})
+	if err != nil {
+		logger.Error("[AUDIT] !!! audit logging disabled: %v", err)
+	} else {
+		defer auditLog.Close()
+		stopSignals := flushAuditOnSignal(auditLog)
+		defer stopSignals()
+		log.Printf("Audit logs: %s", audit.Dir(appStore.DataDir))
+	}
+
 	e := echo.New()
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
+	if auditLog != nil {
+		e.Use(api.AuditMiddleware(auditLog))
+	}
 
 	authMiddleware := authService.Middleware
 	onDiaryChanged := func(userID string) {
@@ -177,6 +202,7 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterCheveretoRoutes(e, appStore, authMiddleware)
 	api.RegisterPublicRoutes(e, appStore)
 	api.RegisterMCPRoutes(e, appStore, Version)
+	api.RegisterAuditRoutes(e, appStore, authMiddleware, auditLog)
 	api.RegisterVersionRoutes(e, Version, Name)
 	if logger.GetLevel() <= logger.LevelDebug {
 		api.RegisterOpenAPIRoutes(e, Version, Name)
@@ -197,4 +223,41 @@ func run(args []string, stdout io.Writer) error {
 		return err
 	}
 	return nil
+}
+
+// flushAuditOnSignal writes out merged audit entries when the process is
+// asked to stop, then lets the signal take its usual effect.
+func flushAuditOnSignal(auditLog *audit.Logger) func() {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		if sig := awaitStopSignal(signals, done, auditLog); sig != nil {
+			signal.Stop(signals)
+			resendSignal(sig)
+		}
+	}()
+	return func() {
+		signal.Stop(signals)
+		close(done)
+	}
+}
+
+// awaitStopSignal blocks until a signal arrives (flushing the audit log and
+// returning it) or done is closed (returning nil).
+func awaitStopSignal(signals <-chan os.Signal, done <-chan struct{}, auditLog *audit.Logger) os.Signal {
+	select {
+	case sig := <-signals:
+		auditLog.Close()
+		return sig
+	case <-done:
+		return nil
+	}
+}
+
+var resendSignal = func(sig os.Signal) {
+	if process, err := os.FindProcess(os.Getpid()); err == nil && process.Signal(sig) == nil {
+		return
+	}
+	os.Exit(1)
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/store"
@@ -49,6 +50,7 @@ func RegisterCheveretoRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.M
 		if err := configService.SetBatch(userId, settings); err != nil {
 			return badRequest("Failed to save Chevereto settings", err)
 		}
+		recordAudit(c, audit.ActionSettingsUpdate, "chevereto", map[string]any{"keys": settingKeys(settings), "enabled": body.Enabled})
 		return c.JSON(http.StatusOK, map[string]any{"success": true})
 	})
 
@@ -145,6 +147,7 @@ func RegisterCheveretoRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.M
 		if !ok || imageURL == "" {
 			return badRequest("No image URL in Chevereto response", nil)
 		}
+		recordAudit(c, audit.ActionMediaUpload, header.Filename, map[string]any{"provider": "chevereto", "size": header.Size})
 		return c.JSON(http.StatusOK, map[string]any{"url": imageURL})
 	})
 }

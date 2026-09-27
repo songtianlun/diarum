@@ -6,6 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/store"
 )
@@ -27,6 +28,10 @@ func RegisterAuthRoutes(e *echo.Echo, store *store.Store, authService *auth.Serv
 
 		user, err := store.GetUserByIdentity(body.UsernameOrEmail)
 		if err != nil || !authService.VerifyPassword(user.PasswordHash, body.Password) {
+			// Only attempts on a real account land in that account's trail.
+			if err == nil {
+				recordAuditFor(c, user.ID, user.Username, audit.SourceWeb, audit.ActionAuthLoginFail, "", nil)
+			}
 			return unauthorized("Invalid login credentials")
 		}
 
@@ -35,6 +40,7 @@ func RegisterAuthRoutes(e *echo.Echo, store *store.Store, authService *auth.Serv
 			return serverError("Failed to issue token", err)
 		}
 
+		recordAuditFor(c, user.ID, user.Username, audit.SourceWeb, audit.ActionAuthLogin, "", nil)
 		return c.JSON(http.StatusOK, map[string]any{
 			"token":  token,
 			"record": user,
@@ -69,6 +75,7 @@ func RegisterAuthRoutes(e *echo.Echo, store *store.Store, authService *auth.Serv
 		if err != nil {
 			return badRequest("Failed to create user", err)
 		}
+		recordAuditFor(c, user.ID, user.Username, audit.SourceWeb, audit.ActionAuthRegister, "", nil)
 
 		return c.JSON(http.StatusOK, user)
 	})

@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/store"
@@ -81,6 +82,7 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			_ = s.DeleteMedia(media.ID, user.ID)
 			return serverError("Failed to save media file", err)
 		}
+		recordAudit(c, audit.ActionMediaUpload, media.Name, map[string]any{"id": media.ID, "file": media.File, "size": header.Size, "diary": media.Diary})
 		return c.JSON(http.StatusOK, media)
 	})
 
@@ -108,6 +110,7 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err := s.DeleteMedia(media.ID, user.ID); err != nil {
 			return notFound("Media not found")
 		}
+		recordAudit(c, audit.ActionMediaDelete, media.Name, map[string]any{"id": media.ID, "file": media.File})
 		if err := s.DeleteMediaFile(media); err != nil && !os.IsNotExist(err) {
 			return serverError("Failed to delete media file", err)
 		}

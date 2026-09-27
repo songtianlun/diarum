@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/store"
@@ -84,6 +85,7 @@ func RegisterImageUploadRoutes(e *echo.Echo, s *store.Store, authMiddleware echo
 		if err := configService.SetBatch(userID, payload); err != nil {
 			return badRequest("Failed to save image upload settings", err)
 		}
+		recordAudit(c, audit.ActionSettingsUpdate, "image_upload", map[string]any{"keys": settingKeys(payload), "provider": settings.Provider})
 
 		updated, err := loadImageUploadSettings(configService, s, userID)
 		if err != nil {

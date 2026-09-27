@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/store"
 )
@@ -31,10 +32,18 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return badRequest("date is required", nil)
 		}
 
+		// The previous state only feeds the audit trail; skip the read when
+		// auditing is off.
+		var before *store.Diary
+		if auditEnabled(c) {
+			start, end := body.Date+" 00:00:00.000Z", body.Date+" 23:59:59.999Z"
+			before, _ = s.GetDiaryByDate(user.ID, start, end)
+		}
 		diary, _, err := s.UpsertDiary(user.ID, body.Date, body.Content, body.Mood, body.Weather)
 		if err != nil {
 			return badRequest("Failed to save diary", err)
 		}
+		recordDiarySave(c, user.ID, user.Username, audit.SourceWeb, before, diary)
 		if onDiaryChanged != nil {
 			onDiaryChanged(user.ID)
 		}
@@ -49,6 +58,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err != nil {
 			return c.JSON(http.StatusOK, map[string]any{"date": dateStr, "content": "", "exists": false})
 		}
+		recordAudit(c, audit.ActionDiaryView, dateStr, diaryAuditDetail(diary))
 		return c.JSON(http.StatusOK, diaryResponse(diary, dateStr, true))
 	})
 
@@ -235,6 +245,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err != nil {
 			return serverError("Search failed", err)
 		}
+		recordAudit(c, audit.ActionDiarySearch, "", map[string]any{"query": query, "results": len(diaries), "dates": diaryDates(diaries)})
 		results := make([]map[string]any, 0, len(diaries))
 		for _, diary := range diaries {
 			snippet := diary.Content
@@ -261,6 +272,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 				continue
 			}
 			result = append(result, diaryResponse(diary, store.DateOnly(diary.Date), true))
+			recordAudit(c, audit.ActionDiaryView, store.DateOnly(diary.Date), diaryAuditDetail(diary))
 		}
 		return c.JSON(http.StatusOK, map[string]any{"diaries": result})
 	})
@@ -282,6 +294,9 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		diaries, err := s.ListDiaries(user.ID, "", "", "-date", limit)
 		if err != nil {
 			return badRequest("Failed to fetch recent diaries", err)
+		}
+		if len(diaries) > 0 {
+			recordAudit(c, audit.ActionDiaryView, "recent", map[string]any{"dates": diaryDates(diaries)})
 		}
 		result := make([]map[string]any, 0, len(diaries))
 		for _, diary := range diaries {
@@ -322,6 +337,9 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return serverError("Failed to fetch on-this-day diaries", err)
 		}
 
+		if len(diaries) > 0 {
+			recordAudit(c, audit.ActionDiaryView, "on-this-day", map[string]any{"dates": diaryDates(diaries), "preview": true})
+		}
 		entries := make([]map[string]any, 0, len(diaries))
 		for _, diary := range diaries {
 			date := store.DateOnly(diary.Date)
@@ -383,6 +401,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err != nil {
 			return notFound("Revision not found")
 		}
+		recordAudit(c, audit.ActionDiaryView, revision.Date, map[string]any{"revision": revision.ID, "saved": revision.Saved, "words": CountWords(revision.Content)})
 		return c.JSON(http.StatusOK, revision)
 	})
 
@@ -395,6 +414,9 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err != nil {
 			return serverError("Failed to restore revision", err)
 		}
+		detail := diaryAuditDetail(diary)
+		detail["revision"] = c.PathParam("id")
+		recordAudit(c, audit.ActionDiaryRestore, store.DateOnly(diary.Date), detail)
 		if onDiaryChanged != nil {
 			onDiaryChanged(user.ID)
 		}
@@ -410,13 +432,25 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if diary.Owner != user.ID {
 			return forbidden("Access denied")
 		}
+		recordAudit(c, audit.ActionDiaryView, store.DateOnly(diary.Date), diaryAuditDetail(diary))
 		return c.JSON(http.StatusOK, diaryResponse(diary, store.DateOnly(diary.Date), true))
 	})
 
 	group.DELETE("/:id", func(c echo.Context) error {
 		user := auth.CurrentUser(c)
+		var deleted *store.Diary
+		if auditEnabled(c) {
+			if diary, err := s.GetDiaryByID(c.PathParam("id")); err == nil && diary.Owner == user.ID {
+				deleted = diary
+			}
+		}
 		if err := s.DeleteDiary(c.PathParam("id"), user.ID); err != nil {
 			return notFound("Diary not found")
+		}
+		if deleted != nil {
+			recordAudit(c, audit.ActionDiaryDelete, store.DateOnly(deleted.Date), diaryAuditDetail(deleted))
+		} else {
+			recordAudit(c, audit.ActionDiaryDelete, "", map[string]any{"id": c.PathParam("id")})
 		}
 		if onDiaryChanged != nil {
 			onDiaryChanged(user.ID)
@@ -456,4 +490,13 @@ func diaryPreview(content string, max int) string {
 		return text
 	}
 	return string(runes[:max]) + "…"
+}
+
+// diaryDates lists the dates of the given entries, for audit details.
+func diaryDates(diaries []*store.Diary) []string {
+	dates := make([]string, 0, len(diaries))
+	for _, diary := range diaries {
+		dates = append(dates, store.DateOnly(diary.Date))
+	}
+	return dates
 }

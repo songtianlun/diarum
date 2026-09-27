@@ -42,6 +42,7 @@
 	import type { ChartPoint } from '$lib/components/stats/types';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import BackupSettings from '$lib/components/settings/BackupSettings.svelte';
+	import AuditLogPanel from '$lib/components/settings/AuditLogPanel.svelte';
 	import { t, locale, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
 	import { formatHumanNumber } from '$lib/utils/number';
 	import {
@@ -54,7 +55,7 @@
 		sanitizeWeatherOptions
 	} from '$lib/utils/diaryEmoji';
 
-	type SettingsTab = 'general' | 'statistics' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
+	type SettingsTab = 'general' | 'statistics' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management' | 'audit';
 
 	const settingsTabs: { id: SettingsTab }[] = [
 		{ id: 'general' },
@@ -64,7 +65,8 @@
 		{ id: 'api-access' },
 		{ id: 'memos-sync' },
 		{ id: 'image-upload' },
-		{ id: 'data-management' }
+		{ id: 'data-management' },
+		{ id: 'audit' }
 	];
 
 	const tabLabelKey: Record<SettingsTab, string> = {
@@ -75,7 +77,8 @@
 		'api-access': 'settings.tabs.apiAccess',
 		'memos-sync': 'settings.tabs.memosSync',
 		'image-upload': 'settings.tabs.imageUpload',
-		'data-management': 'settings.tabs.dataManagement'
+		'data-management': 'settings.tabs.dataManagement',
+		'audit': 'settings.tabs.audit'
 	};
 
 	let activeTab: SettingsTab = 'general';
@@ -1218,6 +1221,10 @@
 						</button>
 					</div>
 				</div>
+				{/if}
+
+				{#if activeTab === 'audit'}
+				<AuditLogPanel />
 				{/if}
 
 				{#if activeTab === 'statistics'}

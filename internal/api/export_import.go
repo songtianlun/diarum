@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/songtianlun/diarum/internal/archive"
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/embedding"
@@ -82,6 +83,14 @@ func handleExport(c echo.Context, s *store.Store) error {
 		return serverError("Failed to create ZIP", err)
 	}
 	stats.DateRangeType = req.DateRange
+	recordAudit(c, audit.ActionDataExport, req.DateRange, map[string]any{
+		"start":         startDate.Format(dateLayout),
+		"end":           endDate.Format(dateLayout),
+		"diaries":       req.IncludeDiaries,
+		"media":         req.IncludeMedia,
+		"conversations": req.IncludeConversations,
+		"stats":         stats,
+	})
 	size, err := tmp.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return serverError("Failed to read export file", err)
@@ -126,6 +135,7 @@ func handleImport(c echo.Context, s *store.Store, embeddingService *embedding.Em
 		}
 		return serverError("Import failed", err)
 	}
+	recordAudit(c, audit.ActionDataImport, fh.Filename, map[string]any{"size": fh.Size, "stats": stats})
 	rebuildVectorsAfterImport(s, embeddingService, userID)
 	return c.JSON(http.StatusOK, stats)
 }
