@@ -343,6 +343,64 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		return c.JSON(http.StatusOK, map[string]any{"entries": entries})
 	})
 
+	// Diary history. The upsert route above archives the state it replaces,
+	// so these only read snapshots back and restore one.
+	group.GET("/by-date/:date/history", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		dateStr := c.PathParam("date")
+		if _, err := time.Parse(dateLayout, dateStr); err != nil {
+			return badRequest("invalid date", err)
+		}
+		revisions, err := s.ListDiaryRevisions(user.ID, dateStr)
+		if err != nil {
+			return serverError("Failed to fetch diary history", err)
+		}
+		items := make([]map[string]any, 0, len(revisions))
+		for _, revision := range revisions {
+			items = append(items, map[string]any{
+				"id":      revision.ID,
+				"date":    revision.Date,
+				"mood":    revision.Mood,
+				"weather": revision.Weather,
+				"saved":   revision.Saved,
+				"created": revision.Created,
+				// Content can embed base64 images; the list only needs a
+				// preview, and the full version is fetched when selected.
+				"preview": diaryPreview(revision.Content, historyPreviewChars),
+				"words":   CountWords(revision.Content),
+			})
+		}
+		return c.JSON(http.StatusOK, map[string]any{
+			"date":      dateStr,
+			"limit":     s.DiarySnapshotLimit(user.ID),
+			"revisions": items,
+		})
+	})
+
+	group.GET("/revisions/:id", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		revision, err := s.GetDiaryRevision(user.ID, c.PathParam("id"))
+		if err != nil {
+			return notFound("Revision not found")
+		}
+		return c.JSON(http.StatusOK, revision)
+	})
+
+	group.POST("/revisions/:id/restore", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		diary, err := s.RestoreDiaryRevision(user.ID, c.PathParam("id"))
+		if store.IsNoRows(err) {
+			return notFound("Revision not found")
+		}
+		if err != nil {
+			return serverError("Failed to restore revision", err)
+		}
+		if onDiaryChanged != nil {
+			onDiaryChanged(user.ID)
+		}
+		return c.JSON(http.StatusOK, diaryResponse(diary, store.DateOnly(diary.Date), true))
+	})
+
 	group.GET("/:id", func(c echo.Context) error {
 		user := auth.CurrentUser(c)
 		diary, err := s.GetDiaryByID(c.PathParam("id"))
@@ -386,6 +444,7 @@ const (
 	// preview may get before it is ellipsised.
 	onThisDayMaxYears     = 10
 	onThisDayPreviewChars = 120
+	historyPreviewChars   = 160
 )
 
 // diaryPreview renders diary HTML as a short plain-text excerpt, counting

@@ -9,6 +9,8 @@
 	import OnThisDayHint from '$lib/components/memory/OnThisDayHint.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
+	import DiaryHistoryModal from '$lib/components/diary/DiaryHistoryModal.svelte';
+	import type { Diary } from '$lib/api/client';
 	import { getDiaryByDate } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
 	import { getDiaryEmojiSettings } from '$lib/api/settings';
@@ -43,6 +45,7 @@
 	let showDesktopToc = true;
 	let showDatePicker = false;
 	let showShareModal = false;
+	let showHistory = false;
 	let selectedContent = '';
 	let selectedMood = '';
 	let selectedWeather = '';
@@ -169,6 +172,15 @@
 		});
 	}
 
+	function handleRestored(diary: Diary) {
+		// Bump the request id so a load still in flight cannot overwrite this.
+		loadRequestId++;
+		content = diary.content || '';
+		selectedMood = diary.mood || '';
+		selectedWeather = diary.weather || '';
+		loading = false;
+	}
+
 	async function handleManualSave() {
 		await forceSyncNow();
 	}
@@ -229,6 +241,8 @@
 		dateTextActive={showDatePicker}
 		onShareMouseDown={captureShareSelection}
 		onShareClick={openShareModal}
+		onHistoryClick={() => (showHistory = true)}
+		historyActive={showHistory}
 		tocActive={showDesktopToc || showDrawer}
 		onTocClick={toggleToc}
 		isOnline={$onlineState.isOnline}
@@ -499,6 +513,13 @@
 		</div>
 	</div>
 {/if}
+
+<DiaryHistoryModal
+	isOpen={showHistory}
+	{date}
+	onClose={() => (showHistory = false)}
+	onRestored={handleRestored}
+/>
 
 <!-- Share Modal -->
 <DiaryShareModal

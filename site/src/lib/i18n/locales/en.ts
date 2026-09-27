@@ -162,7 +162,32 @@ export const en = {
 		offline: 'Offline - changes saved locally',
 		syncing: 'Syncing...',
 		clickToSave: 'Click to save now',
-		allSaved: 'All changes saved'
+		allSaved: 'All changes saved',
+		history: 'Version history'
+	},
+	diaryHistory: {
+		title: 'Version history',
+		close: 'Close',
+		backToList: 'Back to versions',
+		current: 'Current version',
+		currentDesc: 'What the entry shows now',
+		words: '{count} words',
+		noText: '(no text)',
+		mood: 'Mood',
+		weather: 'Weather',
+		oldestKept: 'Oldest kept — up to {limit} versions are saved',
+		noSnapshots: 'No earlier versions yet. They appear here as you edit.',
+		emptyTitle: 'No history for this day',
+		emptyDesc: 'Each time you save, the version it replaces is kept here so you can go back to it.',
+		pickVersion: 'Pick an earlier version to preview or restore it.',
+		archivedAt: 'Replaced {time}',
+		restore: 'Restore this version',
+		confirmRestore: 'The current version will be kept in history, so this can be undone.',
+		confirm: 'Restore',
+		restoring: 'Restoring...',
+		restoreFailed: 'Failed to restore this version. Please try again.',
+		loadFailed: 'Failed to load version history.',
+		unsyncedWarning: 'Some changes to this entry are not saved to the server yet. Reconnect and save before restoring, or they would be lost.'
 	},
 	calendar: {
 		months: [
@@ -286,7 +311,10 @@ export const en = {
 			visualStyleImmersive: 'Immersive',
 			visualStyleImmersiveDesc: 'Flip-page book view',
 			visualStyleWin95: 'Windows 95',
-			visualStyleWin95Desc: 'Retro desktop & Notepad skin'
+			visualStyleWin95Desc: 'Retro desktop & Notepad skin',
+			historySnapshots: 'Version history',
+			historySnapshotsDesc: 'How many earlier versions to keep for each diary entry ({min}–{max}). The oldest are removed first.',
+			historySnapshotsUnit: 'versions per entry'
 		}
 	},
 	win95: {
@@ -310,6 +338,7 @@ export const en = {
 		fileCalendar: 'Open Calendar...',
 		fileSave: 'Save',
 		fileShare: 'Share as Image...',
+		fileHistory: 'Version History...',
 		shareChars: '{count} characters',
 		fileExit: 'Back to Overview',
 		editMood: 'Mood...',

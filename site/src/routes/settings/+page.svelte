@@ -14,6 +14,12 @@
 		resetMemosWebhookToken,
 		getGeneralSettings,
 		saveGeneralSettings,
+		getDiaryMaxSnapshots,
+		saveDiaryMaxSnapshots,
+		sanitizeDiaryMaxSnapshots,
+		DEFAULT_DIARY_MAX_SNAPSHOTS,
+		MIN_DIARY_MAX_SNAPSHOTS,
+		MAX_DIARY_MAX_SNAPSHOTS,
 		type MemosSettings,
 		type ApiTokenStatus,
 		type GeneralSettings
@@ -100,6 +106,8 @@
 	// General settings (homepage + visual style)
 	let generalSettings: GeneralSettings = { homepage: 'today', visual_style: 'classic', language: 'auto' };
 	let originalGeneralSettings: GeneralSettings = { ...generalSettings };
+	let maxSnapshots = DEFAULT_DIARY_MAX_SNAPSHOTS;
+	let originalMaxSnapshots = DEFAULT_DIARY_MAX_SNAPSHOTS;
 	let generalSaving = false;
 	let generalError = '';
 	let generalSuccess = '';
@@ -336,8 +344,9 @@
 		: [];
 
 	async function loadGeneralSettingsLocal() {
-		generalSettings = await getGeneralSettings();
+		[generalSettings, maxSnapshots] = await Promise.all([getGeneralSettings(), getDiaryMaxSnapshots()]);
 		originalGeneralSettings = { ...generalSettings };
+		originalMaxSnapshots = maxSnapshots;
 		// Apply the persisted language preference so it takes effect immediately.
 		setLocalePreference(generalSettings.language);
 	}
@@ -353,8 +362,13 @@
 		generalSuccess = '';
 		generalSaving = true;
 		try {
+			maxSnapshots = sanitizeDiaryMaxSnapshots(maxSnapshots);
 			await saveGeneralSettings(generalSettings);
 			originalGeneralSettings = { ...generalSettings };
+			if (maxSnapshots !== originalMaxSnapshots) {
+				await saveDiaryMaxSnapshots(maxSnapshots);
+				originalMaxSnapshots = maxSnapshots;
+			}
 			generalSuccess = $t('settings.general.saved');
 			setTimeout(() => generalSuccess = '', 3000);
 		} catch (e) {
@@ -774,7 +788,8 @@
 	$: generalSettingsChanged =
 		generalSettings.homepage !== originalGeneralSettings.homepage ||
 		generalSettings.visual_style !== originalGeneralSettings.visual_style ||
-		generalSettings.language !== originalGeneralSettings.language;
+		generalSettings.language !== originalGeneralSettings.language ||
+		maxSnapshots !== originalMaxSnapshots;
 
 	$: emojiSettingsChanged =
 		JSON.stringify(moodOptions) !== JSON.stringify(originalMoodOptions) ||
@@ -1168,6 +1183,27 @@
 								</div>
 								<div class="text-xs text-muted-foreground mt-1 ml-6">{$t('settings.general.visualStyleWin95Desc')}</div>
 							</button>
+						</div>
+					</div>
+
+					<!-- Version history -->
+					<div class="py-4 border-t border-border/50">
+						<label for="diary-max-snapshots" class="font-medium text-foreground mb-1 block">{$t('settings.general.historySnapshots')}</label>
+						<p class="text-sm text-muted-foreground mb-3">
+							{$t('settings.general.historySnapshotsDesc', { min: MIN_DIARY_MAX_SNAPSHOTS, max: MAX_DIARY_MAX_SNAPSHOTS })}
+						</p>
+						<div class="flex items-center gap-3">
+							<input
+								id="diary-max-snapshots"
+								type="number"
+								min={MIN_DIARY_MAX_SNAPSHOTS}
+								max={MAX_DIARY_MAX_SNAPSHOTS}
+								step="1"
+								bind:value={maxSnapshots}
+								on:blur={() => (maxSnapshots = sanitizeDiaryMaxSnapshots(maxSnapshots))}
+								class="w-24 px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+							/>
+							<span class="text-sm text-muted-foreground">{$t('settings.general.historySnapshotsUnit')}</span>
 						</div>
 					</div>
 

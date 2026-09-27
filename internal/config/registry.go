@@ -1,10 +1,20 @@
 package config
 
+import (
+	"errors"
+	"math"
+
+	"github.com/songtianlun/diarum/internal/store"
+)
+
 // ConfigMeta defines metadata for a configuration item
 type ConfigMeta struct {
 	Type      string // "string", "bool", "int", "float", "json"
 	Default   any
 	Encrypted bool
+	// Min and Max bound "int" values when Max is non-zero.
+	Min int
+	Max int
 }
 
 // ConfigRegistry defines all available configuration items
@@ -49,6 +59,8 @@ var ConfigRegistry = map[string]ConfigMeta{
 	// Diary editor presets
 	"diary.mood_options":    {Type: "json", Default: []string{"😊", "😌", "🥳", "💪", "🤔", "😴", "😔", "😤"}, Encrypted: false},
 	"diary.weather_options": {Type: "json", Default: []string{"☀️", "⛅", "☁️", "🌧️", "⛈️", "🌫️", "❄️", "🌬️"}, Encrypted: false},
+	// How many history snapshots each diary entry keeps.
+	store.SettingDiaryMaxSnapshots: {Type: "int", Default: store.DefaultDiarySnapshots, Min: store.MinDiarySnapshots, Max: store.MaxDiarySnapshots},
 
 	// General app preferences
 	// homepage: "today" (open today's diary entry) or "overview" (open the /diary calendar overview)
@@ -78,6 +90,31 @@ func IsEncrypted(key string) bool {
 func GetDefault(key string) any {
 	if meta, ok := ConfigRegistry[key]; ok {
 		return meta.Default
+	}
+	return nil
+}
+
+// ErrInvalidValue is returned when a value does not fit its configuration key.
+var ErrInvalidValue = errors.New("invalid configuration value")
+
+// ValidateValue checks a value against its key's declared bounds. Keys
+// without bounds accept anything, as before.
+func ValidateValue(key string, value any) error {
+	meta, ok := ConfigRegistry[key]
+	if !ok || meta.Type != "int" || meta.Max == 0 {
+		return nil
+	}
+	var number float64
+	switch v := value.(type) {
+	case float64:
+		number = v
+	case int:
+		number = float64(v)
+	default:
+		return ErrInvalidValue
+	}
+	if number != math.Trunc(number) || number < float64(meta.Min) || number > float64(meta.Max) {
+		return ErrInvalidValue
 	}
 	return nil
 }

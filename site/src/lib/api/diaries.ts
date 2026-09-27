@@ -356,3 +356,73 @@ export async function deleteDiary(id: string): Promise<boolean> {
 		return false;
 	}
 }
+
+export interface DiaryRevisionSummary {
+	id: string;
+	date: string;
+	mood: string;
+	weather: string;
+	/** When this version was written. */
+	saved: string;
+	/** When this version was moved into history. */
+	created: string;
+	preview: string;
+	words: number;
+}
+
+export interface DiaryRevision {
+	id: string;
+	date: string;
+	content: string;
+	mood: string;
+	weather: string;
+	saved: string;
+	created: string;
+}
+
+export interface DiaryHistory {
+	limit: number;
+	revisions: DiaryRevisionSummary[];
+}
+
+async function historyRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+	const response = await fetch(path, {
+		...init,
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			...(init.headers || {})
+		}
+	});
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || `HTTP ${response.status}`);
+	}
+	return (await response.json()) as T;
+}
+
+/**
+ * List earlier versions of the entry for a date, newest first.
+ */
+export async function getDiaryHistory(date: string): Promise<DiaryHistory> {
+	const data = await historyRequest<{ limit: number; revisions: DiaryRevisionSummary[] }>(
+		`/api/v1/diaries/by-date/${encodeURIComponent(date)}/history`
+	);
+	return { limit: data.limit, revisions: data.revisions || [] };
+}
+
+/**
+ * Fetch one earlier version with its full content.
+ */
+export async function getDiaryRevision(id: string): Promise<DiaryRevision> {
+	return historyRequest<DiaryRevision>(`/api/v1/diaries/revisions/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Make an earlier version the current one. The replaced version is kept in
+ * history, so the restore can be undone.
+ */
+export async function restoreDiaryRevision(id: string): Promise<Diary> {
+	return historyRequest<Diary>(`/api/v1/diaries/revisions/${encodeURIComponent(id)}/restore`, {
+		method: 'POST'
+	});
+}
