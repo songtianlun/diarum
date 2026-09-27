@@ -7,6 +7,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/store"
 )
@@ -138,7 +139,9 @@ func RegisterMCPRoutes(e *echo.Echo, s *store.Store, version string) {
 		// object. Notifications are dropped from the response either way.
 		responses := make([]*jsonRPCResponse, 0, len(body.requests))
 		for _, req := range body.requests {
-			resp := dispatchMCP(s, userId, version, req)
+			resp := dispatchMCPAudited(s, userId, version, req, func(action, target string, detail map[string]any) {
+				recordAuditFor(c, userId, "", audit.SourceMCP, action, target, detail)
+			})
 			if resp != nil {
 				responses = append(responses, resp)
 			}
@@ -226,7 +229,17 @@ func parseRPCBody(c echo.Context) (*rpcBody, error) {
 
 // dispatchMCP routes one JSON-RPC message. It returns nil for notifications,
 // which carry no ID and must not be answered.
+// mcpAuditFunc records a diary read made through an MCP tool.
+type mcpAuditFunc func(action, target string, detail map[string]any)
+
 func dispatchMCP(s *store.Store, userId, version string, req jsonRPCRequest) *jsonRPCResponse {
+	return dispatchMCPAudited(s, userId, version, req, nil)
+}
+
+func dispatchMCPAudited(s *store.Store, userId, version string, req jsonRPCRequest, record mcpAuditFunc) *jsonRPCResponse {
+	if record == nil {
+		record = func(string, string, map[string]any) {}
+	}
 	isNotification := len(req.ID) == 0
 
 	switch req.Method {
@@ -264,7 +277,7 @@ func dispatchMCP(s *store.Store, userId, version string, req jsonRPCRequest) *js
 		if isNotification {
 			return nil
 		}
-		return callMCPTool(s, userId, req)
+		return callMCPTool(s, userId, req, record)
 
 	default:
 		if isNotification {
@@ -285,7 +298,7 @@ type toolCallParams struct {
 	} `json:"arguments"`
 }
 
-func callMCPTool(s *store.Store, userId string, req jsonRPCRequest) *jsonRPCResponse {
+func callMCPTool(s *store.Store, userId string, req jsonRPCRequest, record mcpAuditFunc) *jsonRPCResponse {
 	var params toolCallParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
@@ -304,6 +317,9 @@ func callMCPTool(s *store.Store, userId string, req jsonRPCRequest) *jsonRPCResp
 		if err != nil {
 			return toolSuccess(req.ID, map[string]any{"date": args.Date, "content": "", "exists": false})
 		}
+		detail := diaryAuditDetail(diary)
+		detail["tool"] = params.Name
+		record(audit.ActionDiaryView, args.Date, detail)
 		return toolSuccess(req.ID, map[string]any{
 			"id":      diary.ID,
 			"date":    args.Date,
@@ -321,6 +337,9 @@ func callMCPTool(s *store.Store, userId string, req jsonRPCRequest) *jsonRPCResp
 		if err != nil {
 			return rpcError(req.ID, jsonRPCInternalError, "Failed to query diaries")
 		}
+		if len(diaries) > 0 {
+			record(audit.ActionDiaryView, args.Start+".."+args.End, map[string]any{"tool": params.Name, "dates": diaryDates(diaries)})
+		}
 		return toolSuccess(req.ID, map[string]any{
 			"diaries": summarizeDiaries(diaries),
 			"total":   len(diaries),
@@ -334,6 +353,7 @@ func callMCPTool(s *store.Store, userId string, req jsonRPCRequest) *jsonRPCResp
 		if err != nil {
 			return rpcError(req.ID, jsonRPCInternalError, "Failed to search diaries")
 		}
+		record(audit.ActionDiarySearch, "", map[string]any{"tool": params.Name, "query": args.Query, "results": len(diaries), "dates": diaryDates(diaries)})
 		return toolSuccess(req.ID, map[string]any{
 			"diaries": summarizeDiaries(diaries),
 			"total":   len(diaries),

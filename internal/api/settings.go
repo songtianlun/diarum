@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"sort"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/logger"
@@ -62,6 +64,7 @@ func putSettingHandler(configService *config.ConfigService) echo.HandlerFunc {
 		if err := configService.Set(userId, key, body.Value); err != nil {
 			return badRequest("Failed to save setting", err)
 		}
+		recordAudit(c, audit.ActionSettingsUpdate, key, settingAuditDetail(key, body.Value))
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"success": true,
@@ -81,6 +84,7 @@ func deleteSettingHandler(configService *config.ConfigService) echo.HandlerFunc 
 		if err := configService.Delete(userId, key); err != nil {
 			return badRequest("Failed to delete setting", err)
 		}
+		recordAudit(c, audit.ActionSettingsUpdate, key, map[string]any{"op": "reset"})
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"success": true,
@@ -167,6 +171,7 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 		if err := configService.Set(userId, "api.mcp_enabled", newEnabled); err != nil {
 			return badRequest("Failed to update MCP status", err)
 		}
+		recordAudit(c, audit.ActionTokenUpdate, "api.mcp_enabled", map[string]any{"enabled": newEnabled})
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"mcp_enabled": newEnabled,
@@ -199,6 +204,7 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 			if err := configService.Set(userId, "api.enabled", true); err != nil {
 				return badRequest("Failed to save enabled status", err)
 			}
+			recordAudit(c, audit.ActionTokenUpdate, "api.token", map[string]any{"op": "create", "enabled": true})
 
 			return c.JSON(http.StatusOK, map[string]any{
 				"enabled":     true,
@@ -212,6 +218,8 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 		if err := configService.Set(userId, "api.enabled", newEnabled); err != nil {
 			return badRequest("Failed to update token", err)
 		}
+
+		recordAudit(c, audit.ActionTokenUpdate, "api.enabled", map[string]any{"enabled": newEnabled})
 
 		// MCP rides on the same token, so turning API access off turns it off too.
 		mcpEnabled := false
@@ -244,6 +252,8 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 		if err := configService.Set(userId, "api.token", newToken); err != nil {
 			return badRequest("Failed to save token", err)
 		}
+
+		recordAudit(c, audit.ActionTokenUpdate, "api.token", map[string]any{"op": "reset"})
 
 		// Ensure enabled is set (default to true for reset)
 		enabled, err := configService.GetBool(userId, "api.enabled")
@@ -304,6 +314,7 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 		if err := configService.SetBatch(userId, body.Settings); err != nil {
 			return badRequest("Failed to save settings", err)
 		}
+		recordAudit(c, audit.ActionSettingsUpdate, "batch", map[string]any{"keys": settingKeys(body.Settings)})
 
 		return c.JSON(http.StatusOK, map[string]any{
 			"success": true,
@@ -318,4 +329,32 @@ func RegisterSettingsRoutes(e *echo.Echo, store *store.Store, authMiddleware ech
 
 	// Delete single setting by key
 	group.DELETE("/:key", deleteSettingHandler(configService))
+}
+
+// settingKeys lists the keys being changed. Values are never written to the
+// audit trail, since several of them are secrets.
+func settingKeys[V any](settings map[string]V) []string {
+	keys := make([]string, 0, len(settings))
+	for key := range settings {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// settingAuditDetail records a single setting change, keeping the value only
+// for plain, non-secret numbers, booleans and short strings.
+func settingAuditDetail(key string, value any) map[string]any {
+	if config.IsEncrypted(key) || key == "api.token" {
+		return nil
+	}
+	switch v := value.(type) {
+	case bool, float64:
+		return map[string]any{"value": v}
+	case string:
+		if len(v) <= 64 {
+			return map[string]any{"value": v}
+		}
+	}
+	return nil
 }
