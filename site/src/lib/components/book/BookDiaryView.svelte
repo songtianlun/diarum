@@ -8,6 +8,8 @@
 	import BookTableOfContents from '$lib/components/book/BookTableOfContents.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import EntryNav from '$lib/components/ui/EntryNav.svelte';
+	import DiaryHistoryModal from '$lib/components/diary/DiaryHistoryModal.svelte';
+	import type { Diary } from '$lib/api/client';
 	import {
 		getDiaryByDate,
 		getDatesWithDiaries,
@@ -75,6 +77,9 @@
 	// place, mobile opens a left drawer
 	let showToc = false;
 	let showTocDrawer = false;
+
+	// version history
+	let showHistory = false;
 
 	// share
 	let showShareModal = false;
@@ -236,6 +241,18 @@
 		updateLocalCache(date, { content: newContent, mood: view.mood, weather: view.weather });
 	}
 
+	function handleRestored(diary: Diary) {
+		const restored: View = {
+			date: (diary.date || date).slice(0, 10),
+			content: diary.content || '',
+			mood: diary.mood || '',
+			weather: diary.weather || '',
+			loaded: true
+		};
+		viewCache.set(restored.date, restored);
+		if (restored.date === date) view = restored;
+	}
+
 	function handleMoodSelect(emoji: string) {
 		view = { ...view, mood: emoji };
 		viewCache.set(date, view);
@@ -338,7 +355,7 @@
 			showTocDrawer = false;
 			return;
 		}
-		if (isEditing() || showCatalog || showTocDrawer) return;
+		if (isEditing() || showCatalog || showTocDrawer || showHistory) return;
 		if (e.key === 'ArrowLeft') void navigateTo(getPreviousDay(date));
 		else if (e.key === 'ArrowRight') void navigateTo(getNextDay(date));
 	}
@@ -438,6 +455,8 @@
 		dateTextActive={showCatalog}
 		onShareMouseDown={captureShareSelection}
 		onShareClick={openShareModal}
+		onHistoryClick={() => (showHistory = true)}
+		historyActive={showHistory}
 		tocActive={isMobile ? showTocDrawer : showToc}
 		onTocClick={toggleToc}
 		isOnline={$onlineState.isOnline}
@@ -685,6 +704,13 @@
 </div>
 
 <!-- Share Modal -->
+<DiaryHistoryModal
+	isOpen={showHistory}
+	{date}
+	onClose={() => (showHistory = false)}
+	onRestored={handleRestored}
+/>
+
 <DiaryShareModal
 	isOpen={showShareModal}
 	{date}

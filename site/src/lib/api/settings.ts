@@ -308,3 +308,40 @@ export async function resetMemosWebhookToken(): Promise<MemosSettings> {
 
 	return await response.json();
 }
+
+export const DEFAULT_DIARY_MAX_SNAPSHOTS = 10;
+export const MIN_DIARY_MAX_SNAPSHOTS = 1;
+export const MAX_DIARY_MAX_SNAPSHOTS = 20;
+
+/** Clamp any input to a valid per-entry snapshot limit. */
+export function sanitizeDiaryMaxSnapshots(value: unknown): number {
+	const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+	if (!Number.isFinite(parsed)) return DEFAULT_DIARY_MAX_SNAPSHOTS;
+	return Math.min(MAX_DIARY_MAX_SNAPSHOTS, Math.max(MIN_DIARY_MAX_SNAPSHOTS, Math.trunc(parsed)));
+}
+
+/** How many history versions are kept for each diary entry. */
+export async function getDiaryMaxSnapshots(): Promise<number> {
+	try {
+		return sanitizeDiaryMaxSnapshots(await getSettingValue('diary.max_snapshots'));
+	} catch (error) {
+		console.error('Error fetching diary history settings:', error);
+		return DEFAULT_DIARY_MAX_SNAPSHOTS;
+	}
+}
+
+export async function saveDiaryMaxSnapshots(value: number): Promise<void> {
+	const response = await fetch('/api/v1/settings/diary.max_snapshots', {
+		method: 'PUT',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ value: sanitizeDiaryMaxSnapshots(value) })
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || 'Failed to save diary history settings');
+	}
+}

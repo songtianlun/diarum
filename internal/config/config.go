@@ -89,6 +89,9 @@ func (s *ConfigService) Set(userId, key string, value any) error {
 	if _, ok := GetConfigMeta(key); !ok {
 		return ErrUnknownKey
 	}
+	if err := ValidateValue(key, value); err != nil {
+		return err
+	}
 
 	return s.store.SetSetting(userId, key, value, IsEncrypted(key))
 }
@@ -106,6 +109,12 @@ func (s *ConfigService) GetBatch(userId string) (map[string]any, error) {
 
 // SetBatch stores multiple configuration values for a user atomically
 func (s *ConfigService) SetBatch(userId string, settings map[string]any) error {
+	// Validate everything first so a bad value never leaves a partial write.
+	for key, value := range settings {
+		if err := ValidateValue(key, value); err != nil {
+			return err
+		}
+	}
 	for key, value := range settings {
 		// Skip unknown keys with warning log
 		if _, ok := GetConfigMeta(key); !ok {

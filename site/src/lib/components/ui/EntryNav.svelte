@@ -3,8 +3,8 @@
 	 * Shared top nav for the diary entry route (/diary/[date]), used by both
 	 * visual styles: the classic editor view and the immersive book view.
 	 * Both have an identical layout — brand, prev/next day, a date icon +
-	 * date text, and a right-hand actions cluster (assistant, share, table
-	 * of contents, sync status).
+	 * date text, and a right-hand actions cluster (assistant, share, version
+	 * history, table of contents, sync status).
 	 *
 	 * The only behavioral difference between the two views is what the date
 	 * text does when clicked:
@@ -32,6 +32,10 @@
 
 	export let onShareMouseDown: () => void;
 	export let onShareClick: () => void;
+
+	/** If provided, shows a button that opens the entry's version history. */
+	export let onHistoryClick: (() => void) | null = null;
+	export let historyActive = false;
 
 	export let tocActive = false;
 	export let onTocClick: () => void;
@@ -146,6 +150,20 @@
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
 					</svg>
 				</button>
+
+				{#if onHistoryClick}
+					<button
+						class="nav-btn {historyActive ? 'bg-muted/60' : ''}"
+						on:click={onHistoryClick}
+						title={$t('entryNav.history')}
+						aria-label={$t('entryNav.history')}
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8" />
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v5h5M12 7v5l4 2" />
+						</svg>
+					</button>
+				{/if}
 
 				<button
 					class="nav-btn {tocActive ? 'bg-muted/60' : ''}"

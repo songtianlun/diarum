@@ -40,6 +40,10 @@ type Store struct {
 	AuthSecret        []byte
 	LegacyS3          *LegacyS3Config
 	legacyS3Client    *awss3.Client
+	// SnapshotInterval is the autosave coalescing window for diary history;
+	// zero snapshots every change.
+	SnapshotInterval time.Duration
+	now              func() time.Time
 }
 
 type LegacyS3Config struct {
@@ -201,6 +205,7 @@ func Open(dataDir string) (*Store, error) {
 		MediaCollectionID: mediaCollectionID,
 		AuthSecret:        authSecret,
 		LegacyS3:          legacyS3,
+		SnapshotInterval:  DefaultDiarySnapshotInterval,
 	}
 	if err := appStore.initLegacyS3Client(); err != nil {
 		logger.Warn("[Store] legacy S3 client init failed: %v", err)
@@ -259,6 +264,22 @@ func createSchema(db *sql.DB) error {
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_diaries_date_owner ON diaries(date, owner)`,
 		`CREATE INDEX IF NOT EXISTS idx_diaries_owner_date ON diaries(owner, date)`,
+		// Earlier states of diary entries. Keyed by owner and day rather than a
+		// foreign key to diaries, so history outlives a deleted entry and the
+		// entry can be restored from it.
+		`CREATE TABLE IF NOT EXISTS diary_revisions (
+			content TEXT DEFAULT '' NOT NULL,
+			created TEXT NOT NULL,
+			date TEXT NOT NULL,
+			diary TEXT DEFAULT '' NOT NULL,
+			id TEXT PRIMARY KEY NOT NULL,
+			mood TEXT DEFAULT '' NOT NULL,
+			owner TEXT NOT NULL,
+			saved TEXT DEFAULT '' NOT NULL,
+			weather TEXT DEFAULT '' NOT NULL,
+			FOREIGN KEY(owner) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_diary_revisions_owner_date ON diary_revisions(owner, date, created)`,
 		`CREATE TABLE IF NOT EXISTS tags (
 			created TEXT NOT NULL,
 			id TEXT PRIMARY KEY NOT NULL,
@@ -841,32 +862,10 @@ func scanUser(row interface{ Scan(dest ...any) error }) (*User, error) {
 	return user, nil
 }
 
+// UpsertDiary saves the latest state of the entry for date, archiving the
+// state it replaces into the diary history.
 func (s *Store) UpsertDiary(owner, date, content, mood, weather string) (*Diary, bool, error) {
-	start, end := dayRange(date)
-	existing, err := s.GetDiaryByDate(owner, start, end)
-	if err == nil && existing != nil {
-		now := nowString()
-		_, err := s.DB.Exec(`UPDATE diaries SET content = ?, mood = ?, weather = ?, updated = ? WHERE id = ? AND owner = ?`, content, mood, weather, now, existing.ID, owner)
-		if err != nil {
-			return nil, false, err
-		}
-		diary, err := s.GetDiaryByID(existing.ID)
-		return diary, false, err
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, false, err
-	}
-	id, err := GenerateID()
-	if err != nil {
-		return nil, false, err
-	}
-	now := nowString()
-	_, err = s.DB.Exec(`INSERT INTO diaries(content, created, date, id, mood, owner, updated, weather, tags) VALUES(?, ?, ?, ?, ?, ?, ?, ?, '[]')`, content, now, date+" 00:00:00.000Z", id, mood, owner, now, weather)
-	if err != nil {
-		return nil, true, err
-	}
-	diary, err := s.GetDiaryByID(id)
-	return diary, true, err
+	return s.saveDiary(owner, date, content, mood, weather, false)
 }
 
 func (s *Store) GetDiaryByDate(owner, start, end string) (*Diary, error) {
@@ -877,16 +876,22 @@ func (s *Store) GetDiaryByID(id string) (*Diary, error) {
 	return scanDiary(s.DB.QueryRow(`SELECT content, created, date, id, mood, owner, updated, weather, tags FROM diaries WHERE id = ?`, id))
 }
 
+// DeleteDiary removes an entry. Its final state is archived first, so a
+// deletion (including the editor clearing an entry) can be undone from the
+// entry's history.
 func (s *Store) DeleteDiary(id, owner string) error {
-	result, err := s.DB.Exec(`DELETE FROM diaries WHERE id = ? AND owner = ?`, id, owner)
-	if err != nil {
+	limit := s.DiarySnapshotLimit(owner)
+	return s.Transaction(context.Background(), func(tx *sql.Tx) error {
+		diary, err := scanDiary(tx.QueryRow(`SELECT content, created, date, id, mood, owner, updated, weather, tags FROM diaries WHERE id = ? AND owner = ?`, id, owner))
+		if err != nil {
+			return err
+		}
+		if err := s.archiveDiary(tx, diary, limit, true); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`DELETE FROM diaries WHERE id = ? AND owner = ?`, id, owner)
 		return err
-	}
-	affected, _ := result.RowsAffected()
-	if affected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	})
 }
 
 func (s *Store) ListDiaries(owner, start, end, order string, limit int) ([]*Diary, error) {

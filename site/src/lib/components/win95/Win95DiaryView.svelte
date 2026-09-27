@@ -23,6 +23,7 @@
 
 	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
+	import DiaryHistoryModal from '$lib/components/diary/DiaryHistoryModal.svelte';
 	import Win95Icon from './Win95Icon.svelte';
 	import Win95Tree from './Win95Tree.svelte';
 	import Win95DateNav from './Win95DateNav.svelte';
@@ -42,7 +43,7 @@
 		type CalendarDiaryMeta,
 		type OnThisDayEntry
 	} from '$lib/api/diaries';
-	import { isAuthenticated } from '$lib/api/client';
+	import { isAuthenticated, type Diary } from '$lib/api/client';
 	import { getDiaryEmojiSettings } from '$lib/api/settings';
 	import { DEFAULT_MOOD_OPTIONS, DEFAULT_WEATHER_OPTIONS } from '$lib/utils/diaryEmoji';
 	import {
@@ -80,6 +81,8 @@
 	let selectedWeather = '';
 	let moodPresets: string[] = [...DEFAULT_MOOD_OPTIONS];
 	let weatherPresets: string[] = [...DEFAULT_WEATHER_OPTIONS];
+
+	let showHistory = false;
 
 	// share (identical capture dance to the other views)
 	let showShareModal = false;
@@ -223,6 +226,20 @@
 		commit();
 	}
 
+	function openHistory() {
+		showHistory = true;
+	}
+
+	function handleRestored(diary: Diary) {
+		// Bump the request id so a load still in flight cannot overwrite this.
+		loadRequestId++;
+		content = diary.content || '';
+		selectedMood = diary.mood || '';
+		selectedWeather = diary.weather || '';
+		loading = false;
+		syncTreeEntry();
+	}
+
 	async function handleManualSave() {
 		await forceSyncNow();
 	}
@@ -343,6 +360,7 @@
 					action: handleManualSave
 				},
 				{ label: $t('win95.fileShare'), action: shareFromMenu },
+				{ label: $t('win95.fileHistory'), action: openHistory },
 				{ sep: true },
 				{ label: $t('win95.fileExit'), action: openCalendarPage }
 			]
@@ -887,6 +905,13 @@
 		</Win95Dialog>
 	{/if}
 </div>
+
+<DiaryHistoryModal
+	isOpen={showHistory}
+	{date}
+	onClose={() => (showHistory = false)}
+	onRestored={handleRestored}
+/>
 
 <DiaryShareModal
 	isOpen={showShareModal}

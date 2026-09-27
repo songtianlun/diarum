@@ -423,3 +423,62 @@ func TestGetBoolNonBoolValue(t *testing.T) {
 		t.Fatalf("GetBool map.key = %v, %v, want false", got, err)
 	}
 }
+
+func TestValidateValueBoundsIntSettings(t *testing.T) {
+	key := store.SettingDiaryMaxSnapshots
+	meta, ok := GetConfigMeta(key)
+	if !ok || meta.Type != "int" || meta.Default != store.DefaultDiarySnapshots || meta.Min != 1 || meta.Max != 20 {
+		t.Fatalf("GetConfigMeta(%s) = %#v, %v", key, meta, ok)
+	}
+	for _, value := range []any{1, 10, 20, float64(1), float64(20)} {
+		if err := ValidateValue(key, value); err != nil {
+			t.Fatalf("ValidateValue(%#v) = %v, want nil", value, err)
+		}
+	}
+	for _, value := range []any{0, 21, float64(-1), float64(20.5), 2.5, "10", true, nil} {
+		if err := ValidateValue(key, value); !errors.Is(err, ErrInvalidValue) {
+			t.Fatalf("ValidateValue(%#v) = %v, want ErrInvalidValue", value, err)
+		}
+	}
+	// Keys without bounds, and unknown keys, accept anything as before.
+	for _, k := range []string{"sync.cacheDays", "general.homepage", "does.not.exist"} {
+		if err := ValidateValue(k, "anything"); err != nil {
+			t.Fatalf("ValidateValue(%s) = %v, want nil", k, err)
+		}
+	}
+}
+
+func TestConfigServiceRejectsOutOfRangeSnapshotLimit(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewConfigService(s)
+	key := store.SettingDiaryMaxSnapshots
+
+	if got, err := service.Get(user.ID, key); err != nil || got != store.DefaultDiarySnapshots {
+		t.Fatalf("default = %#v, %v", got, err)
+	}
+	if err := service.Set(user.ID, key, float64(21)); !errors.Is(err, ErrInvalidValue) {
+		t.Fatalf("Set(21) = %v, want ErrInvalidValue", err)
+	}
+	if err := service.Set(user.ID, key, float64(15)); err != nil {
+		t.Fatalf("Set(15) = %v", err)
+	}
+	if got := s.DiarySnapshotLimit(user.ID); got != 15 {
+		t.Fatalf("DiarySnapshotLimit = %d, want 15", got)
+	}
+
+	// A bad value in a batch rejects the whole batch.
+	err := service.SetBatch(user.ID, map[string]any{"general.homepage": "overview", key: float64(0)})
+	if !errors.Is(err, ErrInvalidValue) {
+		t.Fatalf("SetBatch = %v, want ErrInvalidValue", err)
+	}
+	if got, _ := service.GetString(user.ID, "general.homepage"); got != "today" {
+		t.Fatalf("general.homepage = %q, batch must not be partially applied", got)
+	}
+	if err := service.SetBatch(user.ID, map[string]any{key: float64(3)}); err != nil {
+		t.Fatalf("SetBatch(3) = %v", err)
+	}
+	if got := s.DiarySnapshotLimit(user.ID); got != 3 {
+		t.Fatalf("DiarySnapshotLimit = %d, want 3", got)
+	}
+}

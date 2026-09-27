@@ -152,7 +152,32 @@ export const zh = {
 		offline: '离线 — 更改已保存在本地',
 		syncing: '同步中…',
 		clickToSave: '点击立即保存',
-		allSaved: '所有更改已保存'
+		allSaved: '所有更改已保存',
+		history: '历史版本'
+	},
+	diaryHistory: {
+		title: '历史版本',
+		close: '关闭',
+		backToList: '返回版本列表',
+		current: '当前版本',
+		currentDesc: '日记现在显示的内容',
+		words: '{count} 字',
+		noText: '（无文字）',
+		mood: '心情',
+		weather: '天气',
+		oldestKept: '最早保留的版本 — 最多保存 {limit} 个版本',
+		noSnapshots: '暂无历史版本，编辑后会出现在这里。',
+		emptyTitle: '这一天还没有历史',
+		emptyDesc: '每次保存时，被替换的旧版本都会保留在这里，方便随时找回。',
+		pickVersion: '选择一个历史版本进行预览或回滚。',
+		archivedAt: '替换于 {time}',
+		restore: '回滚到此版本',
+		confirmRestore: '当前版本会保留在历史中，可以随时撤销此次回滚。',
+		confirm: '回滚',
+		restoring: '回滚中…',
+		restoreFailed: '回滚失败，请重试。',
+		loadFailed: '加载历史版本失败。',
+		unsyncedWarning: '这篇日记还有未同步到服务器的修改。请联网并保存后再回滚，否则这些修改会丢失。'
 	},
 	calendar: {
 		months: [
@@ -276,7 +301,10 @@ export const zh = {
 			visualStyleImmersive: '沉浸',
 			visualStyleImmersiveDesc: '翻页书本视图',
 			visualStyleWin95: 'Windows 95',
-			visualStyleWin95Desc: '复古桌面与记事本界面'
+			visualStyleWin95Desc: '复古桌面与记事本界面',
+			historySnapshots: '历史版本',
+			historySnapshotsDesc: '每篇日记最多保留的历史版本数量（{min}–{max}），超出时自动移除最早的版本。',
+			historySnapshotsUnit: '个版本 / 每篇'
 		}
 	},
 	win95: {
@@ -300,6 +328,7 @@ export const zh = {
 		fileCalendar: '打开日历...',
 		fileSave: '保存',
 		fileShare: '分享为图片...',
+		fileHistory: '历史版本...',
 		shareChars: '{count} 个字符',
 		fileExit: '返回总览',
 		editMood: '心情...',
