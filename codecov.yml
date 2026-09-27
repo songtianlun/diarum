@@ -1,0 +1,18 @@
+coverage:
+  status:
+    project:
+      default:
+        # Compare against the base commit, but tolerate small drops caused by
+        # defensive error paths in new features.
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        # New code must be well tested, but not above the whole project's
+        # coverage, which is what the default "auto" target demands.
+        target: 85%
+        threshold: 1%
+
+comment:
+  layout: "diff, flags, files"
+  require_changes: true
