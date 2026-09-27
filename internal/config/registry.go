@@ -56,6 +56,24 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"image_upload.s3.secret":           {Type: "string", Default: "", Encrypted: true},
 	"image_upload.s3.force_path_style": {Type: "bool", Default: false, Encrypted: false},
 
+	// Data backup to S3-compatible storage (see internal/backup)
+	"backup.enabled":             {Type: "bool", Default: false, Encrypted: false},
+	"backup.s3.bucket":           {Type: "string", Default: "", Encrypted: false},
+	"backup.s3.region":           {Type: "string", Default: "", Encrypted: false},
+	"backup.s3.endpoint":         {Type: "string", Default: "", Encrypted: false},
+	"backup.s3.access_key":       {Type: "string", Default: "", Encrypted: true},
+	"backup.s3.secret":           {Type: "string", Default: "", Encrypted: true},
+	"backup.s3.force_path_style": {Type: "bool", Default: false, Encrypted: false},
+	"backup.s3.prefix":           {Type: "string", Default: "diarum-backups", Encrypted: false},
+	"backup.auto_enabled":        {Type: "bool", Default: false, Encrypted: false},
+	// Five-field cron expression, evaluated in backup.timezone (empty: server local time)
+	"backup.schedule": {Type: "string", Default: "0 2 * * *", Encrypted: false},
+	"backup.timezone": {Type: "string", Default: "", Encrypted: false},
+	// How many successful backups (and failed attempts) are kept in the bucket
+	"backup.keep": {Type: "int", Default: 3, Min: 1, Max: 100},
+	// Outcome of the latest backup or restore job, written by the server
+	"backup.last_run": {Type: "json", Default: nil, Encrypted: false},
+
 	// Diary editor presets
 	"diary.mood_options":    {Type: "json", Default: []string{"😊", "😌", "🥳", "💪", "🤔", "😴", "😔", "😤"}, Encrypted: false},
 	"diary.weather_options": {Type: "json", Default: []string{"☀️", "⛅", "☁️", "🌧️", "⛈️", "🌫️", "❄️", "🌬️"}, Encrypted: false},

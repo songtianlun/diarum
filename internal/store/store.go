@@ -1552,9 +1552,14 @@ func (s *Store) InsertImportedDiary(owner, id, date, content, mood, weather stri
 }
 
 func (s *Store) DiaryExistsByDate(owner, date string) bool {
-	start, end := dayRange(date)
-	_, err := s.GetDiaryByDate(owner, start, end)
+	_, err := s.FindDiaryByDate(owner, date)
 	return err == nil
+}
+
+// FindDiaryByDate returns owner's entry for a YYYY-MM-DD date.
+func (s *Store) FindDiaryByDate(owner, date string) (*Diary, error) {
+	start, end := dayRange(date)
+	return s.GetDiaryByDate(owner, start, end)
 }
 
 func (s *Store) SaveUploadedFile(dst string, reader io.Reader) error {
@@ -1587,7 +1592,9 @@ func (s *Store) SaveUploadedMedia(media *Media, reader io.Reader) error {
 	return s.SaveUploadedFile(filepath.Join(s.userLocalMediaDir(media.Owner), media.ID, media.File), reader)
 }
 
-func newS3Client(cfg *LegacyS3Config) (*awss3.Client, error) {
+// NewS3Client builds a client for an S3-compatible endpoint. It returns nil
+// when cfg is missing or disabled.
+func NewS3Client(cfg *LegacyS3Config) (*awss3.Client, error) {
 	if cfg == nil || !cfg.Enabled {
 		return nil, nil
 	}
@@ -1612,7 +1619,7 @@ func newS3Client(cfg *LegacyS3Config) (*awss3.Client, error) {
 }
 
 func (s *Store) saveMediaToS3(cfg *LegacyS3Config, media *Media, reader io.Reader) error {
-	client, err := newS3Client(cfg)
+	client, err := NewS3Client(cfg)
 	if err != nil {
 		return err
 	}
@@ -1625,7 +1632,7 @@ func (s *Store) saveMediaToS3(cfg *LegacyS3Config, media *Media, reader io.Reade
 }
 
 func (s *Store) initLegacyS3Client() error {
-	client, err := newS3Client(s.LegacyS3)
+	client, err := NewS3Client(s.LegacyS3)
 	if err != nil {
 		return err
 	}
@@ -1645,7 +1652,7 @@ func (s *Store) OpenMediaFile(media *Media) (io.ReadCloser, error) {
 	}
 	if media != nil && media.Owner != "" {
 		if cfg := s.userS3Config(media.Owner); cfg != nil {
-			client, err := newS3Client(cfg)
+			client, err := NewS3Client(cfg)
 			if err != nil {
 				return nil, err
 			}
@@ -1676,7 +1683,7 @@ func (s *Store) DeleteMediaFile(media *Media) error {
 	}
 	if media != nil && media.Owner != "" {
 		if cfg := s.userS3Config(media.Owner); cfg != nil {
-			client, err := newS3Client(cfg)
+			client, err := NewS3Client(cfg)
 			if err != nil {
 				return err
 			}

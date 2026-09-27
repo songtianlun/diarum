@@ -438,8 +438,8 @@ func TestStoreS3AndHelperFunctions(t *testing.T) {
 	s := newTestStore(t)
 	user := newTestUser(t, s)
 
-	if client, err := newS3Client(nil); err != nil || client != nil {
-		t.Fatalf("newS3Client(nil) = %v, %v; want nil, nil", client, err)
+	if client, err := NewS3Client(nil); err != nil || client != nil {
+		t.Fatalf("NewS3Client(nil) = %v, %v; want nil, nil", client, err)
 	}
 	if err := s.initLegacyS3Client(); err != nil {
 		t.Fatalf("initLegacyS3Client nil config: %v", err)
@@ -2018,7 +2018,7 @@ func TestNewS3ClientEndpointWithoutScheme(t *testing.T) {
 		Secret:    "secret",
 		Endpoint:  "s3.example.com",
 	}
-	client, err := newS3Client(cfg)
+	client, err := NewS3Client(cfg)
 	if err != nil {
 		t.Fatalf("newS3Client endpoint without scheme: %v", err)
 	}

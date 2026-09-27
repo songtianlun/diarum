@@ -182,8 +182,8 @@ func normalizeImageUploadSettings(settings imageUploadSettingsResponse, s *store
 	settings.Chevereto.AlbumID = strings.TrimSpace(settings.Chevereto.AlbumID)
 
 	if settings.Provider == "s3" {
-		if settings.S3.Bucket == "" || settings.S3.Region == "" || settings.S3.AccessKey == "" || settings.S3.Secret == "" {
-			return nil, echo.NewHTTPError(http.StatusBadRequest, "Bucket, region, access key and secret are required for S3")
+		if err := requireS3Fields(settings.S3.Bucket, settings.S3.Region, settings.S3.AccessKey, settings.S3.Secret); err != nil {
+			return nil, err
 		}
 	}
 	if settings.Provider == "chevereto" {
@@ -193,6 +193,14 @@ func normalizeImageUploadSettings(settings imageUploadSettingsResponse, s *store
 	}
 
 	return &settings, nil
+}
+
+// requireS3Fields is the S3 check shared by image uploads and backups.
+func requireS3Fields(bucket, region, accessKey, secret string) error {
+	if bucket == "" || region == "" || accessKey == "" || secret == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "Bucket, region, access key and secret are required for S3")
+	}
+	return nil
 }
 
 func normalizeImageUploadProvider(provider string) string {

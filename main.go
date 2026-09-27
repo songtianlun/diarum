@@ -19,6 +19,7 @@ import (
 
 	"github.com/songtianlun/diarum/internal/api"
 	"github.com/songtianlun/diarum/internal/auth"
+	"github.com/songtianlun/diarum/internal/backup"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/logger"
@@ -168,6 +169,11 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterMemosRoutes(e, appStore, authMiddleware, onDiaryChanged)
 	api.RegisterAIRoutes(e, appStore, authMiddleware, embeddingService)
 	api.RegisterExportImportRoutes(e, appStore, authMiddleware, embeddingService)
+	backupService := backup.NewService(appStore, Version)
+	backupService.OnRestored = onDiaryChanged
+	backupScheduler := backup.NewScheduler(backupService)
+	backupScheduler.Start(context.Background())
+	api.RegisterBackupRoutes(e, appStore, authMiddleware, backupService, backupScheduler)
 	api.RegisterCheveretoRoutes(e, appStore, authMiddleware)
 	api.RegisterPublicRoutes(e, appStore)
 	api.RegisterMCPRoutes(e, appStore, Version)

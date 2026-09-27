@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { en } from './locales/en';
 import { zh } from './locales/zh';
+import { backupEn, backupZh } from './locales/backup';
 
 /**
  * Supported concrete locales. English is the fallback for any missing key.
@@ -20,7 +21,10 @@ const STORAGE_KEY = 'locale';
 
 type Dict = Record<string, unknown>;
 
-const dictionaries: Record<Locale, Dict> = { en, zh };
+const dictionaries: Record<Locale, Dict> = {
+	en: { ...en, backup: backupEn },
+	zh: { ...zh, backup: backupZh }
+};
 
 /**
  * Map an arbitrary browser language tag to one of our supported locales.
