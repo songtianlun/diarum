@@ -41,6 +41,7 @@
 	import LineChart from '$lib/components/stats/LineChart.svelte';
 	import type { ChartPoint } from '$lib/components/stats/types';
 	import Footer from '$lib/components/ui/Footer.svelte';
+	import BackupSettings from '$lib/components/settings/BackupSettings.svelte';
 	import { t, locale, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
 	import { formatHumanNumber } from '$lib/utils/number';
 	import {
@@ -2615,6 +2616,8 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							</div>
 						{/if}
 					</div>
+
+					<BackupSettings />
 				</div>
 				{/if}
 			</div>

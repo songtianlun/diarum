@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/archive"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/store"
@@ -153,7 +154,7 @@ func TestExportImportRoutesAndHelpers(t *testing.T) {
 	if _, ok := entries["markdown/2024-02-01_happy.md"]; !ok {
 		t.Fatalf("export markdown entries = %#v", entries)
 	}
-	if _, ok := entries["media/photo.png"]; !ok {
+	if _, ok := entries["media/"+media.ID+"/photo.png"]; !ok {
 		t.Fatalf("export media entries = %#v", entries)
 	}
 
@@ -184,11 +185,11 @@ func TestExportImportRoutesAndHelpers(t *testing.T) {
 			t.Fatalf("calculateDateRange %s = %v, %v, %v", dateRange, start, end, err)
 		}
 	}
-	if !isDateInRange("2024-02-01", mustDate(t, "2024-02-01"), mustDate(t, "2024-02-28")) {
-		t.Fatal("isDateInRange should include in-range dates")
+	if !archive.InRange("2024-02-01", mustDate(t, "2024-02-01"), mustDate(t, "2024-02-28")) {
+		t.Fatal("InRange should include in-range dates")
 	}
-	if isDateInRange("", mustDate(t, "2024-02-01"), mustDate(t, "2024-02-28")) || isDateInRange("bad-date", mustDate(t, "2024-02-01"), mustDate(t, "2024-02-28")) {
-		t.Fatal("isDateInRange should reject empty and invalid dates")
+	if archive.InRange("", mustDate(t, "2024-02-01"), mustDate(t, "2024-02-28")) || archive.InRange("bad-date", mustDate(t, "2024-02-01"), mustDate(t, "2024-02-28")) {
+		t.Fatal("InRange should reject empty and invalid dates")
 	}
 	if serverError("oops", nil).(*echo.HTTPError).Code != http.StatusInternalServerError {
 		t.Fatal("serverError without wrapped error should return 500")
