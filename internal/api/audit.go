@@ -2,9 +2,7 @@ package api
 
 import (
 	"errors"
-	"net/http"
-	"os"
-	"strconv"
+	"fmt"
 	"strings"
 	"time"
 
@@ -12,63 +10,158 @@ import (
 
 	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
-	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/store"
 )
 
-const (
-	auditContextKey   = "diarum_audit"
-	auditDefaultLimit = 100
-	auditMaxLimit     = 5000
-)
+const auditContextKey = "diarum_audit"
 
-// AuditMiddleware makes the audit logger available to every handler. Routes
-// served without it (as in most tests) simply record nothing.
+// requestAudit collects what handlers say about the request being served;
+// the middleware turns it into the request's audit entry once it finishes.
+type requestAudit struct {
+	userID string
+	user   string
+	source string
+	// entries are the actions handlers recorded, in order. The first one is
+	// merged into the request's own entry; any further ones (an MCP batch,
+	// for example) are written as entries of their own.
+	entries []audit.Entry
+}
+
+// AuditMiddleware records every API call: who made it, from where, what it
+// hit and how it ended, plus whatever meaning the handler attached. Only the
+// entry is built on the request goroutine; encoding and writing happen on the
+// logger's own goroutine. A nil logger records nothing.
+//
+// Register it before middleware.Recover so panics are recorded as 500s.
 func AuditMiddleware(l *audit.Logger) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			c.Set(auditContextKey, l)
-			return next(c)
+			req := c.Request()
+			if l == nil || !strings.HasPrefix(req.URL.Path, "/api/") {
+				return next(c)
+			}
+			ra := &requestAudit{}
+			c.Set(auditContextKey, ra)
+			started := time.Now()
+			err := next(c)
+			finished := time.Now()
+
+			status := c.Response().Status
+			message := ""
+			if err != nil {
+				var httpErr *echo.HTTPError
+				if errors.As(err, &httpErr) {
+					status = httpErr.Code
+					message = fmt.Sprint(httpErr.Message)
+				} else {
+					status = 500
+					message = err.Error()
+				}
+			}
+			if status == 0 {
+				status = 200
+			}
+
+			userID, username, source := ra.userID, ra.user, ra.source
+			if user := auth.CurrentUser(c); user != nil && userID == "" {
+				userID, username = user.ID, user.Username
+			}
+			if source == "" {
+				source = audit.SourceWeb
+			}
+			base := audit.Entry{
+				Time:     finished,
+				UserID:   userID,
+				User:     username,
+				Source:   source,
+				Method:   req.Method,
+				Route:    c.Path(),
+				Path:     redactPath(c, req.URL.Path),
+				Status:   status,
+				Duration: finished.Sub(started).Milliseconds(),
+				IP:       c.RealIP(),
+				UA:       req.UserAgent(),
+				Error:    message,
+			}
+			if len(ra.entries) == 0 {
+				switch status {
+				case 401:
+					base.Action = audit.ActionAuthDenied
+				case 403:
+					base.Action = audit.ActionAuthForbidden
+				}
+				l.Record(base)
+				return err
+			}
+			for i, annotation := range ra.entries {
+				entry := base
+				entry.Action, entry.Target, entry.Detail = annotation.Action, annotation.Target, annotation.Detail
+				if annotation.UserID != "" {
+					entry.UserID, entry.User = annotation.UserID, annotation.User
+				}
+				if annotation.Source != "" {
+					entry.Source = annotation.Source
+				}
+				if i > 0 {
+					// Follow-up actions share the request's facts but not its
+					// duration, so statistics count the call only once.
+					entry.Duration = 0
+					entry.Route, entry.Method = "", ""
+				}
+				l.Record(entry)
+			}
+			return err
 		}
 	}
 }
 
-func auditLogger(c echo.Context) *audit.Logger {
-	l, _ := c.Get(auditContextKey).(*audit.Logger)
-	return l
+// redactPath hides secrets carried in the URL path, such as webhook tokens.
+func redactPath(c echo.Context, path string) string {
+	for _, param := range c.PathParams() {
+		name := strings.ToLower(param.Name)
+		if param.Value != "" && (strings.Contains(name, "token") || strings.Contains(name, "secret") || strings.Contains(name, "key")) {
+			path = strings.ReplaceAll(path, param.Value, "***")
+		}
+	}
+	return path
 }
 
-// auditEnabled reports whether recording is on, so handlers can skip the
-// extra lookups that only feed the audit trail.
+func requestAuditOf(c echo.Context) *requestAudit {
+	ra, _ := c.Get(auditContextKey).(*requestAudit)
+	return ra
+}
+
+// auditEnabled reports whether this request is being audited, so handlers
+// can skip lookups that only feed the audit trail.
 func auditEnabled(c echo.Context) bool {
-	return auditLogger(c) != nil
+	return requestAuditOf(c) != nil
 }
 
-// recordAudit logs an action taken by the signed-in user through the web API.
+// auditIdentify names the account behind a request authenticated by other
+// means than a session (API tokens, webhooks, MCP).
+func auditIdentify(c echo.Context, userID, username, source string) {
+	if ra := requestAuditOf(c); ra != nil {
+		ra.userID, ra.user, ra.source = userID, username, source
+	}
+}
+
+// recordAudit attaches an action taken by the signed-in user through the web
+// API to the request's audit entry.
 func recordAudit(c echo.Context, action, target string, detail map[string]any) {
 	user := auth.CurrentUser(c)
 	if user == nil {
+		recordAuditFor(c, "", "", "", action, target, detail)
 		return
 	}
 	recordAuditFor(c, user.ID, user.Username, audit.SourceWeb, action, target, detail)
 }
 
 func recordAuditFor(c echo.Context, userID, actor, source, action, target string, detail map[string]any) {
-	l := auditLogger(c)
-	if l == nil {
+	ra := requestAuditOf(c)
+	if ra == nil {
 		return
 	}
-	req := c.Request()
-	l.Record(audit.Entry{
-		User:   userID,
-		Actor:  actor,
-		Action: action,
-		Target: target,
-		Source: source,
-		IP:     c.RealIP(),
-		UA:     req.UserAgent(),
-		Detail: detail,
-	})
+	ra.entries = append(ra.entries, audit.Entry{UserID: userID, User: actor, Source: source, Action: action, Target: target, Detail: detail})
 }
 
 // diaryAuditDetail summarises an entry for the trail without its content.
@@ -89,8 +182,7 @@ func diaryAuditDetail(diary *store.Diary) map[string]any {
 }
 
 // recordDiarySave logs a save that went through UpsertDiary. before is the
-// state it replaced (nil when the entry was new); saves that changed nothing
-// are not logged.
+// state it replaced (nil when the entry was new).
 func recordDiarySave(c echo.Context, userID, actor, source string, before, after *store.Diary) {
 	if after == nil {
 		return
@@ -101,10 +193,10 @@ func recordDiarySave(c echo.Context, userID, actor, source string, before, after
 		recordAuditFor(c, userID, actor, source, audit.ActionDiaryCreate, date, detail)
 		return
 	}
-	if before.Content == after.Content && before.Mood == after.Mood && before.Weather == after.Weather {
-		return
-	}
 	detail["words_before"] = CountWords(before.Content)
+	if before.Content == after.Content && before.Mood == after.Mood && before.Weather == after.Weather {
+		detail["unchanged"] = true
+	}
 	if before.Mood != after.Mood {
 		detail["mood_before"] = before.Mood
 	}
@@ -112,129 +204,4 @@ func recordDiarySave(c echo.Context, userID, actor, source string, before, after
 		detail["weather_before"] = before.Weather
 	}
 	recordAuditFor(c, userID, actor, source, audit.ActionDiaryUpdate, date, detail)
-}
-
-// RegisterAuditRoutes serves a user's own audit trail and its settings.
-func RegisterAuditRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.MiddlewareFunc, l *audit.Logger) {
-	configService := config.NewConfigService(s)
-	group := e.Group("/api/v1/audit", authMiddleware)
-
-	settingsResponse := func(userID string) map[string]any {
-		return map[string]any{
-			"retention_days": l.RetentionDays(userID),
-			"default":        audit.DefaultRetentionDays,
-			"min":            audit.MinRetentionDays,
-			"max":            audit.MaxRetentionDays,
-			"enabled":        l != nil,
-		}
-	}
-
-	group.GET("/settings", func(c echo.Context) error {
-		return c.JSON(http.StatusOK, settingsResponse(auth.CurrentUser(c).ID))
-	})
-
-	group.PUT("/settings", func(c echo.Context) error {
-		user := auth.CurrentUser(c)
-		var body struct {
-			RetentionDays *int `json:"retention_days"`
-		}
-		if err := c.Bind(&body); err != nil {
-			return badRequest("Invalid request body", err)
-		}
-		if body.RetentionDays == nil {
-			return badRequest("retention_days is required", nil)
-		}
-		days := *body.RetentionDays
-		if days < audit.MinRetentionDays || days > audit.MaxRetentionDays {
-			return badRequest("retention_days must be between "+strconv.Itoa(audit.MinRetentionDays)+" and "+strconv.Itoa(audit.MaxRetentionDays), nil)
-		}
-		previous := l.RetentionDays(user.ID)
-		if err := configService.Set(user.ID, audit.SettingRetentionDays, days); err != nil {
-			return badRequest("Failed to save audit settings", err)
-		}
-		if previous != days {
-			recordAudit(c, audit.ActionSettingsUpdate, audit.SettingRetentionDays, map[string]any{"from": previous, "to": days})
-		}
-		// Apply a shorter window right away rather than at the next sweep.
-		l.Cleanup(user.ID)
-		return c.JSON(http.StatusOK, settingsResponse(user.ID))
-	})
-
-	group.GET("/files", func(c echo.Context) error {
-		user := auth.CurrentUser(c)
-		files, err := l.Files(user.ID)
-		if err != nil {
-			return serverError("Failed to list audit logs", err)
-		}
-		return c.JSON(http.StatusOK, map[string]any{
-			"files":          files,
-			"retention_days": l.RetentionDays(user.ID),
-		})
-	})
-
-	group.GET("/files/:date", func(c echo.Context) error {
-		user := auth.CurrentUser(c)
-		date := c.PathParam("date")
-		f, err := l.OpenFile(user.ID, date)
-		if errors.Is(err, audit.ErrInvalidDate) {
-			return badRequest("invalid date", nil)
-		}
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return notFound("Audit log not found")
-			}
-			return serverError("Failed to open audit log", err)
-		}
-		defer f.Close()
-		stat, err := f.Stat()
-		if err != nil {
-			return serverError("Failed to read audit log", err)
-		}
-		name := "diarum-audit-" + date + ".log"
-		c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="`+name+`"`)
-		c.Response().Header().Set(echo.HeaderContentType, "application/x-ndjson; charset=utf-8")
-		http.ServeContent(c.Response(), c.Request(), name, stat.ModTime(), f)
-		return nil
-	})
-
-	// Entries, newest first. start/end are RFC 3339 instants so the client can
-	// ask for its own local day regardless of the server's timezone.
-	group.GET("/entries", func(c echo.Context) error {
-		user := auth.CurrentUser(c)
-		query := audit.Query{
-			Text:   c.QueryParam("q"),
-			Action: c.QueryParam("action"),
-			Limit:  auditDefaultLimit,
-		}
-		if raw := c.QueryParam("limit"); raw != "" {
-			limit, err := strconv.Atoi(raw)
-			if err != nil || limit <= 0 {
-				return badRequest("invalid limit", nil)
-			}
-			query.Limit = min(limit, auditMaxLimit)
-		}
-		var err error
-		if query.Start, err = parseAuditTime(c.QueryParam("start")); err != nil {
-			return badRequest("invalid start", err)
-		}
-		if query.End, err = parseAuditTime(c.QueryParam("end")); err != nil {
-			return badRequest("invalid end", err)
-		}
-		if !query.Start.IsZero() && !query.End.IsZero() && query.Start.After(query.End) {
-			query.Start, query.End = query.End, query.Start
-		}
-		result, err := l.Search(user.ID, query)
-		if err != nil {
-			return serverError("Failed to read audit logs", err)
-		}
-		return c.JSON(http.StatusOK, result)
-	})
-}
-
-func parseAuditTime(raw string) (time.Time, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return time.Time{}, nil
-	}
-	return time.Parse(time.RFC3339, raw)
 }

@@ -57,15 +57,17 @@ type LegacyS3Config struct {
 }
 
 type User struct {
-	ID                     string `json:"id"`
-	Username               string `json:"username"`
-	Email                  string `json:"email"`
-	EmailVisibility        bool   `json:"emailVisibility"`
-	Name                   string `json:"name"`
-	Avatar                 string `json:"avatar"`
-	PasswordHash           string `json:"-"`
-	TokenKey               string `json:"-"`
-	Verified               bool   `json:"verified"`
+	ID              string `json:"id"`
+	Username        string `json:"username"`
+	Email           string `json:"email"`
+	EmailVisibility bool   `json:"emailVisibility"`
+	Name            string `json:"name"`
+	Avatar          string `json:"avatar"`
+	PasswordHash    string `json:"-"`
+	TokenKey        string `json:"-"`
+	Verified        bool   `json:"verified"`
+	// Role is RoleUser or RoleAdmin; only admins may open the admin console.
+	Role                   string `json:"role"`
 	LastLoginAlertSentAt   string `json:"lastLoginAlertSentAt"`
 	LastResetSentAt        string `json:"lastResetSentAt"`
 	LastVerificationSentAt string `json:"lastVerificationSentAt"`
@@ -344,7 +346,7 @@ func createSchema(db *sql.DB) error {
 			return err
 		}
 	}
-	return nil
+	return migrateAdminSchema(db)
 }
 
 func migrateLegacyData(db *sql.DB, oldPath string) error {
@@ -828,12 +830,12 @@ func (s *Store) Transaction(ctx context.Context, fn func(*sql.Tx) error) error {
 }
 
 func (s *Store) GetUserByID(id string) (*User, error) {
-	return scanUser(s.DB.QueryRow(`SELECT avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified FROM users WHERE id = ?`, id))
+	return scanUser(s.DB.QueryRow(`SELECT avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified, role FROM users WHERE id = ?`, id))
 }
 
 func (s *Store) GetUserByIdentity(identity string) (*User, error) {
 	identity = strings.TrimSpace(identity)
-	return scanUser(s.DB.QueryRow(`SELECT avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified FROM users WHERE username = ? OR email = ? LIMIT 1`, identity, identity))
+	return scanUser(s.DB.QueryRow(`SELECT avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified, role FROM users WHERE username = ? OR email = ? LIMIT 1`, identity, identity))
 }
 
 func (s *Store) CreateUser(username, email, passwordHash string) (*User, error) {
@@ -846,7 +848,10 @@ func (s *Store) CreateUser(username, email, passwordHash string) (*User, error) 
 		return nil, err
 	}
 	now := nowString()
-	_, err = s.DB.Exec(`INSERT INTO users(avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified) VALUES('', ?, ?, false, ?, '', '', '', '', ?, ?, ?, ?, false)`, now, email, id, passwordHash, tokenKey, now, username)
+	// The first account becomes the admin; everyone after it is a plain
+	// user. One statement keeps the check and the insert atomic.
+	_, err = s.DB.Exec(`INSERT INTO users(avatar, created, email, emailVisibility, id, lastLoginAlertSentAt, lastResetSentAt, lastVerificationSentAt, name, passwordHash, tokenKey, updated, username, verified, role)
+		VALUES('', ?, ?, false, ?, '', '', '', '', ?, ?, ?, ?, false, CASE WHEN EXISTS(SELECT 1 FROM users) THEN ? ELSE ? END)`, now, email, id, passwordHash, tokenKey, now, username, RoleUser, RoleAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -855,7 +860,7 @@ func (s *Store) CreateUser(username, email, passwordHash string) (*User, error) 
 
 func scanUser(row interface{ Scan(dest ...any) error }) (*User, error) {
 	user := &User{}
-	err := row.Scan(&user.Avatar, &user.Created, &user.Email, &user.EmailVisibility, &user.ID, &user.LastLoginAlertSentAt, &user.LastResetSentAt, &user.LastVerificationSentAt, &user.Name, &user.PasswordHash, &user.TokenKey, &user.Updated, &user.Username, &user.Verified)
+	err := row.Scan(&user.Avatar, &user.Created, &user.Email, &user.EmailVisibility, &user.ID, &user.LastLoginAlertSentAt, &user.LastResetSentAt, &user.LastVerificationSentAt, &user.Name, &user.PasswordHash, &user.TokenKey, &user.Updated, &user.Username, &user.Verified, &user.Role)
 	if err != nil {
 		return nil, err
 	}

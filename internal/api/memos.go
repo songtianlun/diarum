@@ -58,6 +58,7 @@ func RegisterMemosRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if userID == "" {
 			return echo.ErrUnauthorized
 		}
+		auditIdentify(c, userID, "", audit.SourceMemos)
 		enabled, _ := configService.GetBool(userID, "memos.enabled")
 		if !enabled {
 			return echo.NewHTTPError(http.StatusForbidden, "Memos sync is disabled")

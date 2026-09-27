@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 import { en } from './locales/en';
 import { zh } from './locales/zh';
 import { backupEn, backupZh } from './locales/backup';
+import { adminEn, adminZh } from './locales/admin';
 
 /**
  * Supported concrete locales. English is the fallback for any missing key.
@@ -22,8 +23,8 @@ const STORAGE_KEY = 'locale';
 type Dict = Record<string, unknown>;
 
 const dictionaries: Record<Locale, Dict> = {
-	en: { ...en, backup: backupEn },
-	zh: { ...zh, backup: backupZh }
+	en: { ...en, backup: backupEn, admin: adminEn },
+	zh: { ...zh, backup: backupZh, admin: adminZh }
 };
 
 /**

@@ -106,8 +106,15 @@ func run(args []string, stdout io.Writer) error {
 		_, err := fmt.Fprintf(stdout, "%s version %s\n", Name, Version)
 		return err
 	}
+	if command == "users" {
+		return runUsers(args, stdout)
+	}
+	if command == "help" {
+		_, err := fmt.Fprint(stdout, usage)
+		return err
+	}
 	if command != "serve" {
-		return fmt.Errorf("unknown command: %s", command)
+		return fmt.Errorf("unknown command: %s (run '%s help')", command, Name)
 	}
 
 	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
@@ -144,22 +151,24 @@ func run(args []string, stdout io.Writer) error {
 
 	// The audit trail is best effort: if its directory cannot be created the
 	// app still runs, just without recording.
-	auditLog, err := audit.New(appStore.DataDir, audit.Options{Retention: auditRetention(appStore)})
+	audit.RemoveLegacy(appStore.DataDir)
+	auditLog, err := audit.New(appStore.DataDir, audit.Options{Settings: appStore})
 	if err != nil {
 		logger.Error("[AUDIT] !!! audit logging disabled: %v", err)
 	} else {
 		defer auditLog.Close()
+		auditLog.StartScheduler()
 		stopSignals := flushAuditOnSignal(auditLog)
 		defer stopSignals()
 		log.Printf("Audit logs: %s", audit.Dir(appStore.DataDir))
 	}
 
 	e := echo.New()
+	// The audit middleware sits outside Recover so panics are recorded as
+	// the 500s they turn into.
+	e.Use(api.AuditMiddleware(auditLog))
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
-	if auditLog != nil {
-		e.Use(api.AuditMiddleware(auditLog))
-	}
 
 	authMiddleware := authService.Middleware
 	onDiaryChanged := func(userID string) {
@@ -196,7 +205,7 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterCheveretoRoutes(e, appStore, authMiddleware)
 	api.RegisterPublicRoutes(e, appStore)
 	api.RegisterMCPRoutes(e, appStore, Version)
-	api.RegisterAuditRoutes(e, appStore, authMiddleware, auditLog)
+	api.RegisterAdminRoutes(e, appStore, authMiddleware, auditLog, Version)
 	api.RegisterVersionRoutes(e, Version, Name)
 	if logger.GetLevel() <= logger.LevelDebug {
 		api.RegisterOpenAPIRoutes(e, Version, Name)
@@ -217,17 +226,6 @@ func run(args []string, stdout io.Writer) error {
 		return err
 	}
 	return nil
-}
-
-// auditRetention reads each user's audit retention setting.
-func auditRetention(appStore *store.Store) func(userID string) int {
-	return func(userID string) int {
-		value, err := appStore.GetSetting(userID, audit.SettingRetentionDays)
-		if number, ok := value.(float64); err == nil && ok {
-			return int(min(number, audit.MaxRetentionDays))
-		}
-		return audit.DefaultRetentionDays
-	}
 }
 
 // flushAuditOnSignal writes out merged audit entries when the process is

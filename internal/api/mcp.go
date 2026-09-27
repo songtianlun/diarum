@@ -129,6 +129,7 @@ func RegisterMCPRoutes(e *echo.Echo, s *store.Store, version string) {
 		if err != nil {
 			return err
 		}
+		auditIdentify(c, userId, "", audit.SourceMCP)
 
 		body, err := parseRPCBody(c)
 		if err != nil {

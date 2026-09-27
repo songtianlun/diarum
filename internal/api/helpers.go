@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 )
@@ -30,4 +31,15 @@ func serverError(message string, err error) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, message+": "+err.Error())
 	}
 	return echo.NewHTTPError(http.StatusInternalServerError, message)
+}
+
+// truncate cuts s to at most n bytes without splitting a UTF-8 character.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

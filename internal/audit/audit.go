@@ -1,11 +1,15 @@
-// Package audit keeps a per-user, append-only trail of key operations such as
-// creating, editing and deleting diary entries.
+// Package audit keeps the system-wide audit trail: every API call (who, what,
+// from where, with which result) plus the business meaning handlers attach to
+// it, such as "edited the diary entry for 2026-09-28".
 //
-// Entries are JSON lines stored under <data>/logs/audit/<userID>/YYYY-MM-DD.log,
-// one file per day (server local time). The trail is deliberately kept out of
-// the database: it has to stay readable when the database is the thing being
-// investigated, and writing it must never be able to fail a business request.
-// Every exported method is safe on a nil *Logger, which simply does nothing.
+// Entries are JSON lines in one file per server-local day under
+// <data>/logs/system-audit/YYYY-MM-DD.log. The trail is deliberately kept out
+// of the database: it must stay readable when the database is the thing being
+// investigated, and writing it must never be able to slow down or fail a
+// request. Finished days can be archived to S3 (see archive.go) and pulled
+// back into <data>/logs/system-audit/pulled/ for analysis.
+//
+// Every exported method is safe on a nil *Logger, which does nothing.
 package audit
 
 import (
@@ -13,8 +17,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,15 +24,8 @@ import (
 	"github.com/songtianlun/diarum/internal/logger"
 )
 
-// Setting keys and bounds for how long each user's trail is kept.
-const (
-	SettingRetentionDays = "audit.retention_days"
-	DefaultRetentionDays = 7
-	MinRetentionDays     = 1
-	MaxRetentionDays     = 365
-)
-
-// Actions recorded in the trail.
+// Actions handlers attach to requests. Requests without one are still
+// recorded, identified by method and route.
 const (
 	ActionDiaryCreate    = "diary.create"
 	ActionDiaryUpdate    = "diary.update"
@@ -47,41 +42,47 @@ const (
 	ActionTokenUpdate    = "token.update"
 	ActionAuthLogin      = "auth.login"
 	ActionAuthLoginFail  = "auth.login_failed"
+	ActionAuthLogout     = "auth.logout"
 	ActionAuthRegister   = "auth.register"
+	ActionAuthDenied     = "auth.denied"
+	ActionAuthForbidden  = "auth.forbidden"
+	ActionAdminRole      = "admin.role_change"
+	ActionAdminAudit     = "admin.audit_settings"
+	ActionAdminPull      = "admin.audit_pull"
 )
 
 // Sources describe which entry point performed an action.
 const (
 	SourceWeb    = "web"
+	SourceAPI    = "api"
 	SourceMCP    = "mcp"
 	SourceMemos  = "memos"
+	SourceCLI    = "cli"
 	SourceSystem = "system"
 )
 
 const (
-	// DirName is the audit subdirectory inside the log directory.
-	DirName = "audit"
 	// LogDirName is the log directory inside the data directory.
 	LogDirName = "logs"
+	// DirName is the system audit directory inside the log directory.
+	DirName = "system-audit"
+	// PulledDirName holds archived days pulled back from S3.
+	PulledDirName = "pulled"
+	// LegacyDirName is where the former per-user audit trail lived.
+	LegacyDirName = "audit"
 
 	fileDateLayout = "2006-01-02"
 	fileSuffix     = ".log"
 	maxUALength    = 256
+	maxErrorLength = 300
 	maxLineBytes   = 1 << 20
 
-	// Autosave coalescing: the editor saves about a second after every pause
-	// in typing, which would bury everything else under "updated" lines. The
-	// first save of an editing session is written at once; later saves of the
-	// same entry are merged and written after the session has been idle for
-	// coalesceIdle, or at the latest every coalesceMaxSpan. Repeated reads of
-	// the same thing from the same place within coalesceIdle are logged once.
-	defaultCoalesceIdle    = 2 * time.Minute
-	defaultCoalesceMaxSpan = 10 * time.Minute
-
 	// queueSize bounds memory if the disk stalls; Record never blocks on it.
-	queueSize       = 4096
-	flushInterval   = 15 * time.Second
-	cleanupInterval = 6 * time.Hour
+	queueSize = 16384
+	// Lines are batched in memory and written at most this far apart, or
+	// sooner once the batch reaches bufferLimit.
+	defaultFlushInterval = time.Second
+	bufferLimit          = 256 << 10
 	// Readers wait at most this long for queued entries to reach disk.
 	flushWait = 3 * time.Second
 )
@@ -89,45 +90,53 @@ const (
 // Entry is one line in the trail. Diary contents are never logged; Detail
 // only carries metadata such as word counts, mood and weather.
 type Entry struct {
-	Time   time.Time      `json:"time"`
-	User   string         `json:"user"`
-	Actor  string         `json:"actor,omitempty"`
-	Action string         `json:"action"`
-	Target string         `json:"target,omitempty"`
-	Source string         `json:"source,omitempty"`
-	IP     string         `json:"ip,omitempty"`
-	UA     string         `json:"ua,omitempty"`
-	Detail map[string]any `json:"detail,omitempty"`
+	Time time.Time `json:"time"`
+	// UserID and User identify the account acting; empty for anonymous
+	// requests. User (the username) may be missing when only the ID was known.
+	UserID string `json:"user_id,omitempty"`
+	User   string `json:"user,omitempty"`
+	Source string `json:"source,omitempty"`
+	Action string `json:"action,omitempty"`
+	Target string `json:"target,omitempty"`
+	// Request facts, filled in by the HTTP middleware.
+	Method   string         `json:"method,omitempty"`
+	Route    string         `json:"route,omitempty"`
+	Path     string         `json:"path,omitempty"`
+	Status   int            `json:"status,omitempty"`
+	Duration int64          `json:"ms,omitempty"`
+	IP       string         `json:"ip,omitempty"`
+	UA       string         `json:"ua,omitempty"`
+	Error    string         `json:"error,omitempty"`
+	Detail   map[string]any `json:"detail,omitempty"`
 }
 
 // Options configures a Logger.
 type Options struct {
-	// Retention returns how many days of logs to keep for a user. Nil means
-	// DefaultRetentionDays for everyone.
-	Retention func(userID string) int
+	// Settings persists the audit settings; nil keeps them in memory.
+	Settings SettingsStore
 	// Location names the daily files; defaults to time.Local.
 	Location *time.Location
 	// Now overrides the clock, for tests.
 	Now func() time.Time
-	// CoalesceIdle and CoalesceMaxSpan override the autosave merge window.
-	CoalesceIdle    time.Duration
-	CoalesceMaxSpan time.Duration
-	// FlushInterval is how often idle merged entries are written out.
+	// FlushInterval is how often batched lines are written out.
 	FlushInterval time.Duration
+	// NewObjectStore overrides how the S3 archive is reached, for tests.
+	NewObjectStore ObjectStoreFactory
+	// SchedulerDelay is how long after StartScheduler the first cleanup
+	// runs; defaults to 30 seconds.
+	SchedulerDelay time.Duration
 }
 
-// Logger writes and reads audit trails. Recording is asynchronous: Record
-// only queues the entry, and a single background goroutine owns every write,
-// so a slow or failing disk never delays the request being audited. Any
-// failure is reported loudly in the system log.
+// Logger writes and reads the trail. Recording is asynchronous: Record only
+// queues the entry, and one background goroutine owns every write, so a slow
+// or failing disk never delays a request. Failures are logged loudly.
 type Logger struct {
 	root      string
-	retention func(string) int
 	loc       *time.Location
 	now       func() time.Time
-	idle      time.Duration
-	maxSpan   time.Duration
 	flushTick time.Duration
+	// schedulerDelay postpones the first scheduled cleanup after start.
+	schedulerDelay time.Duration
 
 	ops  chan op
 	stop chan struct{}
@@ -137,55 +146,43 @@ type Logger struct {
 	closed    bool
 	closeOnce sync.Once
 	dropped   atomic.Int64
+	written   atomic.Int64
 
 	// Owned by the writer goroutine.
-	pending   map[string]*pendingEntry
-	lastWrite map[string]time.Time
+	buf      []byte
+	bufDate  string
+	file     *os.File
+	fileDate string
+
+	archiver *archiver
 }
 
 type op struct {
 	entry *Entry
-	// flush, when set, asks for merged entries of flushUser (all users when
-	// empty) to be written; done is closed once they are on disk.
-	flush     bool
-	flushUser string
-	done      chan struct{}
+	// done, when set, is closed once everything queued before it is on disk.
+	done chan struct{}
 }
 
-type pendingEntry struct {
-	entry Entry
-	first time.Time
-	last  time.Time
-	saves int
-}
-
-var userIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-
-// Dir returns the audit directory for a data directory.
+// Dir returns the system audit directory for a data directory.
 func Dir(dataDir string) string {
 	return filepath.Join(dataDir, LogDirName, DirName)
 }
 
-// New creates the audit directory and starts the background writer, which
-// also prunes expired files. Stop it with Close.
+// New creates the audit directory and starts the background writer and the
+// archive/cleanup scheduler. Stop both with Close.
 func New(dataDir string, opts Options) (*Logger, error) {
 	root := Dir(dataDir)
-	if err := os.MkdirAll(root, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, PulledDirName), 0o700); err != nil {
 		return nil, err
 	}
 	l := &Logger{
 		root:      root,
-		retention: opts.Retention,
 		loc:       opts.Location,
 		now:       opts.Now,
-		idle:      opts.CoalesceIdle,
-		maxSpan:   opts.CoalesceMaxSpan,
 		flushTick: opts.FlushInterval,
 		ops:       make(chan op, queueSize),
 		stop:      make(chan struct{}),
 		done:      make(chan struct{}),
-		pending:   make(map[string]*pendingEntry),
-		lastWrite: make(map[string]time.Time),
 	}
 	if l.loc == nil {
 		l.loc = time.Local
@@ -193,34 +190,42 @@ func New(dataDir string, opts Options) (*Logger, error) {
 	if l.now == nil {
 		l.now = time.Now
 	}
-	if l.idle <= 0 {
-		l.idle = defaultCoalesceIdle
-	}
-	if l.maxSpan <= 0 {
-		l.maxSpan = defaultCoalesceMaxSpan
-	}
 	if l.flushTick <= 0 {
-		l.flushTick = flushInterval
+		l.flushTick = defaultFlushInterval
 	}
+	l.schedulerDelay = opts.SchedulerDelay
+	if l.schedulerDelay <= 0 {
+		l.schedulerDelay = startupDelay
+	}
+	l.archiver = newArchiver(l, opts.Settings, opts.NewObjectStore)
 	go l.run()
 	return l, nil
 }
 
+// RemoveLegacy deletes the directory of the former per-user audit trail,
+// which the system-wide trail replaces.
+func RemoveLegacy(dataDir string) {
+	dir := filepath.Join(dataDir, LogDirName, LegacyDirName)
+	if _, err := os.Stat(dir); err != nil {
+		return
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		logger.Warn("[Audit] could not remove legacy per-user audit logs at %s: %v", dir, err)
+		return
+	}
+	logger.Info("[Audit] removed legacy per-user audit logs at %s", dir)
+}
+
 func (l *Logger) run() {
 	defer close(l.done)
-	l.CleanupAll()
 	flush := time.NewTicker(l.flushTick)
-	cleanup := time.NewTicker(cleanupInterval)
 	defer flush.Stop()
-	defer cleanup.Stop()
 	for {
 		select {
 		case o := <-l.ops:
 			l.handle(o)
 		case <-flush.C:
-			l.safely("flush", func() { l.flushPending("", false) })
-		case <-cleanup.C:
-			l.CleanupAll()
+			l.safely("flush", l.flushBuffer)
 		case <-l.stop:
 			// Record refuses new entries once closed; write what is queued.
 			for {
@@ -228,7 +233,8 @@ func (l *Logger) run() {
 				case o := <-l.ops:
 					l.handle(o)
 				default:
-					l.safely("flush", func() { l.flushPending("", true) })
+					l.safely("flush", l.flushBuffer)
+					l.closeFile()
 					return
 				}
 			}
@@ -237,15 +243,11 @@ func (l *Logger) run() {
 }
 
 func (l *Logger) handle(o op) {
-	l.safely("write", func() {
-		if o.entry != nil {
-			l.apply(*o.entry)
-		}
-		if o.flush {
-			l.flushPending(o.flushUser, true)
-		}
-	})
+	if o.entry != nil {
+		l.safely("write", func() { l.append(o.entry) })
+	}
 	if o.done != nil {
+		l.safely("flush", l.flushBuffer)
 		close(o.done)
 	}
 }
@@ -254,19 +256,20 @@ func (l *Logger) handle(o op) {
 func (l *Logger) safely(what string, fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error("[AUDIT] !!! audit %s panicked, entry lost: %v", what, r)
+			logger.Error("[AUDIT] !!! audit %s panicked, entries lost: %v", what, r)
 		}
 	}()
 	fn()
 }
 
-// Close stops accepting entries, writes everything queued or merged, and
-// waits for the writer to finish.
+// Close stops the scheduler, stops accepting entries, writes everything
+// queued and waits for the writer to finish.
 func (l *Logger) Close() {
 	if l == nil {
 		return
 	}
 	l.closeOnce.Do(func() {
+		l.archiver.stop()
 		l.closeMu.Lock()
 		l.closed = true
 		l.closeMu.Unlock()
@@ -278,10 +281,9 @@ func (l *Logger) Close() {
 	})
 }
 
-// Record queues an entry for its user's trail and returns immediately. It
-// never blocks, fails or panics: a broken audit trail must not break the
-// operation audited. Entries that cannot be queued are reported in the
-// system log.
+// Record queues an entry and returns immediately. It never blocks, fails or
+// panics: a broken audit trail must not break the operation audited. Entries
+// that cannot be queued are counted and reported in the system log.
 func (l *Logger) Record(e Entry) {
 	if l == nil {
 		return
@@ -291,36 +293,40 @@ func (l *Logger) Record(e Entry) {
 			logger.Error("[AUDIT] !!! record panicked, entry lost: %v", r)
 		}
 	}()
-	if !validUserID(e.User) || e.Action == "" {
-		logger.Error("[AUDIT] !!! rejected malformed audit entry: user=%q action=%q", e.User, e.Action)
-		return
-	}
 	if e.Time.IsZero() {
 		e.Time = l.now()
 	}
-	e.Time = e.Time.UTC()
-	if len(e.UA) > maxUALength {
-		e.UA = e.UA[:maxUALength]
-	}
+	normalize(&e)
 
 	l.closeMu.RLock()
 	defer l.closeMu.RUnlock()
 	if l.closed {
 		l.dropped.Add(1)
-		logger.Error("[AUDIT] !!! audit logger closed, dropped %s by %s on %q", e.Action, e.User, e.Target)
+		logger.Error("[AUDIT] !!! audit logger closed, dropped %s %s by %q", e.Method, e.Path+e.Action, e.UserID)
 		return
 	}
 	select {
 	case l.ops <- op{entry: &e}:
 	default:
-		l.dropped.Add(1)
-		logger.Error("[AUDIT] !!! audit queue full (%d), dropped %s by %s on %q", queueSize, e.Action, e.User, e.Target)
+		if l.dropped.Add(1)%1000 == 1 {
+			logger.Error("[AUDIT] !!! audit queue full (%d), dropping entries (%d so far)", queueSize, l.dropped.Load())
+		}
 	}
 }
 
-// Flush waits until everything queued so far for a user is on disk, so a
-// read right after an action sees it.
-func (l *Logger) Flush(userID string) {
+func normalize(e *Entry) {
+	e.Time = e.Time.UTC()
+	if len(e.UA) > maxUALength {
+		e.UA = e.UA[:maxUALength]
+	}
+	if len(e.Error) > maxErrorLength {
+		e.Error = e.Error[:maxErrorLength]
+	}
+}
+
+// Flush waits until everything queued so far is on disk, so a read right
+// after an action sees it.
+func (l *Logger) Flush() {
 	if l == nil {
 		return
 	}
@@ -333,7 +339,7 @@ func (l *Logger) Flush(userID string) {
 	timer := time.NewTimer(flushWait)
 	defer timer.Stop()
 	select {
-	case l.ops <- op{flush: true, flushUser: userID, done: done}:
+	case l.ops <- op{done: done}:
 	case <-timer.C:
 		l.closeMu.RUnlock()
 		logger.Warn("[AUDIT] flush request timed out; the log view may miss the newest entries")
@@ -347,201 +353,120 @@ func (l *Logger) Flush(userID string) {
 	}
 }
 
-// apply runs on the writer goroutine.
-func (l *Logger) apply(e Entry) {
-	key := e.User + "\x00" + e.Target
-	switch e.Action {
-	case ActionDiaryUpdate:
-		l.applyUpdate(key, e)
-		return
-	case ActionDiaryView, ActionDiarySearch:
-		// Reads are frequent and repetitive (reopening a page, prefetching);
-		// the same read from the same place is logged once per window.
-		readKey := strings.Join([]string{e.User, e.Action, e.Target, e.Source, e.IP}, "\x00")
-		if last, ok := l.lastWrite[readKey]; ok && e.Time.Sub(last) < l.idle {
-			return
-		}
-		l.write(e)
-		l.lastWrite[readKey] = e.Time
-		return
-	}
-	// Anything else that touches the entry (delete, restore) must land after
-	// the edits that came before it.
-	if p, ok := l.pending[key]; ok {
-		l.writePending(key, p)
-	}
-	l.write(e)
+// Stats about the writer itself.
+type WriterStats struct {
+	Written int64 `json:"written"`
+	Dropped int64 `json:"dropped"`
+	Queued  int   `json:"queued"`
 }
 
-func (l *Logger) applyUpdate(key string, e Entry) {
-	if p, ok := l.pending[key]; ok {
-		p.saves++
-		p.last = e.Time
-		before := p.entry.Detail["words_before"]
-		p.entry = e
-		if p.entry.Detail == nil {
-			p.entry.Detail = map[string]any{}
-		}
-		if before != nil {
-			p.entry.Detail["words_before"] = before
-		}
-		return
+// WriterStats reports how many entries were written and dropped this run.
+func (l *Logger) WriterStats() WriterStats {
+	if l == nil {
+		return WriterStats{}
 	}
-	if last, ok := l.lastWrite[key]; ok && e.Time.Sub(last) < l.idle {
-		detail := make(map[string]any, len(e.Detail)+2)
-		for k, v := range e.Detail {
-			detail[k] = v
-		}
-		e.Detail = detail
-		l.pending[key] = &pendingEntry{entry: e, first: e.Time, last: e.Time, saves: 1}
-		return
-	}
-	l.write(e)
-	l.lastWrite[key] = e.Time
+	return WriterStats{Written: l.written.Load(), Dropped: l.dropped.Load(), Queued: len(l.ops)}
 }
 
-func (l *Logger) writePending(key string, p *pendingEntry) {
-	delete(l.pending, key)
-	e := p.entry
-	e.Time = p.last
-	if e.Detail == nil {
-		e.Detail = map[string]any{}
-	}
-	e.Detail["saves"] = p.saves
-	e.Detail["since"] = p.first.UTC().Format(time.RFC3339)
-	l.write(e)
-	l.lastWrite[key] = p.last
-}
-
-// flushPending writes merged entries for userID (every user when empty):
-// all of them when force is set, otherwise only sessions that went idle.
-func (l *Logger) flushPending(userID string, force bool) {
-	now := l.now()
-	prefix := userID + "\x00"
-	for key, p := range l.pending {
-		if userID != "" && !strings.HasPrefix(key, prefix) {
-			continue
-		}
-		if force || now.Sub(p.last) >= l.idle || now.Sub(p.first) >= l.maxSpan {
-			l.writePending(key, p)
-		}
-	}
-	if userID != "" {
-		return
-	}
-	// Forget sessions that can no longer be merged into.
-	for key, last := range l.lastWrite {
-		if _, busy := l.pending[key]; !busy && now.Sub(last) >= l.idle {
-			delete(l.lastWrite, key)
-		}
-	}
-}
-
-func (l *Logger) write(e Entry) {
+// append runs on the writer goroutine. Lines are batched per day file;
+// a batch always holds whole lines so every write appends complete lines.
+func (l *Logger) append(e *Entry) {
 	line, err := json.Marshal(e)
 	if err != nil {
-		logger.Error("[AUDIT] !!! encode %s by %s failed, entry lost: %v", e.Action, e.User, err)
+		logger.Error("[AUDIT] !!! encode %s %s failed, entry lost: %v", e.Method, e.Path, err)
 		return
 	}
-	line = append(line, '\n')
-	dir := l.userDir(e.User)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		logger.Error("[AUDIT] !!! create %s failed, %s by %s lost: %v", dir, e.Action, e.User, err)
-		return
+	date := e.Time.In(l.loc).Format(fileDateLayout)
+	if date != l.bufDate && len(l.buf) > 0 {
+		l.flushBuffer()
 	}
-	path := filepath.Join(dir, e.Time.In(l.loc).Format(fileDateLayout)+fileSuffix)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		logger.Error("[AUDIT] !!! open %s failed, %s by %s lost: %v", path, e.Action, e.User, err)
-		return
-	}
-	// One write per line keeps appends whole even if the process dies.
-	if _, err := f.Write(line); err != nil {
-		logger.Error("[AUDIT] !!! write %s failed, %s by %s lost: %v", path, e.Action, e.User, err)
-	}
-	if err := f.Close(); err != nil {
-		logger.Error("[AUDIT] !!! close %s failed: %v", path, err)
+	l.bufDate = date
+	l.buf = append(l.buf, line...)
+	l.buf = append(l.buf, '\n')
+	if len(l.buf) >= bufferLimit {
+		l.flushBuffer()
 	}
 }
 
-func (l *Logger) userDir(userID string) string {
-	return filepath.Join(l.root, userID)
-}
-
-func validUserID(userID string) bool {
-	return userIDPattern.MatchString(userID)
-}
-
-// RetentionDays returns the user's retention, clamped to the allowed range.
-func (l *Logger) RetentionDays(userID string) int {
-	if l == nil || l.retention == nil {
-		return DefaultRetentionDays
-	}
-	return ClampRetention(l.retention(userID))
-}
-
-// ClampRetention keeps a retention setting within the supported range.
-func ClampRetention(days int) int {
-	if days < MinRetentionDays {
-		return MinRetentionDays
-	}
-	if days > MaxRetentionDays {
-		return MaxRetentionDays
-	}
-	return days
-}
-
-// Cleanup deletes a user's files older than their retention window. Today
-// counts as one of the kept days, so today's file is never touched.
-func (l *Logger) Cleanup(userID string) int {
-	if l == nil || !validUserID(userID) {
-		return 0
-	}
-	days := l.RetentionDays(userID)
-	cutoff := l.today().AddDate(0, 0, -(days - 1)).Format(fileDateLayout)
-	files, err := l.listFiles(userID)
-	if err != nil {
-		logger.Error("[AUDIT] !!! list logs of %s for cleanup failed: %v", userID, err)
-		return 0
-	}
-	removed := 0
-	for _, file := range files {
-		if file.Date >= cutoff {
-			continue
+func (l *Logger) flushBuffer() {
+	if len(l.buf) == 0 {
+		// Let go of yesterday's file once nothing more is headed for it.
+		if l.file != nil && l.fileDate != l.now().In(l.loc).Format(fileDateLayout) {
+			l.closeFile()
 		}
-		if err := os.Remove(filepath.Join(l.userDir(userID), file.Date+fileSuffix)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			logger.Error("[AUDIT] !!! remove expired log %s/%s failed: %v", userID, file.Date, err)
-			continue
-		}
-		removed++
-	}
-	return removed
-}
-
-// CleanupAll applies retention to every user with a trail.
-func (l *Logger) CleanupAll() {
-	if l == nil {
 		return
 	}
+	lines := int64(countNewlines(l.buf))
 	defer func() {
-		if r := recover(); r != nil {
-			logger.Error("[AUDIT] !!! cleanup panicked: %v", r)
+		l.buf = l.buf[:0]
+		if cap(l.buf) > 4*bufferLimit {
+			l.buf = nil
 		}
 	}()
-	entries, err := os.ReadDir(l.root)
-	if err != nil {
-		logger.Error("[AUDIT] !!! read %s failed: %v", l.root, err)
+	if l.file == nil || l.fileDate != l.bufDate {
+		l.closeFile()
+		path := filepath.Join(l.root, l.bufDate+fileSuffix)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			l.dropped.Add(lines)
+			logger.Error("[AUDIT] !!! open %s failed, %d entries lost: %v", path, lines, err)
+			return
+		}
+		l.file, l.fileDate = f, l.bufDate
+	}
+	if _, err := l.file.Write(l.buf); err != nil {
+		l.dropped.Add(lines)
+		logger.Error("[AUDIT] !!! write %s failed, %d entries lost: %v", l.file.Name(), lines, err)
+		// Reopen on the next batch in case the file was removed or rotated.
+		l.closeFile()
 		return
 	}
-	total := 0
-	for _, entry := range entries {
-		if entry.IsDir() && validUserID(entry.Name()) {
-			total += l.Cleanup(entry.Name())
+	l.written.Add(lines)
+}
+
+func (l *Logger) closeFile() {
+	if l.file == nil {
+		return
+	}
+	if err := l.file.Close(); err != nil {
+		logger.Error("[AUDIT] !!! close %s failed: %v", l.file.Name(), err)
+	}
+	l.file, l.fileDate = nil, ""
+}
+
+func countNewlines(b []byte) int {
+	n := 0
+	for _, c := range b {
+		if c == '\n' {
+			n++
 		}
 	}
-	if total > 0 {
-		logger.Info("[Audit] removed %d expired log file(s)", total)
+	return n
+}
+
+// AppendDirect writes one entry synchronously to the trail of dataDir. It is
+// meant for short-lived processes such as CLI commands; a running server
+// appends whole lines too, so the two never interleave within a line.
+func AppendDirect(dataDir string, e Entry) error {
+	root := Dir(dataDir)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
 	}
+	if e.Time.IsZero() {
+		e.Time = time.Now()
+	}
+	normalize(&e)
+	line, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(root, e.Time.In(time.Local).Format(fileDateLayout)+fileSuffix)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(append(line, '\n'))
+	return errors.Join(err, f.Close())
 }
 
 func (l *Logger) today() time.Time {

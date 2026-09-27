@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { isAuthenticated } from '$lib/api/client';
+	import { isAuthenticated, currentUser } from '$lib/api/client';
+	import { logout, fetchCurrentUser } from '$lib/api/auth';
 	import {
 		getApiToken,
 		toggleApiToken,
@@ -42,7 +43,6 @@
 	import type { ChartPoint } from '$lib/components/stats/types';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import BackupSettings from '$lib/components/settings/BackupSettings.svelte';
-	import AuditLogPanel from '$lib/components/settings/AuditLogPanel.svelte';
 	import { t, locale, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
 	import { formatHumanNumber } from '$lib/utils/number';
 	import {
@@ -55,7 +55,7 @@
 		sanitizeWeatherOptions
 	} from '$lib/utils/diaryEmoji';
 
-	type SettingsTab = 'general' | 'statistics' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management' | 'audit';
+	type SettingsTab = 'general' | 'statistics' | 'api-access' | 'mood-weather' | 'ai-assistant' | 'image-upload' | 'memos-sync' | 'data-management';
 
 	const settingsTabs: { id: SettingsTab }[] = [
 		{ id: 'general' },
@@ -65,8 +65,7 @@
 		{ id: 'api-access' },
 		{ id: 'memos-sync' },
 		{ id: 'image-upload' },
-		{ id: 'data-management' },
-		{ id: 'audit' }
+		{ id: 'data-management' }
 	];
 
 	const tabLabelKey: Record<SettingsTab, string> = {
@@ -77,8 +76,7 @@
 		'api-access': 'settings.tabs.apiAccess',
 		'memos-sync': 'settings.tabs.memosSync',
 		'image-upload': 'settings.tabs.imageUpload',
-		'data-management': 'settings.tabs.dataManagement',
-		'audit': 'settings.tabs.audit'
+		'data-management': 'settings.tabs.dataManagement'
 	};
 
 	let activeTab: SettingsTab = 'general';
@@ -937,6 +935,14 @@
 		importing = false;
 	}
 
+	let signingOut = false;
+
+	async function handleSignOut() {
+		signingOut = true;
+		await logout();
+		goto('/login');
+	}
+
 	onMount(() => {
 		syncActiveTabFromHash();
 
@@ -953,6 +959,8 @@
 		}
 
 		loading = true;
+		// Refresh the account so a role changed elsewhere shows up here.
+		void fetchCurrentUser().catch(() => {});
 		await Promise.all([loadGeneralSettingsLocal(), loadTokenStatus(), loadDiaryEmojiSettingsLocal(), loadMemosSettingsLocal(), loadAISettings(), loadImageUploadSettingsLocal()]);
 		loading = false;
 		// Load vector stats if AI is enabled
@@ -1051,6 +1059,34 @@
 		{:else}
 			<div class="space-y-6">
 				{#if activeTab === 'general'}
+				<!-- Account -->
+				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 sm:p-6 animate-fade-in">
+					<div class="flex flex-wrap items-center gap-3">
+						<div class="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold">
+							{($currentUser?.username || '?').charAt(0).toUpperCase()}
+						</div>
+						<div class="min-w-0 flex-1">
+							<div class="flex items-center gap-2">
+								<span class="font-medium text-foreground truncate">{$currentUser?.username ?? ''}</span>
+								{#if $currentUser?.role === 'admin'}
+									<span class="flex-shrink-0 whitespace-nowrap px-1.5 py-px rounded text-[11px] font-medium ring-1 ring-inset bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300 ring-fuchsia-500/20">{$t('settings.account.admin')}</span>
+								{/if}
+							</div>
+							<div class="text-xs text-muted-foreground truncate">{$currentUser?.email ?? ''}</div>
+						</div>
+						<div class="flex w-full sm:w-auto items-center justify-end gap-2">
+							{#if $currentUser?.role === 'admin'}
+								<a href="/admin" class="px-3 py-1.5 text-sm rounded-lg border border-border/60 text-foreground hover:bg-muted/50 transition-colors">{$t('settings.account.adminConsole')}</a>
+							{/if}
+							<button
+								on:click={handleSignOut}
+								disabled={signingOut}
+								class="px-3 py-1.5 text-sm rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+							>{$t('settings.account.signOut')}</button>
+						</div>
+					</div>
+				</div>
+
 				<!-- General Settings Section -->
 				<div id="general" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<h2 class="text-lg font-semibold text-foreground mb-4">{$t('settings.general.heading')}</h2>
@@ -1221,10 +1257,6 @@
 						</button>
 					</div>
 				</div>
-				{/if}
-
-				{#if activeTab === 'audit'}
-				<AuditLogPanel />
 				{/if}
 
 				{#if activeTab === 'statistics'}

@@ -54,6 +54,7 @@ Try Diarum without installation:
 - 🚀 **Easy Deployment** - Single binary with embedded frontend, deploy anywhere
 - 💾 **Native SQLite Backend** - Built-in user system, local media storage, and automatic legacy data migration
 - 🔧 **Configurable** - Flexible data directory configuration via environment variables or CLI flags
+- 🛡️ **Admin Console & Audit Log** - System statistics, user management and an audit log of every API call, with S3 archiving
 
 ### Quick Start
 
@@ -129,6 +130,28 @@ You can configure the data directory in three ways (in order of priority):
 
 - `DIARUM_DATA_PATH`: Set the data directory path (default: `/app/data`)
 
+### Command Line
+
+The same binary manages users, which is handy inside a container. Commands read the data directory from `--data-dir` or `DIARUM_DATA_PATH` (already set in the Docker image), and work while the server is running.
+
+The first account to register becomes an administrator; everyone after it is a regular user. Administrators can open the admin console at `/admin` (system statistics, users and the system audit log).
+
+```bash
+# List users and their roles
+diarum users list
+diarum users list --json
+
+# Set a role: <user> is a username, email or ID; <role> is "user" or "admin"
+diarum users set-role alice admin
+diarum users set-role alice user
+
+# Inside Docker
+docker exec -it diarum /app/diarum users list
+docker exec -it diarum /app/diarum users set-role alice admin
+```
+
+Role changes take effect immediately and are written to the system audit log.
+
 ### Building from Source
 
 #### Prerequisites
@@ -179,6 +202,8 @@ make test
 ### Data Storage
 
 Diarum stores application data in `diarum.db` under the configured data directory. On startup, if an older `data.db` exists and `diarum.db` does not, Diarum automatically creates the new database and migrates users, diaries, media metadata, settings, and AI conversation data while leaving the old database untouched.
+
+The system audit log is written asynchronously as one JSON-lines file per day under `logs/system-audit/` in the data directory. By default 3 days are kept locally; finished days can be archived to S3 (kept 30 days by default) and pulled back from the admin console for analysis. Pulled days live in `logs/system-audit/pulled/` until the next daily cleanup.
 
 ### Unit Tests
 
@@ -242,6 +267,7 @@ Diarum stores application data in `diarum.db` under the configured data director
 - 🚀 **易于部署** - 单一二进制文件，内嵌前端，随处部署
 - 💾 **原生 SQLite 后端** - 内置用户体系、本地媒体存储与旧数据自动迁移
 - 🔧 **可配置** - 通过环境变量或命令行参数灵活配置数据目录
+- 🛡️ **系统后台与审计日志** - 系统统计、用户管理，以及记录每次 API 调用的审计日志，支持归档到 S3
 
 ### 快速开始
 
@@ -317,6 +343,28 @@ docker compose up -d
 
 - `DIARUM_DATA_PATH`：设置数据目录路径（默认：`/app/data`）
 
+### 命令行
+
+同一个二进制文件可以管理用户，方便在容器中操作。命令通过 `--data-dir` 或 `DIARUM_DATA_PATH`（Docker 镜像已设置）找到数据目录，服务运行时也可以使用。
+
+第一个注册的账户自动成为管理员，之后注册的都是普通用户。管理员可以访问 `/admin` 系统后台（系统统计、用户清单和系统审计日志）。
+
+```bash
+# 查看用户清单和身份
+diarum users list
+diarum users list --json
+
+# 设定身份：<user> 可以是用户名、邮箱或 ID；<role> 为 user 或 admin
+diarum users set-role alice admin
+diarum users set-role alice user
+
+# 在 Docker 中
+docker exec -it diarum /app/diarum users list
+docker exec -it diarum /app/diarum users set-role alice admin
+```
+
+身份修改立即生效，并会记录到系统审计日志。
+
 ### 从源码构建
 
 #### 前置要求
@@ -351,6 +399,8 @@ make dev-backend
 ### 数据存储
 
 Diarum 会在配置的数据目录下使用 `diarum.db` 保存应用数据。启动时如果检测到旧版 `data.db` 且尚不存在 `diarum.db`，会自动创建新数据库并迁移用户、日记、媒体元数据、设置和 AI 对话数据，同时保留旧数据库不变。
+
+系统审计日志异步写入数据目录下的 `logs/system-audit/`，每天一个 JSON Lines 文件。默认本地保留 3 天；已结束的日期可以归档到 S3（默认保留 30 天），并可在系统后台一键拉取回来分析。拉取的日志存放在 `logs/system-audit/pulled/`，下一次每日清理时删除。
 
 ### 单元测试
 
