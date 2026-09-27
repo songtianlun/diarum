@@ -18,6 +18,7 @@ import (
 	"github.com/songtianlun/diarum/internal/audit"
 
 	"github.com/songtianlun/diarum/internal/logger"
+	"github.com/songtianlun/diarum/internal/store"
 )
 
 type failingWriter struct{}
@@ -294,4 +295,28 @@ func TestAwaitStopSignal(t *testing.T) {
 
 	stop := flushAuditOnSignal(auditLog)
 	stop()
+}
+
+func TestAuditRetentionReadsUserSetting(t *testing.T) {
+	appStore, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = appStore.Close() })
+	user, err := appStore.CreateUser("audit", "audit@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retention := auditRetention(appStore)
+	if got := retention(user.ID); got != audit.DefaultRetentionDays {
+		t.Fatalf("default retention = %d", got)
+	}
+	for value, want := range map[int]int{30: 30, 9999: audit.MaxRetentionDays} {
+		if err := appStore.SetSetting(user.ID, audit.SettingRetentionDays, value, false); err != nil {
+			t.Fatal(err)
+		}
+		if got := retention(user.ID); got != want {
+			t.Fatalf("retention for %d = %d, want %d", value, got, want)
+		}
+	}
 }

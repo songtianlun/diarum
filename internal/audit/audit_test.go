@@ -242,7 +242,7 @@ func TestCloseFlushesAndRejectsLateEntries(t *testing.T) {
 	l.Record(Entry{User: "u1", Action: ActionDiaryUpdate, Target: "d"}) // pending
 	l.Close()
 	l.Record(Entry{User: "u1", Action: ActionDiaryDelete, Target: "d"}) // dropped, must not panic
-	l.Close()                                                             // idempotent
+	l.Close()                                                           // idempotent
 
 	data, err := os.ReadFile(filepath.Join(Dir(dir), "u1", "2026-09-28.log"))
 	if err != nil {
@@ -471,4 +471,108 @@ func TestFlushAfterCloseReturns(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("flush after close should return immediately")
 	}
+}
+
+func TestUnreadableTrailIsReportedBySearch(t *testing.T) {
+	l, _, dir := newTestLogger(t, 7)
+	// A regular file where the user's directory should be cannot be listed.
+	if err := os.WriteFile(filepath.Join(Dir(dir), "u1"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Search("u1", Query{}); err == nil {
+		t.Fatal("search of an unreadable trail should fail")
+	}
+	if got := l.readFile("u1", "2026-09-28"); got != nil {
+		t.Fatalf("missing file should read as nil, got %+v", got)
+	}
+	if got := countLines(filepath.Join(dir, "missing.log")); got != 0 {
+		t.Fatalf("missing file should count 0 lines, got %d", got)
+	}
+}
+
+func TestFilesSkipsForeignNames(t *testing.T) {
+	l, _, dir := newTestLogger(t, 7)
+	l.Record(Entry{User: "u1", Action: ActionDiaryCreate})
+	l.Flush("u1")
+	userDir := filepath.Join(Dir(dir), "u1")
+	for _, name := range []string{"notes.txt", "not-a-date.log"} {
+		if err := os.WriteFile(filepath.Join(userDir, name), []byte("x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(userDir, "2026-01-01.log"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	files, err := l.Files("u1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Date != "2026-09-28" || files[0].Entries != 1 {
+		t.Fatalf("files = %+v", files)
+	}
+}
+
+func TestSearchSkipsFilesOutsideRangeAndMatchesDetail(t *testing.T) {
+	l, clock, _ := newTestLogger(t, 7)
+	l.Record(Entry{User: "u1", Action: ActionDiaryCreate, Target: "a", Detail: map[string]any{"note": "Needle"}})
+	clock.Advance(48 * time.Hour)
+	l.Record(Entry{User: "u1", Action: ActionDiaryCreate, Target: "b"})
+
+	result, err := l.Search("u1", Query{Start: clock.Now().Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Scanned != 1 || len(result.Entries) != 1 || result.Entries[0].Target != "b" {
+		t.Fatalf("range search = %+v", result)
+	}
+	if got := search(t, l, "u1", Query{Text: "needle"}); len(got) != 1 || got[0].Target != "a" {
+		t.Fatalf("detail search = %+v", got)
+	}
+	if got := search(t, l, "u1", Query{Text: "nowhere"}); len(got) != 0 {
+		t.Fatalf("unmatched search = %+v", got)
+	}
+}
+
+func TestCoalescedUpdateWithoutDetail(t *testing.T) {
+	l, clock, _ := newTestLogger(t, 7)
+	l.Record(Entry{User: "u1", Action: ActionDiaryUpdate, Target: "d"})
+	for range 2 {
+		clock.Advance(time.Second)
+		l.Record(Entry{User: "u1", Action: ActionDiaryUpdate, Target: "d"})
+	}
+	l.Close()
+	entries := l.readFile("u1", "2026-09-28")
+	if len(entries) != 2 || entries[1].Detail["saves"].(float64) != 2 {
+		t.Fatalf("entries = %+v", entries)
+	}
+}
+
+func TestCleanupReportsRemoveFailures(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	l, clock, dir := newTestLogger(t, 1)
+	l.Record(Entry{User: "u1", Action: ActionDiaryCreate})
+	l.Flush("u1")
+	clock.Advance(72 * time.Hour)
+	userDir := filepath.Join(Dir(dir), "u1")
+	if err := os.Chmod(userDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(userDir, 0o700) })
+	if removed := l.Cleanup("u1"); removed != 0 {
+		t.Fatalf("read-only dir should not allow removal, removed %d", removed)
+	}
+}
+
+func TestRecordDropsWhenQueueIsFull(t *testing.T) {
+	// No writer goroutine drains this unbuffered queue.
+	l := &Logger{ops: make(chan op), now: time.Now, stop: make(chan struct{}), done: make(chan struct{})}
+	l.Record(Entry{User: "u1", Action: ActionDiaryCreate})
+	if l.dropped.Load() != 1 {
+		t.Fatalf("dropped = %d", l.dropped.Load())
+	}
+	// Close reports what was dropped during the run.
+	close(l.done)
+	l.Close()
 }

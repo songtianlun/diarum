@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -229,5 +231,52 @@ func TestRecordAuditWithoutUserIsIgnored(t *testing.T) {
 	recordDiarySave(c, "u", "", audit.SourceWeb, nil, nil)
 	if diaryAuditDetail(nil) == nil {
 		t.Fatal("detail should never be nil")
+	}
+}
+
+func TestAuditRecordsMoodAndWeatherChanges(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	auditLog, err := audit.New(s.DataDir, audit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(auditLog.Close)
+	e := echo.New()
+	e.Use(AuditMiddleware(auditLog))
+	RegisterDiaryRoutes(e, s, authMiddlewareFor(user), nil)
+	RegisterAuditRoutes(e, s, authMiddlewareFor(user), auditLog)
+
+	upsertDiaryViaAPI(t, e, "2024-05-01", "<p>x</p>", "😊", "sunny")
+	upsertDiaryViaAPI(t, e, "2024-05-01", "<p>x</p>", "😢", "rain")
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/audit/entries?action="+audit.ActionDiaryUpdate, nil, nil)
+	entries := decodeJSONBody(t, rec)["entries"].([]any)
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v", entries)
+	}
+	detail := entries[0].(map[string]any)["detail"].(map[string]any)
+	if detail["mood_before"] != "😊" || detail["weather_before"] != "sunny" {
+		t.Fatalf("detail = %#v", detail)
+	}
+}
+
+func TestAuditRoutesReportUnreadableTrail(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	auditLog, err := audit.New(s.DataDir, audit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(auditLog.Close)
+	// A regular file where the user's directory should be breaks every read.
+	if err := os.WriteFile(filepath.Join(audit.Dir(s.DataDir), user.ID), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := echo.New()
+	RegisterAuditRoutes(e, s, authMiddlewareFor(user), auditLog)
+	for _, path := range []string{"/api/v1/audit/files", "/api/v1/audit/files/2026-01-01", "/api/v1/audit/entries"} {
+		if rec := performRequest(t, e, http.MethodGet, path, nil, nil); rec.Code != http.StatusInternalServerError {
+			t.Fatalf("%s: status = %d", path, rec.Code)
+		}
 	}
 }

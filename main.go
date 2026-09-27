@@ -144,13 +144,7 @@ func run(args []string, stdout io.Writer) error {
 
 	// The audit trail is best effort: if its directory cannot be created the
 	// app still runs, just without recording.
-	auditLog, err := audit.New(appStore.DataDir, audit.Options{Retention: func(userID string) int {
-		value, err := appStore.GetSetting(userID, audit.SettingRetentionDays)
-		if number, ok := value.(float64); err == nil && ok {
-			return int(min(number, audit.MaxRetentionDays))
-		}
-		return audit.DefaultRetentionDays
-	}})
+	auditLog, err := audit.New(appStore.DataDir, audit.Options{Retention: auditRetention(appStore)})
 	if err != nil {
 		logger.Error("[AUDIT] !!! audit logging disabled: %v", err)
 	} else {
@@ -223,6 +217,17 @@ func run(args []string, stdout io.Writer) error {
 		return err
 	}
 	return nil
+}
+
+// auditRetention reads each user's audit retention setting.
+func auditRetention(appStore *store.Store) func(userID string) int {
+	return func(userID string) int {
+		value, err := appStore.GetSetting(userID, audit.SettingRetentionDays)
+		if number, ok := value.(float64); err == nil && ok {
+			return int(min(number, audit.MaxRetentionDays))
+		}
+		return audit.DefaultRetentionDays
+	}
 }
 
 // flushAuditOnSignal writes out merged audit entries when the process is
