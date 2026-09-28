@@ -93,6 +93,49 @@ func RegisterImageUploadRoutes(e *echo.Echo, s *store.Store, authMiddleware echo
 		}
 		return c.JSON(http.StatusOK, map[string]any{"success": true, "settings": updated})
 	})
+
+	// Which size of an image entries show first. It only affects loading: the
+	// stored content always references the original.
+	group.GET("/display", func(c echo.Context) error {
+		quality, err := configService.GetString(auth.CurrentUser(c).ID, "image_upload.display_quality")
+		if err != nil {
+			return serverError("Failed to load image display settings", err)
+		}
+		if quality = normalizeDisplayQuality(quality); quality == "" {
+			quality = "md"
+		}
+		return c.JSON(http.StatusOK, map[string]any{"quality": quality})
+	})
+
+	group.PUT("/display", func(c echo.Context) error {
+		var body struct {
+			Quality string `json:"quality"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return badRequest("Invalid request body", err)
+		}
+		quality := normalizeDisplayQuality(body.Quality)
+		if quality == "" {
+			return badRequest("Quality must be one of th, md, original", nil)
+		}
+		payload := map[string]any{"image_upload.display_quality": quality}
+		if err := configService.SetBatch(auth.CurrentUser(c).ID, payload); err != nil {
+			return badRequest("Failed to save image display settings", err)
+		}
+		recordAudit(c, audit.ActionSettingsUpdate, "image_upload", map[string]any{"keys": settingKeys(payload), "display_quality": quality})
+		return c.JSON(http.StatusOK, map[string]any{"success": true, "quality": quality})
+	})
+}
+
+// normalizeDisplayQuality maps a requested image display quality to th
+// (thumbnail), md (medium) or original; "" when it is none of them.
+func normalizeDisplayQuality(quality string) string {
+	switch q := strings.ToLower(strings.TrimSpace(quality)); q {
+	case "th", "md", "original":
+		return q
+	default:
+		return ""
+	}
 }
 
 func loadImageUploadSettings(configService *config.ConfigService, s *store.Store, userID string) (*imageUploadSettingsResponse, error) {

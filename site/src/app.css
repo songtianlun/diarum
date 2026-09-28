@@ -404,71 +404,219 @@
 	outline-offset: 2px;
 }
 
-/* Image wrapper selected state (for NodeView) */
+/* Image node view */
+.tiptap-editor-content .image-wrapper {
+	position: relative;
+	display: block;
+	width: fit-content;
+	max-width: 100%;
+	margin: 1em 0;
+	border-radius: 8px;
+}
+
+.tiptap-editor-content .image-wrapper img {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	margin: 0;
+	border-radius: 8px;
+	box-shadow: 0 2px 8px hsl(var(--foreground) / 0.1);
+	transition: opacity 0.35s ease, filter 0.35s ease, transform 0.35s ease;
+}
+
 .tiptap-editor-content .image-wrapper.ProseMirror-selectednode img {
 	outline: 2px solid hsl(var(--primary));
 	outline-offset: 2px;
 }
 
-/* Image uploading state - shows blurred preview with overlay */
-.tiptap-editor-content img[data-uploading="true"] {
-	opacity: 0.5;
-	filter: blur(3px);
-	animation: pulse-upload 1.5s ease-in-out infinite;
-}
-
-/* Image loading state - placeholder background */
-.tiptap-editor-content img[data-loading="true"] {
-	min-height: 200px;
-	min-width: 300px;
+/* Loading an existing image: shimmer until it arrives, then fade in */
+.tiptap-editor-content .image-wrapper.is-loading {
+	min-width: min(320px, 100%);
+	min-height: 180px;
 	background: linear-gradient(
-		90deg,
-		hsl(var(--muted)) 0%,
-		hsl(var(--muted-foreground) / 0.1) 50%,
-		hsl(var(--muted)) 100%
+		100deg,
+		hsl(var(--muted)) 30%,
+		hsl(var(--muted-foreground) / 0.12) 50%,
+		hsl(var(--muted)) 70%
 	);
-	background-size: 200% 100%;
-	animation: loading-shimmer 1.5s ease-in-out infinite;
+	background-size: 220% 100%;
+	animation: image-shimmer 1.4s ease-in-out infinite;
 }
 
-@keyframes pulse-upload {
-	0%, 100% {
-		opacity: 0.5;
-	}
-	50% {
-		opacity: 0.3;
-	}
+.tiptap-editor-content .image-wrapper.is-loading img {
+	opacity: 0;
 }
 
-@keyframes loading-shimmer {
-	0% {
-		background-position: 200% 0;
-	}
-	100% {
-		background-position: -200% 0;
-	}
+.tiptap-editor-content .image-wrapper.is-error {
+	min-width: min(320px, 100%);
+	min-height: 120px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: hsl(var(--muted));
 }
 
-/* Image wrapper styles for NodeView */
-.tiptap-editor-content .image-wrapper {
-	position: relative;
-	display: inline-block;
-	max-width: 100%;
-	margin: 1em 0;
+.tiptap-editor-content .image-wrapper.is-error img {
+	display: none;
 }
 
-.tiptap-editor-content .image-wrapper img {
-	max-width: 100%;
-	height: auto;
+.tiptap-editor-content .image-wrapper.is-error::after {
+	content: 'Image failed to load';
+	font-size: 13px;
+	color: hsl(var(--muted-foreground));
+}
+
+.tiptap-editor-content .image-wrapper.is-error.is-editing::after {
+	display: none;
+}
+
+/* Image tools (edit URL, full size), shown on hover */
+.tiptap-editor-content .image-tools {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: flex;
+	gap: 6px;
+	opacity: 0;
+	transform: scale(0.9);
+	transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.tiptap-editor-content .image-wrapper:hover .image-tools,
+.tiptap-editor-content .image-wrapper.ProseMirror-selectednode .image-tools,
+.tiptap-editor-content .image-wrapper.is-error .image-tools,
+.tiptap-editor-content .image-tools:focus-within {
+	opacity: 1;
+	transform: scale(1);
+}
+
+.tiptap-editor-content .image-tool-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border: 0;
 	border-radius: 8px;
-	box-shadow: 0 2px 8px hsl(var(--foreground) / 0.1);
-	margin: 0;
+	background: rgb(0 0 0 / 0.5);
+	color: #fff;
+	cursor: pointer;
+	backdrop-filter: blur(6px);
+	transition: background 0.15s ease;
 }
 
-/* Uploading state */
-.tiptap-editor-content .image-wrapper.uploading img {
-	opacity: 0.4;
-	filter: blur(2px);
+.tiptap-editor-content .image-zoom-btn {
+	cursor: zoom-in;
+}
+
+.tiptap-editor-content .image-tool-btn svg {
+	width: 16px;
+	height: 16px;
+}
+
+.tiptap-editor-content .image-tool-btn:hover {
+	background: rgb(0 0 0 / 0.7);
+}
+
+.tiptap-editor-content .image-tool-btn:focus-visible {
+	outline: 2px solid hsl(var(--primary));
+	outline-offset: 1px;
+}
+
+.tiptap-editor-content .image-wrapper.is-pending .image-tools,
+.tiptap-editor-content .image-wrapper.is-loading .image-tools,
+.tiptap-editor-content .image-wrapper.is-editing .image-tools,
+.tiptap-editor-content .image-wrapper.is-error .image-zoom-btn {
+	display: none;
+}
+
+.tiptap-editor .tiptap-editor-content[contenteditable='false'] .image-edit-btn {
+	display: none;
+}
+
+@media (hover: none) {
+	.tiptap-editor-content .image-tools {
+		opacity: 0.85;
+		transform: none;
+	}
+}
+
+/* Inline image URL editor */
+.tiptap-editor-content .image-url-editor {
+	position: absolute;
+	left: 8px;
+	right: 8px;
+	bottom: 8px;
+	display: flex;
+	gap: 6px;
+	padding: 6px;
+	border-radius: 10px;
+	background: hsl(var(--card) / 0.96);
+	border: 1px solid hsl(var(--border));
+	box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+	backdrop-filter: blur(8px);
+	animation: upload-overlay-in 0.15s ease-out;
+}
+
+.tiptap-editor-content .image-wrapper.is-error .image-url-editor {
+	position: static;
+	width: min(520px, calc(100vw - 48px));
+	margin: 8px;
+}
+
+.tiptap-editor-content .image-url-editor input {
+	flex: 1;
+	min-width: 0;
+	padding: 6px 10px;
+	border: 1px solid hsl(var(--border));
+	border-radius: 7px;
+	background: hsl(var(--background));
+	color: hsl(var(--foreground));
+	font-size: 13px;
+	outline: none;
+}
+
+.tiptap-editor-content .image-url-editor input:focus {
+	border-color: hsl(var(--primary));
+}
+
+.tiptap-editor-content .image-url-editor button {
+	padding: 6px 12px;
+	border: 1px solid hsl(var(--border));
+	border-radius: 7px;
+	background: transparent;
+	color: hsl(var(--foreground));
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.tiptap-editor-content .image-url-editor .image-url-save {
+	border-color: hsl(var(--primary));
+	background: hsl(var(--primary));
+	color: hsl(var(--primary-foreground));
+}
+
+.tiptap-editor-content .image-url-editor button:hover {
+	opacity: 0.9;
+}
+
+/* Uploading: the local preview stays visible under a progress overlay */
+.tiptap-editor-content .image-wrapper.is-pending img {
+	min-width: 160px;
+	min-height: 120px;
+	object-fit: cover;
+	filter: saturate(0.6) brightness(0.85);
+}
+
+.tiptap-editor-content .image-wrapper.upload-failed img {
+	filter: grayscale(1) brightness(0.7);
+}
+
+.tiptap-editor-content .image-wrapper.upload-complete img {
+	animation: image-settle 0.4s ease-out;
 }
 
 .tiptap-editor-content .upload-overlay {
@@ -478,63 +626,202 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	background: hsl(var(--background) / 0.7);
+	gap: 8px;
+	padding: 12px;
 	border-radius: 8px;
-	gap: 12px;
+	background: linear-gradient(to bottom, rgb(0 0 0 / 0.15), rgb(0 0 0 / 0.45));
+	color: #fff;
+	user-select: none;
+	animation: upload-overlay-in 0.2s ease-out;
+	transition: opacity 0.3s ease;
 }
 
-.tiptap-editor-content .upload-spinner {
-	width: 32px;
-	height: 32px;
-	border: 3px solid hsl(var(--muted));
-	border-top-color: hsl(var(--primary));
-	border-radius: 50%;
-	animation: spin 1s linear infinite;
+.tiptap-editor-content .upload-overlay.leaving {
+	opacity: 0;
+}
+
+.tiptap-editor-content .upload-ring {
+	width: 44px;
+	height: 44px;
+}
+
+.tiptap-editor-content .upload-ring svg {
+	width: 100%;
+	height: 100%;
+	transform: rotate(-90deg);
+	filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.35));
+}
+
+.tiptap-editor-content .upload-ring circle {
+	fill: none;
+	stroke-width: 3.5;
+}
+
+.tiptap-editor-content .upload-ring-track {
+	stroke: rgb(255 255 255 / 0.3);
+}
+
+.tiptap-editor-content .upload-ring-bar {
+	stroke: #fff;
+	stroke-linecap: round;
+	transition: stroke-dashoffset 0.25s ease;
+}
+
+/* Waiting / processing: a spinning arc instead of a fill level */
+.tiptap-editor-content .upload-indeterminate .upload-ring svg {
+	animation: upload-ring-spin 0.9s linear infinite;
+}
+
+.tiptap-editor-content .upload-indeterminate .upload-ring-bar {
+	stroke-dashoffset: 80 !important;
 }
 
 .tiptap-editor-content .upload-text {
-	font-size: 14px;
-	color: hsl(var(--muted-foreground));
-	font-weight: 500;
-}
-
-/* Loading placeholder */
-.tiptap-editor-content .image-loading-placeholder {
-	height: 200px;
-	width: 300px;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	background: hsl(var(--muted));
-	border-radius: 8px;
-	gap: 12px;
-}
-
-.tiptap-editor-content .loading-spinner {
-	width: 28px;
-	height: 28px;
-	border: 3px solid hsl(var(--muted-foreground) / 0.3);
-	border-top-color: hsl(var(--muted-foreground));
-	border-radius: 50%;
-	animation: spin 1s linear infinite;
-}
-
-.tiptap-editor-content .loading-text {
+	max-width: 100%;
 	font-size: 13px;
-	color: hsl(var(--muted-foreground));
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+	text-align: center;
+	text-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.tiptap-editor-content .image-loading-placeholder.error {
-	background: hsl(0 50% 95%);
-}
-
-.tiptap-editor-content .image-loading-placeholder.error .loading-spinner {
+.tiptap-editor-content .upload-error-icon,
+.tiptap-editor-content .upload-actions {
 	display: none;
 }
 
-.tiptap-editor-content .image-loading-placeholder.error .loading-text {
-	color: hsl(0 70% 45%);
+.tiptap-editor-content .upload-failed .upload-ring {
+	display: none;
+}
+
+.tiptap-editor-content .upload-failed .upload-error-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	background: hsl(0 72% 51%);
+	font-weight: 700;
+	font-size: 18px;
+}
+
+.tiptap-editor-content .upload-failed .upload-text {
+	white-space: normal;
+}
+
+.tiptap-editor-content .upload-failed .upload-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 2px;
+}
+
+.tiptap-editor-content .upload-action {
+	padding: 5px 12px;
+	border: 1px solid rgb(255 255 255 / 0.5);
+	border-radius: 999px;
+	background: rgb(0 0 0 / 0.35);
+	color: #fff;
+	font-size: 12px;
+	font-weight: 500;
+	cursor: pointer;
+	backdrop-filter: blur(6px);
+	transition: background 0.15s ease;
+}
+
+.tiptap-editor-content .upload-action:hover {
+	background: rgb(0 0 0 / 0.55);
+}
+
+.tiptap-editor-content .upload-action.primary {
+	border-color: #fff;
+	background: #fff;
+	color: #111;
+}
+
+.tiptap-editor-content .upload-action.primary:hover {
+	background: rgb(255 255 255 / 0.85);
+}
+
+.tiptap-editor-content .upload-cancel {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: rgb(0 0 0 / 0.45);
+	color: #fff;
+	cursor: pointer;
+	opacity: 0.8;
+	transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.tiptap-editor-content .upload-cancel svg {
+	width: 14px;
+	height: 14px;
+}
+
+.tiptap-editor-content .upload-cancel:hover {
+	opacity: 1;
+	background: rgb(0 0 0 / 0.7);
+}
+
+.tiptap-editor-content .upload-failed .upload-cancel {
+	display: none;
+}
+
+@keyframes image-shimmer {
+	0% {
+		background-position: 110% 0;
+	}
+	100% {
+		background-position: -110% 0;
+	}
+}
+
+@keyframes image-settle {
+	from {
+		filter: saturate(0.6) brightness(0.85);
+	}
+	to {
+		filter: none;
+	}
+}
+
+@keyframes upload-overlay-in {
+	from {
+		opacity: 0;
+	}
+}
+
+@keyframes upload-ring-spin {
+	from {
+		transform: rotate(-90deg);
+	}
+	to {
+		transform: rotate(270deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.tiptap-editor-content .image-wrapper.is-loading,
+	.tiptap-editor-content .upload-indeterminate .upload-ring svg {
+		animation: none;
+	}
+}
+
+/* Read-only content whose images open in the lightbox */
+.lightbox-scope img {
+	cursor: zoom-in;
 }
 
 @keyframes spin {

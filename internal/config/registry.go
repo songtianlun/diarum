@@ -55,6 +55,7 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"image_upload.s3.access_key":       {Type: "string", Default: "", Encrypted: true},
 	"image_upload.s3.secret":           {Type: "string", Default: "", Encrypted: true},
 	"image_upload.s3.force_path_style": {Type: "bool", Default: false, Encrypted: false},
+	"image_upload.display_quality":     {Type: "string", Default: "md", Encrypted: false},
 
 	// Data backup to S3-compatible storage (see internal/backup)
 	"backup.enabled":             {Type: "bool", Default: false, Encrypted: false},

@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	awstypes "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/songtianlun/diarum/internal/imaging"
 	"github.com/songtianlun/diarum/internal/logger"
 
 	_ "modernc.org/sqlite"
@@ -44,6 +45,7 @@ type Store struct {
 	// zero snapshots every change.
 	SnapshotInterval time.Duration
 	now              func() time.Time
+	variants         variantWorker
 }
 
 type LegacyS3Config struct {
@@ -814,6 +816,8 @@ func (s *Store) Close() error {
 	if s == nil || s.DB == nil {
 		return nil
 	}
+	// Let background variant jobs finish before the store goes away.
+	s.WaitMediaVariants()
 	return s.DB.Close()
 }
 
@@ -1676,7 +1680,18 @@ func (s *Store) OpenMediaFile(media *Media) (io.ReadCloser, error) {
 	return s.openMediaFromS3(s.legacyS3Client, s.LegacyS3, media)
 }
 
+// DeleteMediaFile removes a media file and, best effort, its variants.
 func (s *Store) DeleteMediaFile(media *Media) error {
+	err := s.deleteMediaObject(media)
+	if media != nil && imaging.Supported(media.File) {
+		for _, v := range imaging.Variants {
+			_ = s.deleteMediaObject(VariantMedia(media, v))
+		}
+	}
+	return err
+}
+
+func (s *Store) deleteMediaObject(media *Media) error {
 	var firstErr error
 	for _, candidate := range s.mediaFileCandidates(media) {
 		if !fileExists(candidate) {

@@ -541,7 +541,6 @@
 										onChange={handleContentChange}
 										placeholder="What's on your mind today?"
 										emptyStatePrompt="✨ Reflect on today... What will you remember from this day?"
-										diaryDate={view.date}
 									/>
 								{/key}
 							</PageFace>
@@ -621,7 +620,6 @@
 										onChange={handleContentChange}
 										placeholder="What's on your mind today?"
 										emptyStatePrompt="✨ Reflect on today... What will you remember from this day?"
-										diaryDate={view.date}
 									/>
 								{/key}
 							</PageFace>
@@ -716,6 +714,8 @@
 	{date}
 	content={view.content}
 	selectedContent={shareSelectedContent}
+	mood={view.mood}
+	weather={view.weather}
 	onClose={() => (showShareModal = false)}
 />
 

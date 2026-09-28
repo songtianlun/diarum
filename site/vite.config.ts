@@ -116,6 +116,13 @@ export default defineConfig({
 						}
 					},
 					{
+						// Media files bypass the API cache: they are immutable per URL and
+						// the browser's HTTP cache serves them, which is also what the
+						// editor's cache probe checks before choosing original or variant.
+						urlPattern: /\/api\/v1\/files\//i,
+						handler: 'NetworkOnly'
+					},
+					{
 						urlPattern: /\/api\/.*/i,
 						handler: 'NetworkFirst',
 						options: {

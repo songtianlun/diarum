@@ -5,6 +5,7 @@
 	import { installUnauthorizedApiHandler } from '$lib/api/client';
 	import { initTheme } from '$lib/stores/theme';
 	import { initLocale } from '$lib/i18n';
+	import GlobalLightbox from '$lib/components/ui/GlobalLightbox.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -20,3 +21,5 @@
 </script>
 
 {@render children()}
+
+<GlobalLightbox />

@@ -283,7 +283,6 @@
 							onChange={handleContentChange}
 							placeholder="What's on your mind today?"
 							emptyStatePrompt="✨ Reflect on today... What will you remember from this day?"
-							diaryDate={date}
 						/>
 					</div>
 				{/if}
@@ -527,6 +526,8 @@
 	{date}
 	{content}
 	selectedContent={shareSelectedContent}
+	mood={selectedMood}
+	weather={selectedWeather}
 	onClose={() => showShareModal = false}
 />
 

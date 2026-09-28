@@ -14,19 +14,19 @@
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 	import Focus from '@tiptap/extension-focus';
 	import { common, createLowlight } from 'lowlight';
-	import { DOMSerializer } from '@tiptap/pm/model';
-	import { uploadImage, getMediaUrl, isCheveretoResult } from '$lib/utils/uploadImage';
+	import { DOMSerializer, type Fragment } from '@tiptap/pm/model';
+	import { validateImageFile } from '$lib/utils/uploadImage';
 	import { SlashCommands } from './SlashCommands';
-	import { getSuggestionItems, setImageUploadTrigger, setGalleryPickerTrigger } from './commands';
+	import { getSuggestionItems, setImageUploadTrigger, setGalleryPickerTrigger, setImageUrlTrigger } from './commands';
 	import { suggestionRenderer, showCommandMenu } from './suggestionRenderer';
 	import MediaPicker from './MediaPicker.svelte';
-	import { getMediaFileUrl, addMediaDiary } from '$lib/api/media';
-	import type { MediaWithDiary } from '$lib/api/media';
+	import ImageUrlDialog from './ImageUrlDialog.svelte';
+	import { UploadQueue } from './uploadQueue';
+	import type { ImageInsert } from './ImageNodeView';
 
 	export let content = '';
 	export let onChange: (value: string) => void = () => {};
 	export let placeholder = 'Start writing...';
-	export let diaryDate: string | undefined = undefined;
 	export let selectedContent: string = '';
 	export let emptyStatePrompt: string = '';
 
@@ -34,8 +34,17 @@
 	let editor: Editor | null = null;
 	let fileInput: HTMLInputElement;
 	let uploadError = '';
+	let uploadErrorTimer: ReturnType<typeof setTimeout> | undefined;
 	let showMediaPicker = false;
+	let showImageUrlDialog = false;
+	// Where to insert once a dialog closes; the dialog takes focus from the editor.
+	let insertPos: number | null = null;
 	let isFocused = false;
+	let uploadingCount = 0;
+
+	// The HTML last handed to onChange, so our own edits echoing back through
+	// the `content` prop are not mistaken for an external replacement.
+	let lastEmitted: string | null = null;
 
 	// Add button state
 	let showAddButton = false;
@@ -43,104 +52,130 @@
 
 	const lowlight = createLowlight(common);
 
-	// Image upload config
-	const IMAGE_CONFIG = {
-		maxSize: 50 * 1024 * 1024, // 50MB
-		allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-	};
+	// Final images of uploads whose placeholder was undone and may come back.
+	const finishedUploads = new Map<string, ImageInsert>();
 
-	// Validate image file
-	function validateImageFile(file: File): string | null {
-		if (!IMAGE_CONFIG.allowedTypes.includes(file.type)) {
-			return `Unsupported image format. Please use JPG, PNG, GIF or WebP`;
-		}
-		if (file.size > IMAGE_CONFIG.maxSize) {
-			const maxMB = IMAGE_CONFIG.maxSize / 1024 / 1024;
-			return `Image size cannot exceed ${maxMB}MB`;
-		}
-		return null;
+	const uploadQueue = new UploadQueue({
+		onSettled: () => scheduleReconcile(),
+		onActivity: () => {
+			uploadingCount = uploadQueue.busyCount;
+		},
+	});
+
+	// Upload placeholders only exist in this editor session; their blob: URLs
+	// must never reach the saved entry.
+	const PENDING_IMAGE = /<img\b[^>]*\bdata-uploading="true"[^>]*>/g;
+	function stripPendingImages(html: string): string {
+		return html.includes('data-uploading') ? html.replace(PENDING_IMAGE, '') : html;
 	}
 
-	// Generate unique placeholder ID
-	function generatePlaceholderId(): string {
-		return `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+	function showUploadError(message: string) {
+		uploadError = message;
+		clearTimeout(uploadErrorTimer);
+		uploadErrorTimer = setTimeout(() => (uploadError = ''), 4000);
 	}
 
-	// Handle image upload with placeholder
-	async function handleImageUploadWithPlaceholder(file: File): Promise<void> {
-		if (!editor) return;
+	let reconcileScheduled = false;
+	function scheduleReconcile() {
+		if (reconcileScheduled) return;
+		reconcileScheduled = true;
+		queueMicrotask(() => {
+			reconcileScheduled = false;
+			reconcilePlaceholders();
+		});
+	}
 
-		// Validate file
-		const validationError = validateImageFile(file);
-		if (validationError) {
-			uploadError = validationError;
-			setTimeout(() => (uploadError = ''), 3000);
-			return;
-		}
+	/**
+	 * Brings upload placeholders in line with their tasks: finished uploads
+	 * become real images, and placeholders without a task (from undo/redo or
+	 * a stale save) are resolved or dropped.
+	 */
+	function reconcilePlaceholders() {
+		if (!editor || editor.isDestroyed) return;
+		const { state } = editor;
+		const imageType = state.schema.nodes.image;
+		const changes: { pos: number; size: number; attrs: Record<string, any>; image?: ImageInsert }[] = [];
 
-		const placeholderId = generatePlaceholderId();
-
-		// Insert placeholder with preview
-		editor.chain().focus().setImagePlaceholder({ id: placeholderId, file }).run();
-
-		uploadError = '';
-
-		try {
-			const result = await uploadImage(file, { diaryDate });
-			let url: string;
-
-			if (isCheveretoResult(result)) {
-				url = result.cheveretoUrl;
-			} else {
-				url = getMediaUrl(result);
+		state.doc.descendants((node, pos) => {
+			if (node.type !== imageType || node.attrs['data-uploading'] !== 'true') return;
+			const id = node.attrs['data-placeholder-id'] as string | null;
+			const task = id ? uploadQueue.get(id) : undefined;
+			if (id && task?.status === 'done' && task.url) {
+				const image = { src: task.url, alt: task.fileName };
+				finishedUploads.set(id, image);
+				uploadQueue.release(id);
+				changes.push({ pos, size: node.nodeSize, attrs: node.attrs, image });
+			} else if (!task) {
+				changes.push({ pos, size: node.nodeSize, attrs: node.attrs, image: id ? finishedUploads.get(id) : undefined });
 			}
+		});
+		if (changes.length === 0) return;
 
-			// Replace placeholder with actual image
-			editor.commands.replacePlaceholderWithImage({
-				id: placeholderId,
-				src: url,
-				alt: file.name,
-			});
-		} catch (error) {
-			console.error('Image upload failed:', error);
-			uploadError = 'Image upload failed, please try again';
-			setTimeout(() => (uploadError = ''), 3000);
+		const tr = state.tr;
+		// Back to front, so deletions don't shift the positions still to visit.
+		for (const change of changes.reverse()) {
+			if (change.image) {
+				tr.setNodeMarkup(change.pos, undefined, {
+					...change.attrs,
+					src: change.image.src,
+					alt: change.image.alt || null,
+					'data-uploading': null,
+					'data-placeholder-id': null,
+				});
+			} else {
+				tr.delete(change.pos, change.pos + change.size);
+			}
+		}
+		tr.setMeta('addToHistory', false);
+		editor.view.dispatch(tr);
+	}
 
-			// Remove placeholder on error
-			editor.commands.removePlaceholder(placeholderId);
+	/** Uploads the images among `files`, showing a placeholder for each right away. */
+	function uploadFiles(files: File[], at?: number) {
+		if (!editor) return;
+		const images = files.filter((file) => file.type.startsWith('image/'));
+		if (images.length === 0) return;
+
+		const rejected: string[] = [];
+		const placeholders: { id: string; src: string; alt: string }[] = [];
+		for (const file of images) {
+			const invalid = validateImageFile(file);
+			if (invalid) {
+				rejected.push(`${file.name || 'Image'}: ${invalid}`);
+				continue;
+			}
+			const id = uploadQueue.add(file);
+			placeholders.push({ id, src: uploadQueue.get(id)!.previewUrl, alt: file.name });
+		}
+
+		if (placeholders.length > 0) {
+			const chain = editor.chain().focus();
+			if (typeof at === 'number') chain.setTextSelection(at);
+			chain.insertUploadPlaceholders(placeholders).run();
+		}
+		if (rejected.length > 0) {
+			showUploadError(rejected.length === 1 ? rejected[0] : `${rejected.length} images skipped. ${rejected[0]}`);
 		}
 	}
 
 	// Handle paste event
-	function handlePaste(view: any, event: ClipboardEvent) {
-		const items = event.clipboardData?.items;
-		if (!items) return false;
-
-		for (const item of items) {
-			if (item.type.startsWith('image/')) {
-				event.preventDefault();
-				const file = item.getAsFile();
-				if (file) {
-					handleImageUploadWithPlaceholder(file);
-				}
-				return true;
-			}
-		}
-		return false;
+	function handlePaste(_view: any, event: ClipboardEvent) {
+		const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith('image/'));
+		if (files.length === 0) return false;
+		event.preventDefault();
+		uploadFiles(files);
+		return true;
 	}
 
 	// Handle drop event
-	function handleDrop(view: any, event: DragEvent) {
-		const files = event.dataTransfer?.files;
-		if (!files || files.length === 0) return false;
-
-		const file = files[0];
-		if (file.type.startsWith('image/')) {
-			event.preventDefault();
-			handleImageUploadWithPlaceholder(file);
-			return true;
-		}
-		return false;
+	function handleDrop(view: any, event: DragEvent, _slice: unknown, moved: boolean) {
+		if (moved) return false;
+		const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith('image/'));
+		if (files.length === 0) return false;
+		event.preventDefault();
+		const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+		uploadFiles(files, dropPos);
+		return true;
 	}
 
 	// Handle slash command image trigger
@@ -153,34 +188,52 @@
 		showMediaPicker = true;
 	}
 
-	// Handle media selection from gallery
-	async function handleMediaSelect(media: MediaWithDiary) {
-		if (!editor) return;
+	function handleImageUrl() {
+		insertPos = editor?.state.selection.from ?? null;
+		showImageUrlDialog = true;
+	}
 
-		const url = getMediaFileUrl(media);
-		editor.chain().focus().setImage({ src: url }).run();
+	function insertImagesAtSavedPos(images: ImageInsert[]) {
+		if (!editor || images.length === 0) return;
+		const chain = editor.chain().focus();
+		if (insertPos !== null && insertPos <= editor.state.doc.content.size) chain.setTextSelection(insertPos);
+		chain.insertImages(images).run();
+		insertPos = null;
+	}
 
-		// Associate media with current diary
-		if (diaryDate && media.id) {
-			try {
-				const { getOrCreateDiaryId } = await import('$lib/utils/uploadImage');
-				const diaryId = await getOrCreateDiaryId(diaryDate);
-				if (diaryId) {
-					await addMediaDiary(media.id, diaryId);
-				}
-			} catch (error) {
-				console.error('Failed to associate media with diary:', error);
-			}
-		}
+	function handleMediaSelect(images: ImageInsert[]) {
+		if (!editor || images.length === 0) return;
+		editor.chain().focus().insertImages(images).run();
 	}
 
 	function handleFileSelect(event: Event) {
 		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (file) {
-			handleImageUploadWithPlaceholder(file);
-			input.value = '';
+		const files = Array.from(input.files ?? []);
+		input.value = '';
+		uploadFiles(files);
+	}
+
+	function handleBeforeUnload(event: BeforeUnloadEvent) {
+		if (uploadQueue.busyCount > 0) {
+			event.preventDefault();
+			event.returnValue = '';
 		}
+	}
+
+	// Serializing into the live document creates real <img> elements, which
+	// the browser starts downloading at full size (editor.getHTML() does this
+	// on every change). An inert document never loads resources.
+	let inertDocument: Document | null = null;
+	function serializeHtml(content: Fragment): string {
+		if (!editor) return '';
+		inertDocument ??= document.implementation.createHTMLDocument('');
+		const container = inertDocument.createElement('div');
+		container.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(content, { document: inertDocument }));
+		return container.innerHTML;
+	}
+
+	function currentHtml(): string {
+		return editor ? serializeHtml(editor.state.doc.content) : '';
 	}
 
 	// Get HTML of current selection
@@ -188,13 +241,7 @@
 		if (!editor) return '';
 		const { from, to, empty } = editor.state.selection;
 		if (empty) return '';
-		const { schema, doc } = editor.state;
-		const slice = doc.slice(from, to);
-		const div = document.createElement('div');
-		const serializer = DOMSerializer.fromSchema(schema);
-		const fragment = serializer.serializeFragment(slice.content);
-		div.appendChild(fragment);
-		return div.innerHTML;
+		return serializeHtml(editor.state.doc.slice(from, to).content);
 	}
 
 	// Update add button position based on cursor
@@ -232,6 +279,7 @@
 		setImageUploadTrigger(handleSlashImage);
 		// Register gallery picker trigger for slash commands
 		setGalleryPickerTrigger(handleGalleryPicker);
+		setImageUrlTrigger(handleImageUrl);
 
 		editor = new Editor({
 			element: editorElement,
@@ -251,6 +299,7 @@
 				ImageExtension.configure({
 					inline: false,
 					allowBase64: true,
+					getUploadQueue: () => uploadQueue,
 				}),
 				Focus.configure({
 					className: 'has-focus',
@@ -279,7 +328,10 @@
 					},
 				}),
 			],
-			content,
+			// Content is loaded right after creation instead: TipTap's first render
+			// happens before node views are registered and would create plain
+			// <img> tags, downloading every original image at full size.
+			content: '',
 			editorProps: {
 				handlePaste,
 				handleDrop,
@@ -288,10 +340,14 @@
 				},
 			},
 			onUpdate: ({ editor }) => {
-				onChange(editor.getHTML());
+				const html = stripPendingImages(currentHtml());
+				if (html === lastEmitted) return;
+				lastEmitted = html;
+				onChange(html);
 			},
-			onTransaction: () => {
+			onTransaction: ({ transaction }) => {
 				editor = editor;
+				if (transaction.docChanged) scheduleReconcile();
 				updateAddButton();
 				selectedContent = getSelectionHtml();
 			},
@@ -303,6 +359,9 @@
 			},
 		});
 
+		// Loaded outside undo history, so undo can never empty the entry.
+		editor.chain().setMeta('addToHistory', false).setContent(content, false).run();
+
 		// When the user deselects outside the editor, Tiptap's onTransaction
 		// doesn't fire, so we rely on the native selectionchange event to clear.
 		function handleDocumentSelectionChange() {
@@ -313,9 +372,13 @@
 			}
 		}
 		document.addEventListener('selectionchange', handleDocumentSelectionChange);
+		window.addEventListener('beforeunload', handleBeforeUnload);
+		// Content saved while an older version had upload placeholders.
+		scheduleReconcile();
 
 		return () => {
 			document.removeEventListener('selectionchange', handleDocumentSelectionChange);
+			window.removeEventListener('beforeunload', handleBeforeUnload);
 		};
 	});
 
@@ -324,15 +387,25 @@
 		setImageUploadTrigger(null);
 		// Cleanup gallery picker trigger
 		setGalleryPickerTrigger(null);
+		setImageUrlTrigger(null);
+		uploadQueue.destroy();
+		clearTimeout(uploadErrorTimer);
 		editor?.destroy();
 	});
 
-	// Watch for external content changes
-	$: if (editor) {
-		const isSame = editor.getHTML() === content;
-		if (!isSame) {
-			editor.commands.setContent(content, false);
-		}
+	// Watch for external content changes (e.g. another entry was loaded).
+	$: if (editor && content !== lastEmitted) {
+		syncExternalContent(content);
+	}
+
+	function syncExternalContent(next: string) {
+		if (!editor) return;
+		lastEmitted = next;
+		if (stripPendingImages(currentHtml()) === next) return;
+		// In-flight uploads belong to the entry being replaced.
+		uploadQueue.clear();
+		editor.commands.setContent(next, false);
+		scheduleReconcile();
 	}
 </script>
 
@@ -363,15 +436,29 @@
 	{/if}
 	<input
 		type="file"
-		accept="image/*"
+		accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+		multiple
 		bind:this={fileInput}
 		on:change={handleFileSelect}
 		style="display: none;"
 	/>
+	{#if uploadingCount > 0}
+		<div class="upload-status" class:raised={!!uploadError} role="status" aria-live="polite">
+			<span class="upload-status-spinner"></span>
+			Uploading {uploadingCount} {uploadingCount === 1 ? 'image' : 'images'}…
+		</div>
+	{/if}
 	{#if uploadError}
-		<div class="upload-error">{uploadError}</div>
+		<div class="upload-error" role="alert">{uploadError}</div>
 	{/if}
 </div>
+
+{#if showImageUrlDialog}
+	<ImageUrlDialog
+		onInsert={(image) => insertImagesAtSavedPos([image])}
+		onClose={() => (showImageUrlDialog = false)}
+	/>
+{/if}
 
 {#if showMediaPicker}
 	<MediaPicker
@@ -414,17 +501,46 @@
 		opacity: 0.8;
 	}
 
-	.upload-error {
+	.upload-error,
+	.upload-status {
 		position: fixed;
-		bottom: 20px;
 		right: 20px;
-		background: hsl(0 84% 60%);
-		color: white;
-		padding: 12px 16px;
-		border-radius: 8px;
+		max-width: min(420px, calc(100vw - 40px));
+		padding: 10px 14px;
+		border-radius: 10px;
 		font-size: 14px;
 		z-index: 1000;
+		box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
 		animation: slideIn 0.2s ease;
+	}
+
+	.upload-error {
+		bottom: 20px;
+		background: hsl(0 84% 60%);
+		color: white;
+	}
+
+	.upload-status {
+		bottom: 20px;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		background: hsl(var(--card));
+		color: hsl(var(--foreground));
+		border: 1px solid hsl(var(--border));
+	}
+
+	.upload-status.raised {
+		bottom: 72px;
+	}
+
+	.upload-status-spinner {
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 2px solid hsl(var(--muted-foreground) / 0.3);
+		border-top-color: hsl(var(--primary));
+		animation: spin 0.8s linear infinite;
 	}
 
 	@keyframes slideIn {

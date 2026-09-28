@@ -10,9 +10,11 @@ export interface CommandItem {
 
 export type ImageUploadTrigger = () => void;
 export type GalleryPickerTrigger = () => void;
+export type ImageUrlTrigger = () => void;
 
 let imageUploadTrigger: ImageUploadTrigger | null = null;
 let galleryPickerTrigger: GalleryPickerTrigger | null = null;
+let imageUrlTrigger: ImageUrlTrigger | null = null;
 
 export function setImageUploadTrigger(trigger: ImageUploadTrigger | null) {
 	imageUploadTrigger = trigger;
@@ -20,6 +22,10 @@ export function setImageUploadTrigger(trigger: ImageUploadTrigger | null) {
 
 export function setGalleryPickerTrigger(trigger: GalleryPickerTrigger | null) {
 	galleryPickerTrigger = trigger;
+}
+
+export function setImageUrlTrigger(trigger: ImageUrlTrigger | null) {
+	imageUrlTrigger = trigger;
 }
 
 export const getSuggestionItems = (query: string): CommandItem[] => {
@@ -89,13 +95,25 @@ export const getSuggestionItems = (query: string): CommandItem[] => {
 		},
 		{
 			title: 'Image',
-			description: 'Upload image',
+			description: 'Upload images',
 			icon: 'image',
 			group: 'INSERT',
 			command: ({ editor, range }) => {
 				editor.chain().focus().deleteRange(range).run();
 				if (imageUploadTrigger) {
 					imageUploadTrigger();
+				}
+			},
+		},
+		{
+			title: 'Image URL',
+			description: 'Insert image from a link',
+			icon: 'link',
+			group: 'INSERT',
+			command: ({ editor, range }) => {
+				editor.chain().focus().deleteRange(range).run();
+				if (imageUrlTrigger) {
+					imageUrlTrigger();
 				}
 			},
 		},

@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import DiarySharePreview from './DiarySharePreview.svelte';
 	import ShareOptionsPanel from './ShareOptionsPanel.svelte';
+	import ShareMarkdownPanel from './ShareMarkdownPanel.svelte';
 	import {
 		defaultShareOptions,
 		generateImage,
@@ -40,8 +41,27 @@
 	let showOptions = false;
 	let canUseShare = false;
 
+	// Image card or Markdown text; the last choice is remembered.
+	const MODE_KEY = 'diarum.share.mode';
+	let mode: 'image' | 'markdown' = 'image';
+
+	function setMode(next: 'image' | 'markdown') {
+		mode = next;
+		error = '';
+		try {
+			localStorage.setItem(MODE_KEY, next);
+		} catch {
+			// Not persisted.
+		}
+	}
+
 	onMount(() => {
 		canUseShare = canShare();
+		try {
+			if (localStorage.getItem(MODE_KEY) === 'markdown') mode = 'markdown';
+		} catch {
+			// Default to the image card.
+		}
 	});
 
 	function handleClose() {
@@ -132,14 +152,26 @@
 	></div>
 
 	<!-- Modal -->
-	<div class="fixed inset-4 md:inset-8 lg:inset-12 z-50 flex items-center justify-center pointer-events-none">
+	<div class="fixed inset-2 sm:inset-4 md:inset-8 lg:inset-12 z-50 flex items-center justify-center pointer-events-none">
 		<div
-			class="bg-card rounded-xl shadow-2xl border border-border/50 w-full max-w-5xl max-h-full overflow-hidden flex flex-col pointer-events-auto animate-fade-in"
+			class="bg-card rounded-xl shadow-2xl border border-border/50 w-full max-w-5xl max-h-full overflow-hidden flex flex-col pointer-events-auto animate-fade-in {mode === 'markdown' ? 'h-full md:h-[min(100%,720px)]' : ''}"
 		>
 			<!-- Header -->
-			<div class="flex items-center justify-between px-4 py-3 border-b border-border/50">
-				<h2 class="text-lg font-semibold text-foreground">Share Diary</h2>
-				<div class="flex items-center gap-2">
+			<div class="flex items-center justify-between gap-3 px-3 sm:px-4 py-3 border-b border-border/50">
+				<h2 class="hidden sm:block text-lg font-semibold text-foreground">Share Diary</h2>
+				<div class="share-mode" role="tablist" aria-label="Share as">
+					<span class="share-mode-indicator" style="transform: translateX({mode === 'markdown' ? '100%' : '0'})"></span>
+					<button type="button" role="tab" aria-selected={mode === 'image'} class:active={mode === 'image'} on:click={() => setMode('image')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path stroke-linecap="round" stroke-linejoin="round" d="M21 15l-5-5L5 21" /></svg>
+						Image
+					</button>
+					<button type="button" role="tab" aria-selected={mode === 'markdown'} class:active={mode === 'markdown'} on:click={() => setMode('markdown')}>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2" /><path stroke-linecap="round" stroke-linejoin="round" d="M6 15V9l2.5 3L11 9v6M15.5 9v6m0 0l-2-2m2 2l2-2" /></svg>
+						Markdown
+					</button>
+				</div>
+				<div class="flex items-center gap-1 sm:gap-2">
+					{#if mode === 'image'}
 					<button
 						on:click={() => showOptions = !showOptions}
 						class="p-2 hover:bg-muted/50 rounded-lg transition-colors {showOptions ? 'bg-muted/50' : ''}"
@@ -150,6 +182,7 @@
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
 						</svg>
 					</button>
+					{/if}
 					<button
 						on:click={handleClose}
 						class="p-2 hover:bg-muted/50 rounded-lg transition-colors"
@@ -162,6 +195,18 @@
 				</div>
 			</div>
 
+			{#if mode === 'markdown'}
+				<div class="flex-1 min-h-0">
+					<ShareMarkdownPanel
+						{date}
+						content={effectiveContent}
+						{mood}
+						{weather}
+						{tags}
+						isSelection={!!selectedContent}
+					/>
+				</div>
+			{:else}
 			<!-- Content -->
 			<div class="flex-1 overflow-hidden flex">
 				<!-- Preview Area -->
@@ -267,6 +312,75 @@
 					</button>
 				</div>
 			</div>
+			{/if}
 		</div>
 	</div>
 {/if}
+
+<style>
+	.share-mode {
+		position: relative;
+		display: inline-grid;
+		grid-template-columns: 1fr 1fr;
+		padding: 3px;
+		border-radius: 10px;
+		background: hsl(var(--muted) / 0.7);
+	}
+
+	.share-mode-indicator {
+		position: absolute;
+		top: 3px;
+		bottom: 3px;
+		left: 3px;
+		width: calc(50% - 3px);
+		border-radius: 7px;
+		background: hsl(var(--background));
+		box-shadow: 0 1px 3px hsl(var(--foreground) / 0.12);
+		transition: transform 0.25s cubic-bezier(0.3, 0.9, 0.3, 1);
+	}
+
+	.share-mode button {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		min-width: 104px;
+		padding: 6px 12px;
+		border: 0;
+		border-radius: 7px;
+		background: transparent;
+		color: hsl(var(--muted-foreground));
+		font-size: 13px;
+		font-weight: 500;
+		cursor: pointer;
+		transition: color 0.2s ease;
+	}
+
+	.share-mode button.active {
+		color: hsl(var(--foreground));
+	}
+
+	.share-mode button:focus-visible {
+		outline: 2px solid hsl(var(--primary));
+		outline-offset: 1px;
+	}
+
+	.share-mode svg {
+		width: 15px;
+		height: 15px;
+	}
+
+	@media (max-width: 400px) {
+		.share-mode button {
+			min-width: 92px;
+			padding: 6px 8px;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.share-mode-indicator {
+			transition: none;
+		}
+	}
+</style>
