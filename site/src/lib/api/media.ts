@@ -24,6 +24,26 @@ export async function getAllMedia(page: number = 1, perPage: number = 50): Promi
     }
 }
 
+/**
+ * Like getAllMedia, but throws on failure so callers can tell an empty
+ * library from an unreachable one.
+ */
+export async function fetchMediaPage(page: number, perPage: number, signal?: AbortSignal): Promise<{
+    items: MediaWithDiary[];
+    totalPages: number;
+    totalItems: number;
+}> {
+    const response = await fetch(`/api/v1/media?page=${page}&perPage=${perPage}`, {
+        headers: { Authorization: `Bearer ${pb.authStore.token}` },
+        signal
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(result?.message || 'Failed to load media');
+    }
+    return { items: result.items || [], totalPages: result.totalPages || 0, totalItems: result.totalItems || 0 };
+}
+
 export async function getMediaById(id: string): Promise<MediaWithDiary | null> {
     try {
         const response = await fetch(`/api/v1/media/${encodeURIComponent(id)}`, {

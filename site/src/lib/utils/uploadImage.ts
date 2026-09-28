@@ -2,64 +2,27 @@ import { pb } from '$lib/api/client';
 import type { Media, UploadProgress } from '$lib/api/client';
 import { get } from 'svelte/store';
 import { imageUploadSettings, loadImageUploadSettings, isImageUploadLoaded } from '$lib/stores/imageUpload';
-import { uploadToChevereto } from '$lib/api/chevereto';
 
-/**
- * Get or create diary ID for a given date
- */
-export async function getOrCreateDiaryId(date: string): Promise<string | undefined> {
-	try {
-		// Try to find existing diary
-		const response = await fetch(`/api/v1/diaries/by-date/${date}`, {
-			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`
-			}
-		});
-
-		if (response.ok) {
-			const data = await response.json();
-			if (data.exists && data.id) {
-				return data.id;
-			}
-		}
-
-		// Create new diary if not exists via business API
-		const createResponse = await fetch('/api/v1/diaries/upsert', {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`,
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				date,
-				content: '',
-				mood: '',
-				weather: ''
-			})
-		});
-
-		if (!createResponse.ok) {
-			return undefined;
-		}
-
-		const newDiary = await createResponse.json();
-
-		return newDiary.id;
-	} catch (error) {
-		console.error('Failed to get/create diary:', error);
-		return undefined;
-	}
-}
+export const IMAGE_UPLOAD_LIMITS = {
+	maxSize: 50 * 1024 * 1024, // must match the backend media limit
+	allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml']
+};
 
 export interface UploadOptions {
-	diaryId?: string;
-	diaryDate?: string; // Date string (YYYY-MM-DD) to auto-link diary
 	alt?: string;
 	onProgress?: (progress: UploadProgress) => void;
+	signal?: AbortSignal;
 }
 
 export interface CheveretoUploadResult {
 	cheveretoUrl: string;
+}
+
+export class UploadAbortedError extends Error {
+	constructor() {
+		super('Upload cancelled');
+		this.name = 'UploadAbortedError';
+	}
 }
 
 export function isCheveretoResult(result: Media | CheveretoUploadResult): result is CheveretoUploadResult {
@@ -67,77 +30,105 @@ export function isCheveretoResult(result: Media | CheveretoUploadResult): result
 }
 
 /**
- * Upload an image file to Diarum or Chevereto
- * @param file - The image file to upload
- * @param options - Upload options
- * @returns The created media record or Chevereto URL
+ * Returns a user-facing reason the file cannot be uploaded, or null when it is fine.
+ */
+export function validateImageFile(file: File): string | null {
+	if (!IMAGE_UPLOAD_LIMITS.allowedTypes.includes(file.type)) {
+		return 'Unsupported format. Use JPG, PNG, GIF, WebP or SVG';
+	}
+	if (file.size > IMAGE_UPLOAD_LIMITS.maxSize) {
+		return `Larger than ${IMAGE_UPLOAD_LIMITS.maxSize / 1024 / 1024}MB`;
+	}
+	return null;
+}
+
+/**
+ * POST a form with XMLHttpRequest, which (unlike fetch) reports upload progress.
+ */
+function postForm<T>(url: string, form: FormData, options: UploadOptions): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const xhr = new XMLHttpRequest();
+		const { signal, onProgress } = options;
+
+		if (signal?.aborted) {
+			reject(new UploadAbortedError());
+			return;
+		}
+		const abort = () => xhr.abort();
+		signal?.addEventListener('abort', abort, { once: true });
+
+		xhr.open('POST', url);
+		xhr.setRequestHeader('Authorization', `Bearer ${pb.authStore.token}`);
+		xhr.responseType = 'json';
+
+		if (onProgress) {
+			xhr.upload.onprogress = (event) => {
+				if (!event.lengthComputable) return;
+				onProgress({
+					loaded: event.loaded,
+					total: event.total,
+					percentage: Math.round((event.loaded / event.total) * 100)
+				});
+			};
+		}
+
+		xhr.onload = () => {
+			signal?.removeEventListener('abort', abort);
+			const body = xhr.response;
+			if (xhr.status >= 200 && xhr.status < 300 && body) {
+				resolve(body as T);
+				return;
+			}
+			const message = body?.message || (xhr.status ? `Upload failed (HTTP ${xhr.status})` : 'Upload failed');
+			reject(new Error(message));
+		};
+		xhr.onerror = () => {
+			signal?.removeEventListener('abort', abort);
+			reject(new Error('Network error, check your connection'));
+		};
+		xhr.onabort = () => {
+			signal?.removeEventListener('abort', abort);
+			reject(new UploadAbortedError());
+		};
+
+		xhr.send(form);
+	});
+}
+
+/**
+ * Upload an image to the active provider: the built-in media library (local
+ * or S3) or Chevereto. Built-in uploads are linked to their diary by the
+ * server when the entry is saved with the image in it, so no entry has to
+ * exist yet.
  */
 export async function uploadImage(file: File, options: UploadOptions = {}): Promise<Media | CheveretoUploadResult> {
-	const { diaryId, diaryDate, alt, onProgress } = options;
-
-	// Validate file type
-	const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-	if (!allowedTypes.includes(file.type)) {
-		throw new Error(`Invalid file type: ${file.type}. Allowed types: ${allowedTypes.join(', ')}`);
+	const invalid = validateImageFile(file);
+	if (invalid) {
+		throw new Error(invalid);
 	}
 
-	// Validate file size (50MB max - must match backend media limit)
-	const maxSize = 50 * 1024 * 1024;
-	if (file.size > maxSize) {
-		throw new Error(`File size exceeds 50MB limit. File size: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
-	}
-
-	// Check active image upload provider
 	if (!isImageUploadLoaded()) {
 		await loadImageUploadSettings();
 	}
 	const settings = get(imageUploadSettings);
 
 	if (settings.provider === 'chevereto') {
-		try {
-			const result = await uploadToChevereto(file);
-			return { cheveretoUrl: result.url };
-		} catch (error) {
-			console.error('Chevereto upload failed:', error);
-			throw new Error('Failed to upload image to Chevereto. Please try again.');
+		const form = new FormData();
+		form.append('source', file);
+		const result = await postForm<{ url?: string }>('/api/v1/chevereto/upload', form, options);
+		if (!result?.url) {
+			throw new Error('Chevereto did not return an image URL');
 		}
+		return { cheveretoUrl: result.url };
 	}
 
-	// Fallback to local Diarum upload
-	let resolvedDiaryId = diaryId;
-	if (!resolvedDiaryId && diaryDate) {
-		resolvedDiaryId = await getOrCreateDiaryId(diaryDate);
+	const form = new FormData();
+	form.append('file', file);
+	form.append('name', file.name);
+	if (options.alt) {
+		form.append('alt', options.alt);
 	}
-
-	const formData = new FormData();
-	formData.append('file', file);
-	formData.append('name', file.name);
-	formData.append('owner', pb.authStore.model?.id || '');
-
-	if (alt) {
-		formData.append('alt', alt);
-	}
-
-	if (resolvedDiaryId) {
-		formData.append('diary', resolvedDiaryId);
-	}
-
-	try {
-		const response = await fetch('/api/v1/media', {
-			method: 'POST',
-			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`
-			},
-			body: formData
-		});
-		if (!response.ok) {
-			throw new Error(await response.text());
-		}
-		return await response.json();
-	} catch (error: any) {
-		console.error('Upload failed:', error);
-		throw new Error('Failed to upload image. Please try again.');
-	}
+	return await postForm<Media>('/api/v1/media', form, options);
 }
 
 /**
@@ -173,28 +164,5 @@ export async function deleteMedia(mediaId: string): Promise<void> {
 	} catch (error) {
 		console.error('Delete failed:', error);
 		throw new Error('Failed to delete media. Please try again.');
-	}
-}
-
-/**
- * Upload image from URL
- * @param url - The image URL
- * @param options - Upload options
- */
-export async function uploadImageFromUrl(url: string, options: UploadOptions = {}): Promise<Media | CheveretoUploadResult> {
-	try {
-		const response = await fetch(url);
-		if (!response.ok) {
-			throw new Error('Failed to fetch image from URL');
-		}
-
-		const blob = await response.blob();
-		const filename = url.split('/').pop() || 'image.jpg';
-		const file = new File([blob], filename, { type: blob.type });
-
-		return await uploadImage(file, options);
-	} catch (error) {
-		console.error('Upload from URL failed:', error);
-		throw new Error('Failed to upload image from URL. Please try again.');
 	}
 }

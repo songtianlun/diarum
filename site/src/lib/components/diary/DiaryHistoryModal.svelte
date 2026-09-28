@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { lightboxImages } from '$lib/stores/lightbox';
 	/**
 	 * Browse and restore earlier versions of one diary entry. Shared by every
 	 * visual style. Saving archives the replaced version on the server, so
@@ -309,7 +310,7 @@
 									</div>
 								{/if}
 								{#if selectedVersion.content}
-									<div class="tiptap-editor-content history-preview">{@html selectedVersion.content}</div>
+									<div class="tiptap-editor-content history-preview" use:lightboxImages>{@html selectedVersion.content}</div>
 								{:else}
 									<div class="text-sm text-muted-foreground">{$t('diaryHistory.noText')}</div>
 								{/if}

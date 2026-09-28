@@ -563,7 +563,6 @@
 								bind:selectedContent
 								onChange={handleContentChange}
 								placeholder={$t('win95.placeholder')}
-								diaryDate={date}
 							/>
 						{/if}
 					</div>
@@ -740,7 +739,6 @@
 								bind:selectedContent
 								onChange={handleContentChange}
 								placeholder={$t('win95.placeholder')}
-								diaryDate={date}
 							/>
 						{/if}
 					</div>

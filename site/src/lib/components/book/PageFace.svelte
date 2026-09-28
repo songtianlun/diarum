@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { lightboxImages } from '$lib/stores/lightbox';
 	import { parseDate } from '$lib/utils/date';
 	import MoodWeatherPicker from '$lib/components/book/MoodWeatherPicker.svelte';
 	import BookTableOfContents from '$lib/components/book/BookTableOfContents.svelte';
@@ -172,7 +173,7 @@
 				{#if kind === 'live'}
 					<slot />
 				{:else if hasContent}
-					<div class="tiptap-editor-content book-static">{@html content}</div>
+					<div class="tiptap-editor-content book-static" use:lightboxImages>{@html content}</div>
 				{:else}
 					<!-- kind="content" is only ever a transient flip snapshot — either
 					     still fetching, or genuinely blank but about to settle into the
