@@ -7,10 +7,11 @@ import { pb } from '$lib/api/client';
  * Entries always reference the original image. When an entry is shown, each
  * image is loaded as the configured variant instead (Chevereto-style
  * `photo.md.jpg` / `photo.th.jpg`, which the built-in library serves too),
- * falling back to the original if the variant fails. An original the browser
- * already has is shown directly, so this only ever makes a cold first open
- * faster and never makes a warm one worse. The lightbox always loads the
- * original.
+ * falling back to the original if the variant fails. A built-in original the
+ * browser already caches is shown directly: the HTTP cache is asked without
+ * touching the network, which stays correct when the cache is cleared.
+ * External (Chevereto) images cannot be probed across origins, so they always
+ * start with the variant. The lightbox always loads the original.
  */
 
 export type DisplayQuality = 'th' | 'md' | 'original';
@@ -23,16 +24,14 @@ interface DisplayState {
 }
 
 const STATE_KEY = 'diarum.imageDisplay';
-const SEEN_KEY = 'diarum.imageDisplay.seen';
+// Written by an earlier version that guessed cache contents; removed on load.
+const LEGACY_SEEN_KEY = 'diarum.imageDisplay.seen';
 const NO_VARIANT_HOSTS_KEY = 'diarum.imageDisplay.noVariantHosts';
-const MAX_SEEN = 600;
 const BUILTIN_PATH = /^\/api\/v1\/files\/media\/[^/]+\/[^/]+$/;
 const BUILTIN_EXTENSIONS = new Set(['jpg', 'jpeg', 'png']);
 const EXTERNAL_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
 
 let state: DisplayState = { quality: 'md', externalVariants: false };
-let seen: string[] = [];
-let seenSet = new Set<string>();
 let noVariantHosts = new Set<string>();
 let initialized = false;
 let refreshing: Promise<void> | null = null;
@@ -73,8 +72,11 @@ function ensureInitialized() {
 		quality: isQuality(stored.quality) ? stored.quality : 'md',
 		externalVariants: !!stored.externalVariants
 	};
-	seen = readJSON<string[]>(SEEN_KEY, []).slice(-MAX_SEEN);
-	seenSet = new Set(seen);
+	try {
+		localStorage.removeItem(LEGACY_SEEN_KEY);
+	} catch {
+		// Ignore.
+	}
 	noVariantHosts = new Set(readJSON<string[]>(NO_VARIANT_HOSTS_KEY, []));
 	void refreshImageDisplay();
 }
@@ -166,29 +168,13 @@ export function variantUrl(src: string, variant: Variant): string | null {
 	return sameOrigin ? `${url.pathname}${url.search}${url.hash}` : url.toString();
 }
 
-function key(src: string): string {
-	return parse(src)?.toString() ?? src;
-}
-
-/** Records that the browser has loaded this original (and so likely caches it). */
-export function markOriginalLoaded(src: string) {
-	if (!browser || !src || src.startsWith('blob:') || src.startsWith('data:')) return;
-	ensureInitialized();
-	const k = key(src);
-	if (seenSet.has(k)) return;
-	seen.push(k);
-	seenSet.add(k);
-	if (seen.length > MAX_SEEN) seenSet.delete(seen.shift()!);
-	writeJSON(SEEN_KEY, seen);
-}
-
 /**
- * The URL to show first, decided synchronously: the original when the
- * setting says so or it was loaded before, otherwise the configured variant.
+ * The URL to show first by setting alone: the configured variant, or the
+ * original when it has none or the setting asks for originals.
  */
 export function displaySrcSync(original: string): string {
 	const quality = getDisplayQuality();
-	if (quality === 'original' || seenSet.has(key(original))) return original;
+	if (quality === 'original') return original;
 	return variantUrl(original, quality) ?? original;
 }
 
@@ -205,10 +191,7 @@ export async function resolveDisplaySrc(original: string): Promise<string> {
 			const controller = new AbortController();
 			const response = await fetch(url, { cache: 'only-if-cached', mode: 'same-origin', signal: controller.signal });
 			controller.abort(); // only the cache lookup was wanted, not the body
-			if (response.ok) {
-				markOriginalLoaded(original);
-				return original;
-			}
+			if (response.ok) return original;
 		} catch {
 			// Not cached (or the browser does not support the probe).
 		}
@@ -267,19 +250,11 @@ export function imageFallback(node: HTMLElement) {
 		noteVariantFailed(img.getAttribute('src')!, original);
 		img.setAttribute('src', original);
 	}
-	function handleLoad(event: Event) {
-		const img = event.target;
-		if (img instanceof HTMLImageElement && (!img.dataset.fullSrc || img.getAttribute('src') === img.dataset.fullSrc)) {
-			markOriginalLoaded(img.dataset.fullSrc ?? img.getAttribute('src') ?? '');
-		}
-	}
-	// Image load/error events do not bubble; listen in the capture phase.
+	// Image error events do not bubble; listen in the capture phase.
 	node.addEventListener('error', handleError, true);
-	node.addEventListener('load', handleLoad, true);
 	return {
 		destroy() {
 			node.removeEventListener('error', handleError, true);
-			node.removeEventListener('load', handleLoad, true);
 		}
 	};
 }

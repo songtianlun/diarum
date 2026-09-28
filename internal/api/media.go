@@ -150,6 +150,15 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 	})
 }
 
+// setImmutableCache lets browsers keep media for good: a media URL never
+// changes content (IDs are random and never reused). A caller that already
+// chose a policy, like the uncached stand-in for a pending variant, keeps it.
+func setImmutableCache(c echo.Context) {
+	if c.Response().Header().Get("Cache-Control") == "" {
+		c.Response().Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
+}
+
 func serveOriginal(c echo.Context, s *store.Store, media *store.Media) error {
 	err := serveMediaObject(c, s, media)
 	if errors.Is(err, errMediaObjectMissing) {
@@ -165,6 +174,7 @@ var errMediaObjectMissing = errors.New("media object missing")
 func serveMediaObject(c echo.Context, s *store.Store, media *store.Media) error {
 	path := s.MediaFilePath(media)
 	if _, err := os.Stat(path); err == nil {
+		setImmutableCache(c)
 		return c.File(path)
 	}
 
@@ -188,6 +198,7 @@ func serveMediaObject(c echo.Context, s *store.Store, media *store.Media) error 
 		contentType = guessed
 	}
 	c.Response().Header().Set(echo.HeaderContentType, contentType)
+	setImmutableCache(c)
 	c.Response().WriteHeader(http.StatusOK)
 	if n > 0 {
 		if _, err := c.Response().Write(head[:n]); err != nil {

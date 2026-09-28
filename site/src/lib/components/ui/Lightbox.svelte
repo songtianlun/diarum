@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import type { LightboxItem } from '$lib/stores/lightbox';
-	import { markOriginalLoaded } from '$lib/utils/imageDisplay';
 
 	export let items: LightboxItem[] = [];
 	export let index = 0;
@@ -326,10 +325,7 @@
 					class:animating
 					style="transform: translate3d({tx + swipe.dx}px, {ty + swipe.dy}px, 0) scale({scale});"
 					draggable="false"
-					on:load={() => {
-						loaded = true;
-						markOriginalLoaded(item.src);
-					}}
+					on:load={() => (loaded = true)}
 					on:error={() => (failed = true)}
 				/>
 			{/key}

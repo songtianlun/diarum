@@ -1,7 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import type { UploadQueue, UploadState } from './uploadQueue';
 import { openLightboxFor } from '$lib/stores/lightbox';
-import { displaySrcSync, resolveDisplaySrc, markOriginalLoaded, noteVariantFailed } from '$lib/utils/imageDisplay';
+import { displaySrcSync, resolveDisplaySrc, noteVariantFailed } from '$lib/utils/imageDisplay';
 
 export interface ImageOptions {
 	inline: boolean;
@@ -155,7 +155,6 @@ export const ImageExtension = Node.create<ImageOptions>({
 				if (fromPlaceholder) {
 					// The upload queue preloaded this URL, so swapping is seamless.
 					img.src = original;
-					markOriginalLoaded(original);
 					return;
 				}
 
@@ -165,7 +164,6 @@ export const ImageExtension = Node.create<ImageOptions>({
 						if (token !== loadToken) return;
 						clearTimeout(skeletonTimer);
 						wrapper.classList.remove('is-loading', 'is-error');
-						if (src === original) markOriginalLoaded(original);
 					};
 					img.onerror = () => {
 						if (token !== loadToken) return;

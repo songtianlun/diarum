@@ -67,6 +67,9 @@ func TestMediaVariantsRoute(t *testing.T) {
 		if got := imageWidth(t, rec.Body.Bytes()); got != want {
 			t.Fatalf("GET %s width = %d, want %d", name, got, want)
 		}
+		if cache := rec.Header().Get("Cache-Control"); !strings.Contains(cache, "immutable") {
+			t.Fatalf("GET %s Cache-Control = %q", name, cache)
+		}
 	}
 	if rec = performRequest(t, e, http.MethodGet, base+"photo.xl.jpg", nil, nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown variant status = %d", rec.Code)
