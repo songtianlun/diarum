@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -125,6 +126,9 @@ func RegisterMCPRoutes(e *echo.Echo, s *store.Store, version string) {
 	configService := config.NewConfigService(s)
 
 	handler := func(c echo.Context) error {
+		// Tag the request before authenticating, so rejected tokens show up
+		// as MCP attempts rather than anonymous web calls.
+		auditIdentify(c, "", "", audit.SourceMCP)
 		userId, err := authenticateMCP(c, configService)
 		if err != nil {
 			return err
@@ -133,6 +137,9 @@ func RegisterMCPRoutes(e *echo.Echo, s *store.Store, version string) {
 
 		body, err := parseRPCBody(c)
 		if err != nil {
+			recordAuditFor(c, userId, "", audit.SourceMCP, audit.ActionMCPCall, "", map[string]any{
+				"error": map[string]any{"code": jsonRPCParseError, "message": "Invalid JSON payload"},
+			})
 			return c.JSON(http.StatusOK, rpcError(nil, jsonRPCParseError, "Invalid JSON payload"))
 		}
 
@@ -140,9 +147,17 @@ func RegisterMCPRoutes(e *echo.Echo, s *store.Store, version string) {
 		// object. Notifications are dropped from the response either way.
 		responses := make([]*jsonRPCResponse, 0, len(body.requests))
 		for _, req := range body.requests {
+			// Every message is audited once: as the diary read it made, or
+			// else as a plain MCP call naming the method and outcome.
+			recorded := false
 			resp := dispatchMCPAudited(s, userId, version, req, func(action, target string, detail map[string]any) {
+				recorded = true
 				recordAuditFor(c, userId, "", audit.SourceMCP, action, target, detail)
 			})
+			if !recorded && auditEnabled(c) {
+				target, detail := mcpCallAudit(req, resp)
+				recordAuditFor(c, userId, "", audit.SourceMCP, audit.ActionMCPCall, target, detail)
+			}
 			if resp != nil {
 				responses = append(responses, resp)
 			}
@@ -195,6 +210,7 @@ func authenticateMCP(c echo.Context, configService *config.ConfigService) (strin
 	// setting is missing or unreadable, so an unset switch reads as disabled.
 	enabled, err := configService.GetBool(userId, "api.mcp_enabled")
 	if err != nil || !enabled {
+		auditIdentify(c, userId, "", audit.SourceMCP)
 		return "", unauthorized("MCP is disabled for this user")
 	}
 
@@ -228,11 +244,49 @@ func parseRPCBody(c echo.Context) (*rpcBody, error) {
 	return &rpcBody{requests: []jsonRPCRequest{request}, batch: false}, nil
 }
 
-// dispatchMCP routes one JSON-RPC message. It returns nil for notifications,
-// which carry no ID and must not be answered.
+// mcpCallAudit describes a JSON-RPC message that read no diary: its method,
+// the tool and arguments for tools/call, and how it was answered.
+func mcpCallAudit(req jsonRPCRequest, resp *jsonRPCResponse) (string, map[string]any) {
+	target := truncate(req.Method, 100)
+	detail := map[string]any{"method": target}
+	if len(req.ID) == 0 {
+		detail["notification"] = true
+	}
+	if req.Method == "tools/call" && len(req.Params) > 0 {
+		var params struct {
+			Name      string         `json:"name"`
+			Arguments map[string]any `json:"arguments"`
+		}
+		if json.Unmarshal(req.Params, &params) == nil {
+			if params.Name != "" {
+				target = truncate(params.Name, 100)
+				detail["tool"] = target
+			}
+			if args := auditArgs(params.Arguments); len(args) > 0 {
+				detail["arguments"] = args
+			}
+		}
+	}
+	if resp == nil {
+		return target, detail
+	}
+	if resp.Error != nil {
+		detail["error"] = map[string]any{"code": resp.Error.Code, "message": truncate(resp.Error.Message, 200)}
+		return target, detail
+	}
+	if result, ok := resp.Result.(map[string]any); ok && result["isError"] == true {
+		if content, ok := result["content"].([]map[string]any); ok && len(content) > 0 {
+			detail["error"] = map[string]any{"message": truncate(fmt.Sprint(content[0]["text"]), 200)}
+		}
+	}
+	return target, detail
+}
+
 // mcpAuditFunc records a diary read made through an MCP tool.
 type mcpAuditFunc func(action, target string, detail map[string]any)
 
+// dispatchMCP routes one JSON-RPC message. It returns nil for notifications,
+// which carry no ID and must not be answered.
 func dispatchMCP(s *store.Store, userId, version string, req jsonRPCRequest) *jsonRPCResponse {
 	return dispatchMCPAudited(s, userId, version, req, nil)
 }

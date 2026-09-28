@@ -361,4 +361,6 @@ var actionLabels = map[string][]string{
 	ActionAdminRole:      {"role", "admin", "身份", "角色", "管理员"},
 	ActionAdminAudit:     {"audit settings", "审计设置"},
 	ActionAdminPull:      {"pull archive", "拉取归档", "拉取"},
+	ActionMCPCall:        {"mcp call", "mcp", "MCP 调用"},
+	ActionAPICall:        {"api call", "token api", "API 调用"},
 }

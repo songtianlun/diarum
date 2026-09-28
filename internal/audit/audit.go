@@ -49,6 +49,10 @@ const (
 	ActionAdminRole      = "admin.role_change"
 	ActionAdminAudit     = "admin.audit_settings"
 	ActionAdminPull      = "admin.audit_pull"
+	// ActionMCPCall and ActionAPICall record token API and MCP calls that
+	// did not read a diary (those are recorded as diary.view/diary.search).
+	ActionMCPCall = "mcp.call"
+	ActionAPICall = "api.call"
 )
 
 // Sources describe which entry point performed an action.

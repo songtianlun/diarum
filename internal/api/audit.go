@@ -145,6 +145,29 @@ func auditIdentify(c echo.Context, userID, username, source string) {
 	}
 }
 
+// auditArgs keeps the scalar arguments of a token API or MCP call for the
+// trail, bounded so a client cannot flood it. Secrets are never passed in.
+func auditArgs(args map[string]any) map[string]any {
+	const maxArgs, maxLen = 10, 200
+	kept := map[string]any{}
+	for key, value := range args {
+		if len(kept) == maxArgs {
+			break
+		}
+		switch v := value.(type) {
+		case string:
+			if v != "" {
+				kept[truncate(key, 50)] = truncate(v, maxLen)
+			}
+		case float64, bool, nil:
+			kept[truncate(key, 50)] = v
+		default:
+			kept[truncate(key, 50)] = truncate(fmt.Sprint(v), maxLen)
+		}
+	}
+	return kept
+}
+
 // recordAudit attaches an action taken by the signed-in user through the web
 // API to the request's audit entry.
 func recordAudit(c echo.Context, action, target string, detail map[string]any) {

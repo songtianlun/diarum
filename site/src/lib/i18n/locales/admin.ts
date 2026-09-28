@@ -155,6 +155,7 @@ export const adminEn = {
 			data: 'Import / export',
 			settings: 'Settings',
 			admin: 'Administration',
+			integrations: 'Token API & MCP calls',
 			other: 'Other API calls'
 		},
 		statuses: { '2xx': 'Success (2xx)', '3xx': 'Redirect (3xx)', '4xx': 'Client error (4xx)', '5xx': 'Server error (5xx)', error: 'Any error' },
@@ -201,7 +202,9 @@ export const adminEn = {
 			auth_forbidden: 'Forbidden',
 			admin_role_change: 'Changed role',
 			admin_audit_settings: 'Changed audit settings',
-			admin_audit_pull: 'Pulled archive'
+			admin_audit_pull: 'Pulled archive',
+			mcp_call: 'MCP call',
+			api_call: 'Token API call'
 		}
 	},
 	archive: {
@@ -425,6 +428,7 @@ export const adminZh: typeof adminEn = {
 			data: '导入 / 导出',
 			settings: '设置',
 			admin: '系统管理',
+			integrations: 'Token API 与 MCP 调用',
 			other: '其他 API 调用'
 		},
 		statuses: { '2xx': '成功（2xx）', '3xx': '重定向（3xx）', '4xx': '客户端错误（4xx）', '5xx': '服务端错误（5xx）', error: '所有错误' },
@@ -471,7 +475,9 @@ export const adminZh: typeof adminEn = {
 			auth_forbidden: '禁止访问',
 			admin_role_change: '修改身份',
 			admin_audit_settings: '修改审计设置',
-			admin_audit_pull: '拉取归档'
+			admin_audit_pull: '拉取归档',
+			mcp_call: 'MCP 调用',
+			api_call: 'Token API 调用'
 		}
 	},
 	archive: {

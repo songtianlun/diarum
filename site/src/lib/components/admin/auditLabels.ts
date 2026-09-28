@@ -25,6 +25,7 @@ export const CATEGORIES: { id: string; key: string }[] = [
 	{ id: 'data', key: 'admin.audit.categories.data' },
 	{ id: 'settings,token,conversation', key: 'admin.audit.categories.settings' },
 	{ id: 'admin', key: 'admin.audit.categories.admin' },
+	{ id: 'api,mcp', key: 'admin.audit.categories.integrations' },
 	{ id: '-', key: 'admin.audit.categories.other' }
 ];
 
