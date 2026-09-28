@@ -1,16 +1,25 @@
 <script lang="ts">
 	export let src: string;
+	/** Tried when `src` fails, e.g. the original of a missing thumbnail. */
+	export let fallback = '';
 	export let alt = '';
 	export let eager = false;
 
 	let loaded = false;
 	let failed = false;
+	let requested = '';
 	let current = '';
 
-	$: if (src !== current) {
+	$: if (src !== requested) {
+		requested = src;
 		current = src;
 		loaded = false;
 		failed = false;
+	}
+
+	function handleError() {
+		if (fallback && current !== fallback) current = fallback;
+		else failed = true;
 	}
 
 	// Cached images can finish before the load listener is attached.
@@ -25,16 +34,16 @@
 			<path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.6-4.6a2 2 0 012.8 0L16 16m-2-2l1.6-1.6a2 2 0 012.8 0L20 14M4 4l16 16" />
 		</svg>
 	{:else}
-		{#key src}
+		{#key current}
 			<img
-				{src}
+				src={current}
 				{alt}
 				loading={eager ? 'eager' : 'lazy'}
 				decoding="async"
 				draggable="false"
 				use:checkComplete
 				on:load={() => (loaded = true)}
-				on:error={() => (failed = true)}
+				on:error={handleError}
 			/>
 		{/key}
 	{/if}

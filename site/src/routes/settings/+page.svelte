@@ -29,6 +29,7 @@
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
 	import { loadImageUploadSettings } from '$lib/stores/imageUpload';
+	import { loadDisplayQuality, saveDisplayQuality, refreshImageDisplay, type DisplayQuality } from '$lib/utils/imageDisplay';
 	import {
 		getWordStats,
 		getDailySeries,
@@ -840,7 +841,38 @@
 	});
 
 	// Image upload functions
+	// Image loading quality (saved on click, independent of the upload form)
+	const displayQualityOptions: { id: DisplayQuality; label: string; description: string }[] = [
+		{ id: 'th', label: 'Thumbnail', description: 'Fastest. Small previews, fine for quick browsing.' },
+		{ id: 'md', label: 'Medium', description: 'Recommended. Sharp on screen at a fraction of the size.' },
+		{ id: 'original', label: 'Original', description: 'Full resolution everywhere. Slowest to load.' }
+	];
+	let displayQuality: DisplayQuality = 'md';
+	let displayQualitySaving: DisplayQuality | null = null;
+	let displayQualityMessage: { ok: boolean; text: string } | null = null;
+	let displayQualityTimer: ReturnType<typeof setTimeout> | undefined;
+
+	async function selectDisplayQuality(quality: DisplayQuality) {
+		if (quality === displayQuality || displayQualitySaving) return;
+		const previous = displayQuality;
+		displayQuality = quality;
+		displayQualitySaving = quality;
+		displayQualityMessage = null;
+		try {
+			await saveDisplayQuality(quality);
+			displayQualityMessage = { ok: true, text: 'Saved' };
+		} catch (e) {
+			displayQuality = previous;
+			displayQualityMessage = { ok: false, text: e instanceof Error ? e.message : 'Failed to save' };
+		} finally {
+			displayQualitySaving = null;
+			clearTimeout(displayQualityTimer);
+			displayQualityTimer = setTimeout(() => (displayQualityMessage = null), 2000);
+		}
+	}
+
 	async function loadImageUploadSettingsLocal() {
+		loadDisplayQuality().then((quality) => (displayQuality = quality));
 		imageUploadSettingsLocal = await getImageUploadSettings();
 		originalImageUploadSettings = JSON.parse(JSON.stringify(imageUploadSettingsLocal));
 	}
@@ -891,6 +923,7 @@
 			imageUploadSettingsLocal = result.settings ?? imageUploadSettingsLocal;
 			originalImageUploadSettings = JSON.parse(JSON.stringify(imageUploadSettingsLocal));
 			await loadImageUploadSettings();
+			void refreshImageDisplay();
 			imageUploadSuccess = 'Image upload settings saved successfully';
 			setTimeout(() => imageUploadSuccess = '', 3000);
 		} catch (e) {
@@ -2406,6 +2439,49 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							</span>
 						{/if}
 					</div>
+				</div>
+
+				<!-- Image Loading Section -->
+				<div id="image-loading" class="mt-6 bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
+					<div class="flex items-center justify-between gap-3 mb-2">
+						<h2 class="text-lg font-semibold text-foreground">Image Loading</h2>
+						{#if displayQualityMessage}
+							<span class="text-sm flex items-center gap-1 animate-fade-in {displayQualityMessage.ok ? 'text-green-600' : 'text-destructive'}">
+								{#if displayQualityMessage.ok}
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+								{/if}
+								{displayQualityMessage.text}
+							</span>
+						{/if}
+					</div>
+					<p class="text-sm text-muted-foreground mb-5">
+						Which size diary images load at first. Tap an image to view the original. Your entries always keep the original image. If a smaller version isn't available, or the original is already cached, the original is shown.
+					</p>
+					<div class="grid grid-cols-1 sm:grid-cols-3 gap-3" role="radiogroup" aria-label="Default image quality">
+						{#each displayQualityOptions as option}
+							<button
+								type="button"
+								role="radio"
+								aria-checked={displayQuality === option.id}
+								on:click={() => selectDisplayQuality(option.id)}
+								class="relative text-left rounded-xl border p-4 transition-colors duration-200 {displayQuality === option.id ? 'border-primary bg-primary/5' : 'border-border/50 hover:border-border'}"
+							>
+								<div class="flex items-center gap-2 font-medium text-foreground">
+									{option.label}
+									{#if option.id === 'md'}
+										<span class="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">Default</span>
+									{/if}
+									{#if displayQualitySaving === option.id}
+										<span class="ml-auto w-3.5 h-3.5 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"></span>
+									{/if}
+								</div>
+								<div class="text-sm text-muted-foreground mt-1">{option.description}</div>
+							</button>
+						{/each}
+					</div>
+					<p class="text-xs text-muted-foreground mt-4">
+						Built-in images get thumbnail and medium copies automatically in the background after upload. Older images get them the first time they are viewed. For Chevereto, its own <code>.th</code> and <code>.md</code> copies are used.
+					</p>
 				</div>
 				{/if}
 

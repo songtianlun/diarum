@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
+	"github.com/songtianlun/diarum/internal/imaging"
 	"github.com/songtianlun/diarum/internal/store"
 )
 
@@ -82,6 +84,7 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			_ = s.DeleteMedia(media.ID, user.ID)
 			return serverError("Failed to save media file", err)
 		}
+		s.QueueMediaVariants(media)
 		recordAudit(c, audit.ActionMediaUpload, media.Name, map[string]any{"id": media.ID, "file": media.File, "size": header.Size, "diary": media.Diary})
 		return c.JSON(http.StatusOK, media)
 	})
@@ -117,42 +120,82 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		return c.JSON(http.StatusOK, map[string]any{"success": true})
 	})
 
+	// Files are served by media ID. Besides the original, the thumbnail and
+	// medium variants are reachable Chevereto-style (photo.th.jpg,
+	// photo.md.jpg). A variant that does not exist yet is built in the
+	// background while the original is served in its place, uncached, so
+	// images uploaded before variants existed catch up on first view.
 	e.GET("/api/v1/files/media/:id/:filename", func(c echo.Context) error {
 		media, err := s.GetMedia(c.PathParam("id"), "")
-		if err != nil || media.File != c.PathParam("filename") {
-			return notFound("File not found")
-		}
-		path := s.MediaFilePath(media)
-		if _, err := os.Stat(path); err == nil {
-			return c.File(path)
-		}
-
-		reader, err := s.OpenMediaFile(media)
 		if err != nil {
 			return notFound("File not found")
 		}
-		defer reader.Close()
-
-		head := make([]byte, 512)
-		n, readErr := reader.Read(head)
-		if readErr != nil && readErr != io.EOF {
-			return serverError("Failed to read media file", readErr)
+		filename := c.PathParam("filename")
+		if filename == media.File {
+			return serveOriginal(c, s, media)
 		}
-
-		contentType := http.DetectContentType(head[:n])
-		if guessed := mime.TypeByExtension(filepath.Ext(media.File)); guessed != "" {
-			contentType = guessed
+		variant, ok := imaging.ParseVariant(media.File, filename)
+		if !ok {
+			return notFound("File not found")
 		}
-		c.Response().Header().Set(echo.HeaderContentType, contentType)
-		c.Response().WriteHeader(http.StatusOK)
-		if n > 0 {
-			if _, err := c.Response().Write(head[:n]); err != nil {
+		if imaging.Supported(media.File) {
+			err := serveMediaObject(c, s, store.VariantMedia(media, variant))
+			if !errors.Is(err, errMediaObjectMissing) {
 				return err
 			}
+			s.QueueMediaVariants(media)
 		}
-		_, err = io.Copy(c.Response().Writer, reader)
-		return err
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		return serveOriginal(c, s, media)
 	})
+}
+
+func serveOriginal(c echo.Context, s *store.Store, media *store.Media) error {
+	err := serveMediaObject(c, s, media)
+	if errors.Is(err, errMediaObjectMissing) {
+		return notFound("File not found")
+	}
+	return err
+}
+
+var errMediaObjectMissing = errors.New("media object missing")
+
+// serveMediaObject streams a stored media file, from disk or object storage.
+// It returns errMediaObjectMissing, without writing, when the file is absent.
+func serveMediaObject(c echo.Context, s *store.Store, media *store.Media) error {
+	path := s.MediaFilePath(media)
+	if _, err := os.Stat(path); err == nil {
+		return c.File(path)
+	}
+
+	reader, err := s.OpenMediaFile(media)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errMediaObjectMissing
+		}
+		return notFound("File not found")
+	}
+	defer reader.Close()
+
+	head := make([]byte, 512)
+	n, readErr := reader.Read(head)
+	if readErr != nil && readErr != io.EOF {
+		return serverError("Failed to read media file", readErr)
+	}
+
+	contentType := http.DetectContentType(head[:n])
+	if guessed := mime.TypeByExtension(filepath.Ext(media.File)); guessed != "" {
+		contentType = guessed
+	}
+	c.Response().Header().Set(echo.HeaderContentType, contentType)
+	c.Response().WriteHeader(http.StatusOK)
+	if n > 0 {
+		if _, err := c.Response().Write(head[:n]); err != nil {
+			return err
+		}
+	}
+	_, err = io.Copy(c.Response().Writer, reader)
+	return err
 }
 
 func parsePositiveInt(raw string, fallback int) int {

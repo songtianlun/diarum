@@ -15,7 +15,7 @@
 	export let onSelect: (images: ImageInsert[]) => void;
 	export let onClose: () => void;
 
-	const feed: GalleryFeed = createGalleryFeed({ pageSize: 48, thumbSize: '200x200' });
+	const feed: GalleryFeed = createGalleryFeed({ pageSize: 48 });
 	let searchQuery = '';
 	let contentEl: HTMLDivElement;
 	let searchInput: HTMLInputElement;
@@ -144,7 +144,7 @@
 								title="{item.title} — double-click to insert"
 								aria-pressed={!!order}
 							>
-								<MediaThumb src={item.thumb} alt={item.title} />
+								<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} />
 								<span class="check" aria-hidden="true">
 									{#if order}{order}{/if}
 								</span>

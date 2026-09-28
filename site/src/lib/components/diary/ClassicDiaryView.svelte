@@ -526,6 +526,8 @@
 	{date}
 	{content}
 	selectedContent={shareSelectedContent}
+	mood={selectedMood}
+	weather={selectedWeather}
 	onClose={() => showShareModal = false}
 />
 

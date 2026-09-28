@@ -26,7 +26,11 @@ export function closeLightbox() {
 }
 
 function imageItem(img: HTMLImageElement): LightboxItem {
-	return { src: img.currentSrc || img.src, alt: img.alt || undefined };
+	// Entries may show a lighter variant; the lightbox always wants the
+	// original, with what is on screen as its instant placeholder.
+	const shown = img.currentSrc || img.src;
+	const original = img.dataset.fullSrc ? new URL(img.dataset.fullSrc, window.location.href).toString() : shown;
+	return { src: original, thumb: original !== shown ? shown : undefined, alt: img.alt || undefined };
 }
 
 /**

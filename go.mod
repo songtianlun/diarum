@@ -16,6 +16,7 @@ require (
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/crypto v0.36.0
+	golang.org/x/image v0.25.0
 	modernc.org/sqlite v1.36.1
 )
 

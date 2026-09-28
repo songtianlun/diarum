@@ -916,6 +916,8 @@
 	{date}
 	{content}
 	selectedContent={shareSelectedContent}
+	mood={selectedMood}
+	weather={selectedWeather}
 	visualStyle="win95"
 	onClose={() => (showShareModal = false)}
 />

@@ -714,6 +714,8 @@
 	{date}
 	content={view.content}
 	selectedContent={shareSelectedContent}
+	mood={view.mood}
+	weather={view.weather}
 	onClose={() => (showShareModal = false)}
 />
 

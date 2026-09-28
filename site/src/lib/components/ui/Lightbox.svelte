@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import type { LightboxItem } from '$lib/stores/lightbox';
+	import { markOriginalLoaded } from '$lib/utils/imageDisplay';
 
 	export let items: LightboxItem[] = [];
 	export let index = 0;
@@ -304,8 +305,9 @@
 			{#if !loaded && !failed}
 				{#if item.thumb}
 					<img class="lightbox-thumb" src={item.thumb} alt="" aria-hidden="true" />
+				{:else}
+					<div class="lightbox-spinner" aria-label="Loading"></div>
 				{/if}
-				<div class="lightbox-spinner" aria-label="Loading"></div>
 			{/if}
 			{#if failed}
 				<div class="lightbox-error">
@@ -320,10 +322,14 @@
 					alt={item.alt || item.title || ''}
 					class="lightbox-image"
 					class:loaded
+					class:over-thumb={!!item.thumb}
 					class:animating
 					style="transform: translate3d({tx + swipe.dx}px, {ty + swipe.dy}px, 0) scale({scale});"
 					draggable="false"
-					on:load={() => (loaded = true)}
+					on:load={() => {
+						loaded = true;
+						markOriginalLoaded(item.src);
+					}}
 					on:error={() => (failed = true)}
 				/>
 			{/key}
@@ -490,18 +496,23 @@
 		animation: lb-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.1);
 	}
 
+	/* Over a same-sized placeholder a plain cross-fade reads as a sharpen. */
+	.lightbox-image.loaded.over-thumb {
+		animation: none;
+	}
+
 	.lightbox-image.animating {
 		transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 	}
 
+	/* The smaller image already on screen stands in until the original loads,
+	   filling the same box so the swap is seamless. */
 	.lightbox-thumb {
 		position: absolute;
-		max-width: calc(100% - 32px);
-		max-height: calc(100% - 24px);
+		inset: 8px 16px 16px;
+		width: calc(100% - 32px);
+		height: calc(100% - 24px);
 		object-fit: contain;
-		filter: blur(12px);
-		opacity: 0.55;
-		transform: scale(1.02);
 	}
 
 	.lightbox-spinner {
@@ -602,7 +613,12 @@
 		.lightbox-info {
 			animation: none;
 		}
-		.lightbox-image.animating {
+		/* Over a same-sized placeholder a plain cross-fade reads as a sharpen. */
+	.lightbox-image.loaded.over-thumb {
+		animation: none;
+	}
+
+	.lightbox-image.animating {
 			transition: opacity 0.15s ease;
 		}
 	}

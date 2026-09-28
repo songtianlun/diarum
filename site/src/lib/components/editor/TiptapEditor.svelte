@@ -14,7 +14,7 @@
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 	import Focus from '@tiptap/extension-focus';
 	import { common, createLowlight } from 'lowlight';
-	import { DOMSerializer } from '@tiptap/pm/model';
+	import { DOMSerializer, type Fragment } from '@tiptap/pm/model';
 	import { validateImageFile } from '$lib/utils/uploadImage';
 	import { SlashCommands } from './SlashCommands';
 	import { getSuggestionItems, setImageUploadTrigger, setGalleryPickerTrigger, setImageUrlTrigger } from './commands';
@@ -220,18 +220,28 @@
 		}
 	}
 
+	// Serializing into the live document creates real <img> elements, which
+	// the browser starts downloading at full size (editor.getHTML() does this
+	// on every change). An inert document never loads resources.
+	let inertDocument: Document | null = null;
+	function serializeHtml(content: Fragment): string {
+		if (!editor) return '';
+		inertDocument ??= document.implementation.createHTMLDocument('');
+		const container = inertDocument.createElement('div');
+		container.appendChild(DOMSerializer.fromSchema(editor.schema).serializeFragment(content, { document: inertDocument }));
+		return container.innerHTML;
+	}
+
+	function currentHtml(): string {
+		return editor ? serializeHtml(editor.state.doc.content) : '';
+	}
+
 	// Get HTML of current selection
 	function getSelectionHtml(): string {
 		if (!editor) return '';
 		const { from, to, empty } = editor.state.selection;
 		if (empty) return '';
-		const { schema, doc } = editor.state;
-		const slice = doc.slice(from, to);
-		const div = document.createElement('div');
-		const serializer = DOMSerializer.fromSchema(schema);
-		const fragment = serializer.serializeFragment(slice.content);
-		div.appendChild(fragment);
-		return div.innerHTML;
+		return serializeHtml(editor.state.doc.slice(from, to).content);
 	}
 
 	// Update add button position based on cursor
@@ -318,7 +328,10 @@
 					},
 				}),
 			],
-			content,
+			// Content is loaded right after creation instead: TipTap's first render
+			// happens before node views are registered and would create plain
+			// <img> tags, downloading every original image at full size.
+			content: '',
 			editorProps: {
 				handlePaste,
 				handleDrop,
@@ -327,7 +340,7 @@
 				},
 			},
 			onUpdate: ({ editor }) => {
-				const html = stripPendingImages(editor.getHTML());
+				const html = stripPendingImages(currentHtml());
 				if (html === lastEmitted) return;
 				lastEmitted = html;
 				onChange(html);
@@ -345,6 +358,9 @@
 				isFocused = false;
 			},
 		});
+
+		// Loaded outside undo history, so undo can never empty the entry.
+		editor.chain().setMeta('addToHistory', false).setContent(content, false).run();
 
 		// When the user deselects outside the editor, Tiptap's onTransaction
 		// doesn't fire, so we rely on the native selectionchange event to clear.
@@ -385,7 +401,7 @@
 	function syncExternalContent(next: string) {
 		if (!editor) return;
 		lastEmitted = next;
-		if (stripPendingImages(editor.getHTML()) === next) return;
+		if (stripPendingImages(currentHtml()) === next) return;
 		// In-flight uploads belong to the entry being replaced.
 		uploadQueue.clear();
 		editor.commands.setContent(next, false);

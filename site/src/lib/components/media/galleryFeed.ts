@@ -1,10 +1,12 @@
 import { writable, type Readable } from 'svelte/store';
 import { fetchMediaPage, getMediaFileUrl, type MediaWithDiary } from '$lib/api/media';
+import { variantUrl } from '$lib/utils/imageDisplay';
 
 export interface GalleryItem {
 	key: string;
 	/** Full-size image, as inserted into entries. */
 	src: string;
+	/** Thumbnail variant for grids; falls back to `src` if it fails. */
 	thumb: string;
 	title: string;
 	/** Local calendar day (YYYY-MM-DD) or '' when unknown. */
@@ -41,11 +43,12 @@ export function localDay(timestamp: string | undefined): string {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-function fromMedia(media: MediaWithDiary, thumbSize: string): GalleryItem {
+function fromMedia(media: MediaWithDiary): GalleryItem {
+	const src = getMediaFileUrl(media);
 	return {
 		key: media.id ?? media.file ?? '',
-		src: getMediaFileUrl(media),
-		thumb: getMediaFileUrl(media, thumbSize),
+		src,
+		thumb: variantUrl(src, 'th') ?? src,
 		title: media.name || media.alt || 'Image',
 		date: localDay(media.created),
 		media
@@ -56,9 +59,8 @@ function fromMedia(media: MediaWithDiary, thumbSize: string): GalleryItem {
  * Paged, append-only list of the built-in media library. Responses that
  * arrive after a reload or destroy are discarded.
  */
-export function createGalleryFeed(options: { pageSize?: number; thumbSize?: string } = {}): GalleryFeed {
+export function createGalleryFeed(options: { pageSize?: number } = {}): GalleryFeed {
 	const pageSize = options.pageSize ?? 30;
-	const thumbSize = options.thumbSize ?? '300x300';
 	const initialState = (): GalleryState => ({
 		items: [],
 		loading: false,
@@ -88,7 +90,7 @@ export function createGalleryFeed(options: { pageSize?: number; thumbSize?: stri
 			const result = await fetchMediaPage(nextPage, pageSize, controller.signal);
 			if (current !== generation) return;
 			const seen = new Set(state.items.map((item) => item.key));
-			const fresh = result.items.map((media) => fromMedia(media, thumbSize)).filter((item) => !seen.has(item.key));
+			const fresh = result.items.map((media) => fromMedia(media)).filter((item) => !seen.has(item.key));
 			set({
 				items: [...state.items, ...fresh],
 				hasMore: nextPage < result.totalPages,

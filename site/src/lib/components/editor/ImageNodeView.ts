@@ -1,6 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core';
 import type { UploadQueue, UploadState } from './uploadQueue';
 import { openLightboxFor } from '$lib/stores/lightbox';
+import { displaySrcSync, resolveDisplaySrc, markOriginalLoaded, noteVariantFailed } from '$lib/utils/imageDisplay';
 
 export interface ImageOptions {
 	inline: boolean;
@@ -137,23 +138,56 @@ export const ImageExtension = Node.create<ImageOptions>({
 				}
 			};
 
-			// Final images: fade in once loaded, with a skeleton until then.
-			const showImage = (src: string, fromPlaceholder: boolean) => {
-				wrapper.classList.remove('is-error');
+			// The original URL the element currently shows (as itself or a variant).
+			let shownOriginal: string | null = null;
+			let loadToken = 0;
+			let skeletonTimer: ReturnType<typeof setTimeout> | undefined;
+
+			// Final images load at the configured display size (falling back to
+			// the original), fading in; a skeleton appears only if loading is slow,
+			// so cached and fast images never flash a placeholder.
+			const showImage = (original: string, fromPlaceholder: boolean) => {
+				const token = ++loadToken;
+				shownOriginal = original;
+				img.dataset.fullSrc = original;
+				wrapper.classList.remove('is-error', 'is-loading');
+				clearTimeout(skeletonTimer);
 				if (fromPlaceholder) {
 					// The upload queue preloaded this URL, so swapping is seamless.
-					img.src = src;
+					img.src = original;
+					markOriginalLoaded(original);
 					return;
 				}
-				if (img.getAttribute('src') === src && img.complete && img.naturalWidth > 0) return;
-				wrapper.classList.add('is-loading');
-				img.onload = () => wrapper.classList.remove('is-loading', 'is-error');
-				img.onerror = () => {
-					wrapper.classList.remove('is-loading');
-					wrapper.classList.add('is-error');
+
+				const load = (src: string) => {
+					if (token !== loadToken) return;
+					img.onload = () => {
+						if (token !== loadToken) return;
+						clearTimeout(skeletonTimer);
+						wrapper.classList.remove('is-loading', 'is-error');
+						if (src === original) markOriginalLoaded(original);
+					};
+					img.onerror = () => {
+						if (token !== loadToken) return;
+						if (src !== original) {
+							noteVariantFailed(src, original);
+							load(original);
+							return;
+						}
+						clearTimeout(skeletonTimer);
+						wrapper.classList.remove('is-loading');
+						wrapper.classList.add('is-error');
+					};
+					img.src = src;
+					if (img.complete && img.naturalWidth > 0) return;
+					skeletonTimer = setTimeout(() => {
+						if (token === loadToken && !(img.complete && img.naturalWidth > 0)) wrapper.classList.add('is-loading');
+					}, 150);
 				};
-				img.src = src;
-				if (img.complete && img.naturalWidth > 0) wrapper.classList.remove('is-loading');
+
+				const immediate = displaySrcSync(original);
+				if (immediate === original) load(original);
+				else void resolveDisplaySrc(original).then(load);
 			};
 
 			const tools = el('div', 'image-tools');
@@ -330,11 +364,12 @@ export const ImageExtension = Node.create<ImageOptions>({
 						buildOverlay(pendingId);
 					}
 					if (img.getAttribute('src') !== next.attrs.src) img.src = next.attrs.src;
+					shownOriginal = null;
 					return;
 				}
 
 				if (wasPending) clearOverlay(true);
-				if (next.attrs.src && img.getAttribute('src') !== next.attrs.src) {
+				if (next.attrs.src && shownOriginal !== next.attrs.src) {
 					showImage(next.attrs.src, wasPending);
 				}
 			};
@@ -359,6 +394,8 @@ export const ImageExtension = Node.create<ImageOptions>({
 				// Our own class/overlay changes must not make ProseMirror redraw the node.
 				ignoreMutation: (mutation) => mutation.type !== 'selection',
 				destroy: () => {
+					loadToken++;
+					clearTimeout(skeletonTimer);
 					urlEditor?.remove();
 					unsubscribe?.();
 					unsubscribe = null;
