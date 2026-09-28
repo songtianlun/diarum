@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math"
 
-	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/store"
 )
 
@@ -80,9 +79,6 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"diary.weather_options": {Type: "json", Default: []string{"☀️", "⛅", "☁️", "🌧️", "⛈️", "🌫️", "❄️", "🌬️"}, Encrypted: false},
 	// How many history snapshots each diary entry keeps.
 	store.SettingDiaryMaxSnapshots: {Type: "int", Default: store.DefaultDiarySnapshots, Min: store.MinDiarySnapshots, Max: store.MaxDiarySnapshots},
-
-	// How many days of audit logs each user keeps.
-	audit.SettingRetentionDays: {Type: "int", Default: audit.DefaultRetentionDays, Min: audit.MinRetentionDays, Max: audit.MaxRetentionDays},
 
 	// General app preferences
 	// homepage: "today" (open today's diary entry) or "overview" (open the /diary calendar overview)

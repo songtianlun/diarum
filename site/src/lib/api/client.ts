@@ -4,6 +4,8 @@ export interface User {
     id: string;
     email: string;
     username: string;
+    /** Account role; only admins can open the admin console. */
+    role?: 'user' | 'admin';
     created: string;
     updated: string;
 }

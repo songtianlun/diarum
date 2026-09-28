@@ -28,9 +28,13 @@ func RegisterAuthRoutes(e *echo.Echo, store *store.Store, authService *auth.Serv
 
 		user, err := store.GetUserByIdentity(body.UsernameOrEmail)
 		if err != nil || !authService.VerifyPassword(user.PasswordHash, body.Password) {
-			// Only attempts on a real account land in that account's trail.
+			// Failed attempts are recorded with the identity tried, whether or
+			// not it exists, so guessing and credential stuffing stand out.
+			detail := map[string]any{"identity": truncate(strings.TrimSpace(body.UsernameOrEmail), 100), "known": err == nil}
 			if err == nil {
-				recordAuditFor(c, user.ID, user.Username, audit.SourceWeb, audit.ActionAuthLoginFail, "", nil)
+				recordAuditFor(c, user.ID, user.Username, audit.SourceWeb, audit.ActionAuthLoginFail, "", detail)
+			} else {
+				recordAuditFor(c, "", "", audit.SourceWeb, audit.ActionAuthLoginFail, "", detail)
 			}
 			return unauthorized("Invalid login credentials")
 		}
@@ -46,6 +50,18 @@ func RegisterAuthRoutes(e *echo.Echo, store *store.Store, authService *auth.Serv
 			"record": user,
 		})
 	})
+
+	// Sessions are stateless tokens, so signing out only needs recording;
+	// the client discards its token.
+	e.POST("/api/v1/auth/logout", func(c echo.Context) error {
+		recordAudit(c, audit.ActionAuthLogout, "", nil)
+		return c.NoContent(http.StatusNoContent)
+	}, authService.Middleware)
+
+	// The signed-in account, including its role.
+	e.GET("/api/v1/auth/me", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, auth.CurrentUser(c))
+	}, authService.Middleware)
 
 	e.POST("/api/v1/auth/register", func(c echo.Context) error {
 		var body struct {
@@ -73,9 +89,10 @@ func RegisterAuthRoutes(e *echo.Echo, store *store.Store, authService *auth.Serv
 		}
 		user, err := store.CreateUser(body.Username, body.Email, hash)
 		if err != nil {
+			recordAuditFor(c, "", "", audit.SourceWeb, audit.ActionAuthRegister, truncate(body.Username, 100), map[string]any{"failed": true})
 			return badRequest("Failed to create user", err)
 		}
-		recordAuditFor(c, user.ID, user.Username, audit.SourceWeb, audit.ActionAuthRegister, "", nil)
+		recordAuditFor(c, user.ID, user.Username, audit.SourceWeb, audit.ActionAuthRegister, user.Username, map[string]any{"role": user.Role})
 
 		return c.JSON(http.StatusOK, user)
 	})

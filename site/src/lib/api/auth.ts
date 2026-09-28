@@ -1,4 +1,4 @@
-import { pb } from './client';
+import { pb, type User } from './client';
 
 export interface LoginCredentials {
 	usernameOrEmail: string;
@@ -82,10 +82,37 @@ export async function register(data: RegisterData) {
 }
 
 /**
- * Logout current user
+ * Logout current user. The server is told first so the sign-out is audited;
+ * the local session is cleared regardless of whether that call succeeds.
  */
-export function logout() {
+export async function logout() {
+	const token = pb.authStore.token;
+	if (token) {
+		try {
+			await fetch('/api/v1/auth/logout', {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${token}` }
+			});
+		} catch {
+			// Offline or server gone: signing out locally still works.
+		}
+	}
 	pb.authStore.clear();
+}
+
+/**
+ * Refresh the signed-in account (including its role) from the server and
+ * keep the stored copy in sync. Returns null when signed out.
+ */
+export async function fetchCurrentUser(): Promise<User | null> {
+	if (!pb.authStore.token) return null;
+	const response = await fetch('/api/v1/auth/me', {
+		headers: { Authorization: `Bearer ${pb.authStore.token}` }
+	});
+	if (!response.ok) return null;
+	const user = (await response.json()) as User;
+	if (pb.authStore.token) pb.authStore.save(pb.authStore.token, user);
+	return user;
 }
 
 /**

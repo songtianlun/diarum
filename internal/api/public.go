@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/store"
 )
@@ -26,6 +27,7 @@ func RegisterPublicRoutes(e *echo.Echo, s *store.Store) {
 		if err != nil || userId == "" {
 			return unauthorized("Invalid API token")
 		}
+		auditIdentify(c, userId, "", audit.SourceAPI)
 
 		date := c.QueryParam("date")
 		start := c.QueryParam("start")
@@ -36,6 +38,7 @@ func RegisterPublicRoutes(e *echo.Echo, s *store.Store) {
 			if err != nil {
 				return c.JSON(http.StatusOK, map[string]any{"date": date, "content": "", "exists": false})
 			}
+			recordAuditFor(c, userId, "", audit.SourceAPI, audit.ActionDiaryView, date, diaryAuditDetail(diary))
 			return c.JSON(http.StatusOK, diaryResponse(diary, date, true))
 		}
 
@@ -48,6 +51,7 @@ func RegisterPublicRoutes(e *echo.Echo, s *store.Store) {
 			for _, diary := range diaries {
 				results = append(results, map[string]any{"id": diary.ID, "date": store.DateOnly(diary.Date), "content": diary.Content, "mood": diary.Mood, "weather": diary.Weather})
 			}
+			recordAuditFor(c, userId, "", audit.SourceAPI, audit.ActionDiaryView, start+".."+end, map[string]any{"dates": diaryDates(diaries)})
 			return c.JSON(http.StatusOK, map[string]any{"diaries": results, "total": len(results)})
 		}
 

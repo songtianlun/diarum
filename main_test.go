@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -291,32 +292,101 @@ func TestAwaitStopSignal(t *testing.T) {
 		t.Fatalf("expected interrupt, got %v", sig)
 	}
 	// The logger was closed by the signal: later entries are dropped, not written.
-	auditLog.Record(audit.Entry{User: "u1", Action: audit.ActionDiaryCreate})
+	auditLog.Record(audit.Entry{UserID: "u1", Action: audit.ActionDiaryCreate})
 
 	stop := flushAuditOnSignal(auditLog)
 	stop()
 }
 
-func TestAuditRetentionReadsUserSetting(t *testing.T) {
-	appStore, err := store.Open(t.TempDir())
+func TestUsersCommand(t *testing.T) {
+	dir := t.TempDir()
+	appStore, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = appStore.Close() })
-	user, err := appStore.CreateUser("audit", "audit@example.com", "hash")
+	first, err := appStore.CreateUser("alice", "alice@example.com", "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
-	retention := auditRetention(appStore)
-	if got := retention(user.ID); got != audit.DefaultRetentionDays {
-		t.Fatalf("default retention = %d", got)
+	second, err := appStore.CreateUser("bob", "bob@example.com", "hash")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for value, want := range map[int]int{30: 30, 9999: audit.MaxRetentionDays} {
-		if err := appStore.SetSetting(user.ID, audit.SettingRetentionDays, value, false); err != nil {
+	appStore.Close()
+	if first.Role != store.RoleAdmin || second.Role != store.RoleUser {
+		t.Fatalf("roles = %q, %q; want the first user to be admin", first.Role, second.Role)
+	}
+
+	var out bytes.Buffer
+	if err := run([]string{"users", "list", "--data-dir", dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "alice") || !strings.Contains(out.String(), "admin") || !strings.Contains(out.String(), "2 user(s)") {
+		t.Fatalf("unexpected list output:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := run([]string{"users", "set-role", "bob@example.com", "admin", "--data-dir", dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "bob: user -> admin") {
+		t.Fatalf("unexpected set-role output: %s", out.String())
+	}
+	out.Reset()
+	if err := run([]string{"users", "--data-dir", dir, "set-role", second.ID, "admin"}, &out); err == nil {
+		// Flags before the subcommand are not supported; the subcommand
+		// must come first.
+		t.Fatal("expected an error for a flag in place of the subcommand")
+	}
+	if err := run([]string{"users", "set-role", second.ID, "admin", "--data-dir", dir}, &out); err != nil || !strings.Contains(out.String(), "already admin") {
+		t.Fatalf("second promotion: err=%v out=%s", err, out.String())
+	}
+
+	out.Reset()
+	if err := run([]string{"users", "list", "--json", "--data-dir", dir}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var listed []store.UserSummary
+	if err := json.Unmarshal(out.Bytes(), &listed); err != nil || len(listed) != 2 || listed[1].Role != store.RoleAdmin {
+		t.Fatalf("json list = %v (%v)", listed, err)
+	}
+
+	// Demoting everyone leaves a hint to promote someone again.
+	out.Reset()
+	for _, name := range []string{"alice", "bob"} {
+		if err := run([]string{"users", "set-role", name, "user", "--data-dir", dir}, &out); err != nil {
 			t.Fatal(err)
 		}
-		if got := retention(user.ID); got != want {
-			t.Fatalf("retention for %d = %d, want %d", value, got, want)
+	}
+	if !strings.Contains(out.String(), "no admin left") {
+		t.Fatalf("missing no-admin hint: %s", out.String())
+	}
+
+	// Role changes are written to the system audit log.
+	logs, err := os.ReadDir(audit.Dir(dir))
+	if err != nil || len(logs) == 0 {
+		t.Fatalf("no audit log written: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(audit.Dir(dir), logs[0].Name()))
+	if err != nil || strings.Count(string(raw), audit.ActionAdminRole) != 3 {
+		t.Fatalf("audit log = %s (%v)", raw, err)
+	}
+
+	for _, args := range [][]string{
+		{"users"},
+		{"users", "nope"},
+		{"users", "list", "extra"},
+		{"users", "set-role", "alice"},
+		{"users", "set-role", "alice", "root", "--data-dir", dir},
+		{"users", "set-role", "nobody", "admin", "--data-dir", dir},
+		{"users", "list", "--bogus"},
+	} {
+		if err := run(args, io.Discard); err == nil {
+			t.Fatalf("expected error for %v", args)
 		}
+	}
+	out.Reset()
+	if err := run([]string{"help"}, &out); err != nil || !strings.Contains(out.String(), "users set-role") {
+		t.Fatalf("help: %v %s", err, out.String())
 	}
 }
