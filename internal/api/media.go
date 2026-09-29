@@ -5,9 +5,11 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -147,6 +149,29 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		}
 		c.Response().Header().Set("Cache-Control", "no-cache")
 		return serveOriginal(c, s, media)
+	})
+
+	// Entries written before PocketBase was removed embed PocketBase file URLs,
+	// e.g. /api/files/<collectionId>/<id>/<file> or, as the SDK built them for
+	// this app, /api/files/media/<collectionId>/<id>/<file>, often with a
+	// ?thumb= query. Media kept its record IDs through the migration, so
+	// redirect those to the current route instead of rewriting diary content.
+	e.GET("/api/files/*", func(c echo.Context) error {
+		parts := strings.Split(c.PathParam("*"), "/")
+		if len(parts) < 3 || len(parts) > 4 {
+			return notFound("File not found")
+		}
+		for _, collection := range parts[:len(parts)-2] {
+			if collection != s.MediaCollectionID && collection != store.DefaultMediaCollectionID {
+				return notFound("File not found")
+			}
+		}
+		id, filename := parts[len(parts)-2], parts[len(parts)-1]
+		if id == "" || filename == "" {
+			return notFound("File not found")
+		}
+		target := "/api/v1/files/media/" + url.PathEscape(id) + "/" + url.PathEscape(filename)
+		return c.Redirect(http.StatusMovedPermanently, target)
 	})
 }
 

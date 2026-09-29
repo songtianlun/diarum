@@ -7,9 +7,11 @@ import (
 
 func TestReferencedMediaIDs(t *testing.T) {
 	content := `<p>a</p><img src="/api/v1/files/media/abc123/one.png"><img src="https://x.test/api/v1/files/media/def456/two.png?thumb=1">` +
-		`<img src="/api/v1/files/media/abc123/one.png"><img src="https://img.example.com/images/2024/05/01/x.png">`
+		`<img src="/api/v1/files/media/abc123/one.png"><img src="https://img.example.com/images/2024/05/01/x.png">` +
+		`<img src="https://diarum.test/api/files/media/keh96zmpl3s9bzl/ghi789/old.png?thumb=undefined">` +
+		`<img src="/api/files/keh96zmpl3s9bzl/jkl012/older.png">`
 	got := ReferencedMediaIDs(content)
-	if !slices.Equal(got, []string{"abc123", "def456"}) {
+	if !slices.Equal(got, []string{"abc123", "def456", "ghi789", "jkl012"}) {
 		t.Fatalf("ReferencedMediaIDs = %#v", got)
 	}
 }
