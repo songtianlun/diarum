@@ -157,3 +157,26 @@ func TestImageDisplayQualityRoutes(t *testing.T) {
 		t.Fatalf("saved quality = %#v", payload)
 	}
 }
+
+func TestLegacyPocketBaseFileURLRedirects(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	RegisterMediaRoutes(e, s, authMiddlewareFor(user))
+	s.MediaCollectionID = "keh96zmpl3s9bzl"
+
+	for _, collection := range []string{"media/keh96zmpl3s9bzl", "keh96zmpl3s9bzl", store.DefaultMediaCollectionID} {
+		rec := performRequest(t, e, http.MethodGet, "/api/files/"+collection+"/t5of26zbp059kwo/image_6isNjx6PT6.png?thumb=undefined", nil, nil)
+		if rec.Code != http.StatusMovedPermanently {
+			t.Fatalf("%s: status = %d", collection, rec.Code)
+		}
+		if loc := rec.Header().Get("Location"); loc != "/api/v1/files/media/t5of26zbp059kwo/image_6isNjx6PT6.png" {
+			t.Fatalf("%s: Location = %q", collection, loc)
+		}
+	}
+	for _, path := range []string{"/api/files/users/abc/avatar.png", "/api/files/media/abc", "/api/files/media/a/b/c/d.png"} {
+		if rec := performRequest(t, e, http.MethodGet, path, nil, nil); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d", path, rec.Code)
+		}
+	}
+}

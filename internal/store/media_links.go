@@ -6,8 +6,9 @@ import (
 )
 
 // mediaReferencePattern matches the built-in media file URLs the editor
-// inserts, capturing the media ID.
-var mediaReferencePattern = regexp.MustCompile(`/api/v1/files/media/([A-Za-z0-9_-]+)/`)
+// inserts, capturing the media ID. Legacy PocketBase URLs from older entries
+// (/api/files/[media/]<collectionId>/<id>/...) match too.
+var mediaReferencePattern = regexp.MustCompile(`/api/(?:v1/files/media|files/(?:media/)?[A-Za-z0-9_]+)/([A-Za-z0-9_-]+)/`)
 
 // ReferencedMediaIDs returns the distinct built-in media IDs referenced by the
 // given diary HTML, in order of first appearance.
