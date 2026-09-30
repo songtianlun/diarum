@@ -104,8 +104,10 @@ func (s *Store) saveDiary(owner, date, content, mood, weather string, forceSnaps
 					return err
 				}
 			}
-			_, err = tx.Exec(`UPDATE diaries SET content = ?, mood = ?, weather = ?, updated = ? WHERE id = ? AND owner = ?`, content, mood, weather, nowString(), existing.ID, owner)
-			return err
+			if _, err = tx.Exec(`UPDATE diaries SET content = ?, mood = ?, weather = ?, updated = ? WHERE id = ? AND owner = ?`, content, mood, weather, nowString(), existing.ID, owner); err != nil {
+				return err
+			}
+			return replaceDiaryImages(tx, owner, existing.ID, existing.Date, content)
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
@@ -115,8 +117,10 @@ func (s *Store) saveDiary(owner, date, content, mood, weather string, forceSnaps
 		}
 		created = true
 		now := nowString()
-		_, err = tx.Exec(`INSERT INTO diaries(content, created, date, id, mood, owner, updated, weather, tags) VALUES(?, ?, ?, ?, ?, ?, ?, ?, '[]')`, content, now, date+" 00:00:00.000Z", id, mood, owner, now, weather)
-		return err
+		if _, err = tx.Exec(`INSERT INTO diaries(content, created, date, id, mood, owner, updated, weather, tags) VALUES(?, ?, ?, ?, ?, ?, ?, ?, '[]')`, content, now, date+" 00:00:00.000Z", id, mood, owner, now, weather); err != nil {
+			return err
+		}
+		return replaceDiaryImages(tx, owner, id, date, content)
 	})
 	if err != nil {
 		return nil, created, err

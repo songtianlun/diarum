@@ -73,8 +73,28 @@ func migrateMediaSchema(db *sql.DB) error {
 			return err
 		}
 	}
-	_, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_media_owner_deleted ON media(owner, deleted)`)
-	return err
+	statements := []string{
+		`CREATE INDEX IF NOT EXISTS idx_media_owner_deleted ON media(owner, deleted)`,
+		// The images each diary entry shows, rebuilt whenever it is saved:
+		// stored images by media ID, external ones by URL.
+		`CREATE TABLE IF NOT EXISTS diary_images (
+			owner TEXT NOT NULL,
+			diary TEXT NOT NULL,
+			diary_date TEXT DEFAULT '' NOT NULL,
+			url TEXT NOT NULL,
+			media TEXT DEFAULT '' NOT NULL,
+			position INTEGER DEFAULT 0 NOT NULL,
+			PRIMARY KEY(diary, url),
+			FOREIGN KEY(diary) REFERENCES diaries(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_diary_images_owner_media ON diary_images(owner, media, url)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // mediaDate turns a diary date into an image date: the same day at midnight.
@@ -238,6 +258,7 @@ func (s *Store) PurgeMedia(id, owner string) (*Media, error) {
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return media, ErrMediaBusy
 	}
+	s.forgetPublicURLs(media)
 	return media, nil
 }
 
@@ -346,6 +367,9 @@ type MediaStats struct {
 	// waiting one was moved there.
 	Trash       int    `json:"trash"`
 	OldestTrash string `json:"oldestTrash"`
+	// External counts distinct images entries show that Diarum does not
+	// store (e.g. Chevereto); they are managed where they are hosted.
+	External int `json:"external"`
 }
 
 // MediaStats counts owner's images, by storage and trash state.
@@ -380,6 +404,11 @@ func (s *Store) MediaStats(owner string) (*MediaStats, error) {
 		return nil, err
 	}
 	stats.OldestTrash = oldest.String
+	external, err := s.CountExternalImages(owner)
+	if err != nil {
+		return nil, err
+	}
+	stats.External = external
 	return stats, nil
 }
 

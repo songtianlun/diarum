@@ -125,6 +125,50 @@ func RegisterMediaLibraryRoutes(e *echo.Echo, s *store.Store, authMiddleware ech
 		})
 	})
 
+	// The library timeline: images stored by Diarum plus external images
+	// (e.g. Chevereto) entries show, each once, by the image's own date.
+	// Only stored images (kind "media", managed) can be moved to the trash.
+	group.GET("/gallery", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		page := parsePositiveInt(c.QueryParam("page"), 1)
+		perPage := parsePositiveInt(c.QueryParam("perPage"), 50)
+		if perPage > 200 {
+			perPage = 200
+		}
+		items, total, err := s.ListGallery(user.ID, page, perPage)
+		if err != nil {
+			return serverError("Failed to fetch media", err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{
+			"page":       page,
+			"perPage":    perPage,
+			"totalItems": total,
+			"totalPages": store.TotalPages(total, perPage),
+			"items":      items,
+		})
+	})
+
+	// Moves several images to the trash at once, as DELETE /media/:id does
+	// for one.
+	group.POST("/trash", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		ids, err := bindMediaIDs(c)
+		if err != nil {
+			return err
+		}
+		result := newMediaBatchResult()
+		for _, id := range ids {
+			media, err := s.TrashMedia(id, user.ID, store.TrashInfo{By: user.Username, Reason: store.MediaReasonUser, Trigger: store.MediaTriggerManual})
+			if err != nil {
+				result.Failed[id] = failureMessage(err)
+				continue
+			}
+			result.Done = append(result.Done, id)
+			recordAudit(c, audit.ActionMediaTrash, media.Name, medialib.Detail(media, store.MediaTriggerManual, store.MediaReasonUser))
+		}
+		return c.JSON(http.StatusOK, result)
+	})
+
 	group.GET("/trash/ids", func(c echo.Context) error {
 		ids, err := s.TrashedMediaIDs(auth.CurrentUser(c).ID)
 		if err != nil {

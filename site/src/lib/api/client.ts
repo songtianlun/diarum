@@ -19,6 +19,16 @@ export interface Diary {
     owner: string;
     created?: string;
     updated?: string;
+    /** Images the entry shows, recorded when it was saved (each URL once). */
+    images?: DiaryImage[];
+}
+
+export interface DiaryImage {
+    url: string;
+    /** Set for images stored by Diarum (local or S3). */
+    mediaId?: string;
+    /** True for images Diarum stores and can delete; false for external ones (e.g. Chevereto). */
+    managed: boolean;
 }
 
 export interface Media {

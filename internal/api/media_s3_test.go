@@ -27,11 +27,12 @@ type fakeS3 struct {
 	mu      sync.Mutex
 	bucket  string
 	objects map[string][]byte
+	types   map[string]string
 }
 
 func newFakeS3(t *testing.T, bucket string) (*fakeS3, *httptest.Server) {
 	t.Helper()
-	f := &fakeS3{bucket: bucket, objects: map[string][]byte{}}
+	f := &fakeS3{bucket: bucket, objects: map[string][]byte{}, types: map[string]string{}}
 	server := httptest.NewServer(f)
 	t.Cleanup(server.Close)
 	return f, server
@@ -49,6 +50,7 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		body, _ := io.ReadAll(r.Body)
 		f.objects[key] = body
+		f.types[key] = r.Header.Get("Content-Type")
 		w.Header().Set("ETag", `"etag"`)
 	case http.MethodGet, http.MethodHead:
 		body, ok := f.objects[key]
@@ -146,10 +148,36 @@ func TestMediaLifecycleOnS3WithPrefix(t *testing.T) {
 			if got := bucket.keys(); !slices.Equal(got, want) {
 				t.Fatalf("objects = %v, want %v", got, want)
 			}
+			bucket.mu.Lock()
+			storedType := bucket.types[want[0]]
+			bucket.mu.Unlock()
+			if storedType != "image/jpeg" {
+				t.Fatalf("stored content type = %q", storedType)
+			}
 
 			url := "/api/v1/files/media/" + media.ID + "/photo.jpg"
 			if rec := performRequest(t, e, http.MethodGet, url, nil, nil); rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), original) || rec.Header().Get("Content-Type") != "image/jpeg" {
 				t.Fatalf("serve original = %d %q (%d bytes)", rec.Code, rec.Header().Get("Content-Type"), rec.Body.Len())
+			}
+
+			// With a public URL, browsers are sent straight to the bucket;
+			// ?direct=1 still streams through Diarum.
+			if err := s.SetSetting(user.ID, "image_upload.s3.public_url", "https://cdn.example.com", false); err != nil {
+				t.Fatal(err)
+			}
+			rec = performRequest(t, e, http.MethodGet, url, nil, nil)
+			if rec.Code != http.StatusFound || rec.Header().Get("Location") != "https://cdn.example.com/"+root+"photo.jpg" {
+				t.Fatalf("public redirect = %d %q", rec.Code, rec.Header().Get("Location"))
+			}
+			thumb := "/api/v1/files/media/" + media.ID + "/photo.th.jpg"
+			if rec := performRequest(t, e, http.MethodGet, thumb, nil, nil); rec.Code != http.StatusFound || rec.Header().Get("Location") != "https://cdn.example.com/"+root+"photo.th.jpg" {
+				t.Fatalf("variant redirect = %d %q", rec.Code, rec.Header().Get("Location"))
+			}
+			if rec := performRequest(t, e, http.MethodGet, url+"?direct=1", nil, nil); rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), original) {
+				t.Fatalf("direct = %d", rec.Code)
+			}
+			if err := s.SetSetting(user.ID, "image_upload.s3.public_url", "", false); err != nil {
+				t.Fatal(err)
 			}
 
 			// Moving the prefix keeps older objects reachable.

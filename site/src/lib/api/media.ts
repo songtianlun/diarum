@@ -4,6 +4,12 @@ export interface MediaWithDiary extends Media {
     expand?: {
         diary?: Diary[];
     };
+    /** On the library timeline: "media" (stored by Diarum) or "external". */
+    kind?: 'media' | 'external';
+    /** Whether Diarum stores the image, so it can be selected and deleted here. */
+    managed?: boolean;
+    /** The image address, for external images. */
+    url?: string;
 }
 
 export async function getAllMedia(page: number = 1, perPage: number = 50): Promise<{
@@ -34,6 +40,26 @@ export async function fetchMediaPage(page: number, perPage: number, signal?: Abo
     totalItems: number;
 }> {
     const response = await fetch(`/api/v1/media?page=${page}&perPage=${perPage}`, {
+        headers: { Authorization: `Bearer ${pb.authStore.token}` },
+        signal
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(result?.message || 'Failed to load media');
+    }
+    return { items: result.items || [], totalPages: result.totalPages || 0, totalItems: result.totalItems || 0 };
+}
+
+/**
+ * A page of the library timeline: images stored by Diarum plus external
+ * images (e.g. Chevereto) entries show, each once, by the image's own date.
+ */
+export async function fetchGalleryPage(page: number, perPage: number, signal?: AbortSignal): Promise<{
+    items: MediaWithDiary[];
+    totalPages: number;
+    totalItems: number;
+}> {
+    const response = await fetch(`/api/v1/media/gallery?page=${page}&perPage=${perPage}`, {
         headers: { Authorization: `Bearer ${pb.authStore.token}` },
         signal
     });
@@ -143,6 +169,8 @@ export interface MediaLibraryStats {
         linked: number;
         trash: number;
         oldestTrash: string;
+        /** External images (e.g. Chevereto) entries show; listed in the library but managed where hosted. */
+        external?: number;
     };
 }
 
@@ -188,6 +216,11 @@ async function batchMediaRequest(path: string, ids: string[], batchSize = 1000):
         Object.assign(merged.failed, result.failed || {});
     }
     return merged;
+}
+
+/** Moves stored images to the trash, like deleting them one by one. */
+export function trashMedia(ids: string[], batchSize?: number): Promise<MediaBatchResult> {
+    return batchMediaRequest('/trash', ids, batchSize);
 }
 
 export function restoreMedia(ids: string[], batchSize?: number): Promise<MediaBatchResult> {

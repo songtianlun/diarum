@@ -893,6 +893,21 @@
 	$: s3PrefixNormalized = s3Prefix.value;
 	$: s3PrefixError = s3Prefix.valid ? '' : $t('mediaLib.s3Prefix.invalid');
 
+	/** Mirrors the server's check of the public URL: "" or an http(s) URL with a host and no query or fragment. */
+	function normalizeS3PublicUrl(raw: string | undefined): { value: string; valid: boolean } {
+		const value = (raw ?? '').trim();
+		if (!value) return { value: '', valid: true };
+		try {
+			const url = new URL(value);
+			const valid = (url.protocol === 'http:' || url.protocol === 'https:') && !!url.host && !url.search && !url.hash && !url.username && value.length <= 500;
+			return { value: value.replace(/\/+$/, ''), valid };
+		} catch {
+			return { value, valid: false };
+		}
+	}
+	$: s3PublicUrl = normalizeS3PublicUrl(imageUploadSettingsLocal.s3.public_url);
+	$: s3PublicUrlError = s3PublicUrl.valid ? '' : $t('mediaLib.s3PublicUrl.invalid');
+
 	async function handleTestChevereto() {
 		if (!imageUploadSettingsLocal.chevereto.domain || !imageUploadSettingsLocal.chevereto.api_key) {
 			imageUploadError = $t('mediaLib.upload.cheveretoTestMissing');
@@ -923,6 +938,10 @@
 			}
 			if (!s3Prefix.valid) {
 				imageUploadError = s3PrefixError;
+				return;
+			}
+			if (!s3PublicUrl.valid) {
+				imageUploadError = s3PublicUrlError;
 				return;
 			}
 		}
@@ -2385,6 +2404,31 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									<p class="text-xs text-muted-foreground mt-1">
 										{$t('mediaLib.s3Prefix.hint')}
 										<span class="block mt-0.5 font-mono break-all">{$t('mediaLib.s3Prefix.preview', { path: `${s3PrefixNormalized ? s3PrefixNormalized + '/' : ''}media/<id>/<file>` })}</span>
+									</p>
+								{/if}
+							</div>
+							<div>
+								<label for="s3-public-url" class="block font-medium text-foreground mb-2">{$t('mediaLib.s3PublicUrl.label')}</label>
+								<input
+									id="s3-public-url"
+									type="url"
+									inputmode="url"
+									bind:value={imageUploadSettingsLocal.s3.public_url}
+									placeholder={$t('mediaLib.s3PublicUrl.placeholder')}
+									autocapitalize="off"
+									autocomplete="off"
+									spellcheck="false"
+									aria-invalid={s3PublicUrlError ? 'true' : undefined}
+									class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 {s3PublicUrlError ? 'ring-2 ring-rose-500/60 focus:ring-rose-500' : 'focus:ring-primary'}"
+								/>
+								{#if s3PublicUrlError}
+									<p class="text-xs text-rose-600 dark:text-rose-400 mt-1">{s3PublicUrlError}</p>
+								{:else}
+									<p class="text-xs text-muted-foreground mt-1">
+										{$t('mediaLib.s3PublicUrl.hint')}
+										{#if s3PublicUrl.value}
+											<span class="block mt-0.5 font-mono break-all">{$t('mediaLib.s3PublicUrl.preview', { url: `${s3PublicUrl.value}/${s3PrefixNormalized ? s3PrefixNormalized + '/' : ''}media/<id>/<file>` })}</span>
+										{/if}
 									</p>
 								{/if}
 							</div>

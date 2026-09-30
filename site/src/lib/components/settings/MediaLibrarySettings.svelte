@@ -199,6 +199,9 @@
 	{#if otherStorage}
 		<p class="text-xs text-muted-foreground mt-2">{$t('mediaLib.settings.stats.other', { detail: otherStorage })}</p>
 	{/if}
+	{#if stats?.stats.external}
+		<p class="text-xs text-muted-foreground mt-2">{$t('mediaLib.settings.stats.external', { count: stats.stats.external })}</p>
+	{/if}
 
 	<!-- Trash retention -->
 	<div class="pt-6 mt-6 border-t border-border/50">

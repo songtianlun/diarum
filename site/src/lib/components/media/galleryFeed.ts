@@ -12,6 +12,8 @@ export interface GalleryItem {
 	title: string;
 	/** The image's own day (YYYY-MM-DD): see imageDay. '' when unknown. */
 	date: string;
+	/** Stored by Diarum (local or S3): can be selected and deleted. External images (e.g. Chevereto) cannot. */
+	managed: boolean;
 	media: MediaWithDiary;
 }
 
@@ -56,9 +58,11 @@ export function imageDay(media: Pick<MediaWithDiary, 'date' | 'created'>): strin
 }
 
 function fromMedia(media: MediaWithDiary): GalleryItem {
-	const src = getMediaFileUrl(media);
+	const external = media.kind === 'external' && !!media.url;
+	const src = external ? media.url! : getMediaFileUrl(media);
 	return {
-		key: media.id ?? media.file ?? '',
+		key: external ? `ext:${media.url}` : media.id ?? media.file ?? '',
+		managed: !external,
 		src,
 		thumb: variantUrl(src, 'th') ?? src,
 		title: media.name || media.alt || 'Image',

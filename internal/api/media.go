@@ -141,12 +141,26 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return notFound("File not found")
 		}
 		filename := c.PathParam("filename")
+		// With a public URL for the S3 bucket, send the browser there instead
+		// of streaming through Diarum; ?direct=1 opts out (e.g. for exports
+		// that must read the bytes from this origin).
+		direct := c.QueryParam("direct") == "1"
 		if filename == media.File {
+			if !direct {
+				if target, ok := s.MediaPublicURL(media); ok {
+					return redirectToPublicURL(c, target)
+				}
+			}
 			return serveOriginal(c, s, media)
 		}
 		variant, ok := imaging.ParseVariant(media.File, filename)
 		if !ok {
 			return notFound("File not found")
+		}
+		if !direct && imaging.Supported(media.File) {
+			if target, ok := s.MediaPublicURL(store.VariantMedia(media, variant)); ok {
+				return redirectToPublicURL(c, target)
+			}
 		}
 		if imaging.Supported(media.File) {
 			err := serveMediaObject(c, s, store.VariantMedia(media, variant))
@@ -181,6 +195,14 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		target := "/api/v1/files/media/" + url.PathEscape(id) + "/" + url.PathEscape(filename)
 		return c.Redirect(http.StatusMovedPermanently, target)
 	})
+}
+
+// redirectToPublicURL sends the browser to the file's public address. The
+// redirect is cached for a while only, so changing the public URL takes
+// effect within the hour.
+func redirectToPublicURL(c echo.Context, target string) error {
+	c.Response().Header().Set("Cache-Control", "public, max-age=3600")
+	return c.Redirect(http.StatusFound, target)
 }
 
 // setImmutableCache lets browsers keep media for good: a media URL never

@@ -188,16 +188,40 @@ function isExternal(src: string): boolean {
 }
 
 /**
+ * Diarum's own image URLs may redirect to the S3 bucket's public URL, which
+ * usually sends no CORS headers. For exports they are read with ?direct=1,
+ * which always streams from this origin.
+ */
+function directMediaUrl(src: string): string | null {
+	try {
+		const url = new URL(src, location.href);
+		if (url.origin !== location.origin || !url.pathname.startsWith('/api/v1/files/media/')) return null;
+		url.searchParams.set('direct', '1');
+		return url.toString();
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Swaps every cross-origin image inside element for an inlined copy while fn
  * runs, then puts the original sources back.
  */
 async function withInlinedImages<T>(element: HTMLElement, fn: () => Promise<T>): Promise<T> {
-	const images = Array.from(element.querySelectorAll('img')).filter((img) => isExternal(img.currentSrc || img.src));
+	const images = Array.from(element.querySelectorAll('img')).filter((img) => {
+		const src = img.currentSrc || img.src;
+		return isExternal(src) || directMediaUrl(src) !== null;
+	});
 	const restore: Array<() => void> = [];
 	await Promise.all(
 		images.map(async (img) => {
+			const src = img.currentSrc || img.src;
+			const direct = directMediaUrl(src);
+			const inlined = direct ? await fetchAsDataUrl(direct) : await inlineExternalImage(src);
+			// Diarum's own image stays as is if it cannot be read; the export
+			// can still load it from this origin.
+			if (direct && !inlined) return;
 			const original = { src: img.getAttribute('src'), srcset: img.getAttribute('srcset') };
-			const inlined = await inlineExternalImage(img.currentSrc || img.src);
 			img.removeAttribute('srcset');
 			img.src = inlined ?? IMAGE_PLACEHOLDER;
 			if (img.decode) await img.decode().catch(() => undefined);

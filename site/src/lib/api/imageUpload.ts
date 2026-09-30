@@ -16,6 +16,8 @@ export interface ImageUploadSettings {
         force_path_style: boolean;
         /** Bucket folder for images; empty is the bucket root. */
         prefix: string;
+        /** Public base URL of the bucket root (CDN / custom domain); images are then loaded from there directly. */
+        public_url: string;
     };
     chevereto: {
         domain: string;
@@ -36,7 +38,8 @@ export const defaultImageUploadSettings: ImageUploadSettings = {
         access_key: '',
         secret: '',
         force_path_style: false,
-        prefix: ''
+        prefix: '',
+        public_url: ''
     },
     chevereto: {
         domain: '',

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,6 +59,9 @@ type Store struct {
 	// diaryWrites counts diary writes per owner (owner -> *atomic.Int64), so
 	// DiaryFingerprint changes even when two writes share a timestamp.
 	diaryWrites sync.Map
+	// publicKeys remembers which object key holds each S3 file (media ID +
+	// "/" + file name -> publicKeyEntry) for MediaPublicURL.
+	publicKeys sync.Map
 }
 
 type LegacyS3Config struct {
@@ -70,6 +74,9 @@ type LegacyS3Config struct {
 	ForcePathStyle bool   `json:"forcePathStyle"`
 	// Prefix is the folder media objects are stored under; "" is the root.
 	Prefix string `json:"prefix,omitempty"`
+	// PublicURL, when set, is where the bucket root can be read publicly
+	// (a CDN or custom domain); images are then linked there directly.
+	PublicURL string `json:"publicUrl,omitempty"`
 }
 
 type User struct {
@@ -252,6 +259,9 @@ func Open(dataDir string) (*Store, error) {
 	}
 	if err := appStore.backfillMediaStorage(); err != nil {
 		logger.Warn("[Store] media storage backfill failed: %v", err)
+	}
+	if err := appStore.BackfillDiaryImages(); err != nil {
+		logger.Warn("[Store] diary image backfill failed: %v", err)
 	}
 
 	return appStore, nil
@@ -943,6 +953,9 @@ func (s *Store) DeleteDiary(id, owner string) error {
 		if err := s.archiveDiary(tx, diary, limit, true); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(`DELETE FROM diary_images WHERE diary = ?`, id); err != nil {
+			return err
+		}
 		_, err = tx.Exec(`DELETE FROM diaries WHERE id = ? AND owner = ?`, id, owner)
 		if err == nil {
 			s.noteDiaryWrite(owner)
@@ -1459,6 +1472,7 @@ func (s *Store) userS3Config(userID string) *LegacyS3Config {
 	// An invalid stored prefix (never saved through the API) falls back to
 	// the bucket root rather than writing to a surprising key.
 	cfg.Prefix, _ = NormalizeS3Prefix(s.userStringSetting(userID, "image_upload.s3.prefix"))
+	cfg.PublicURL, _ = NormalizeS3PublicURL(s.userStringSetting(userID, "image_upload.s3.public_url"))
 	if cfg.Bucket == "" || cfg.Region == "" || cfg.AccessKey == "" || cfg.Secret == "" {
 		return nil
 	}
@@ -1680,6 +1694,9 @@ func (s *Store) InsertImportedDiary(owner, id, date, content, mood, weather stri
 	if err != nil {
 		return nil, err
 	}
+	if err := replaceDiaryImages(s.DB, owner, id, date, content); err != nil {
+		return nil, err
+	}
 	s.noteDiaryWrite(owner)
 	return s.GetDiaryByID(id)
 }
@@ -1763,11 +1780,18 @@ func (s *Store) saveMediaToS3(cfg *LegacyS3Config, media *Media, reader io.Reade
 	if err != nil {
 		return err
 	}
-	_, err = client.PutObject(context.Background(), &awss3.PutObjectInput{
+	input := &awss3.PutObjectInput{
 		Bucket: aws.String(cfg.Bucket),
 		Key:    aws.String(mediaObjectKey(s3UploadPrefix(media, cfg), DefaultMediaCollectionID, media)),
 		Body:   reader,
-	})
+		// Objects may be read straight from the bucket (public URL), so they
+		// carry their type and, as media never changes, a long cache life.
+		CacheControl: aws.String("public, max-age=31536000, immutable"),
+	}
+	if contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(media.File))); contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	_, err = client.PutObject(context.Background(), input)
 	return err
 }
 

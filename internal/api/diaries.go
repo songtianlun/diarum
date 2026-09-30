@@ -47,7 +47,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if onDiaryChanged != nil {
 			onDiaryChanged(user.ID)
 		}
-		return c.JSON(http.StatusOK, diaryResponse(diary, body.Date, true))
+		return c.JSON(http.StatusOK, diaryResponseWithImages(s, diary, body.Date))
 	})
 
 	group.GET("/by-date/:date", func(c echo.Context) error {
@@ -56,10 +56,10 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		start, end := dateStr+" 00:00:00.000Z", dateStr+" 23:59:59.999Z"
 		diary, err := s.GetDiaryByDate(user.ID, start, end)
 		if err != nil {
-			return c.JSON(http.StatusOK, map[string]any{"date": dateStr, "content": "", "exists": false})
+			return c.JSON(http.StatusOK, map[string]any{"date": dateStr, "content": "", "exists": false, "images": []store.DiaryImage{}})
 		}
 		recordAudit(c, audit.ActionDiaryView, dateStr, diaryAuditDetail(diary))
-		return c.JSON(http.StatusOK, diaryResponse(diary, dateStr, true))
+		return c.JSON(http.StatusOK, diaryResponseWithImages(s, diary, dateStr))
 	})
 
 	group.GET("/exists", func(c echo.Context) error {
@@ -420,7 +420,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if onDiaryChanged != nil {
 			onDiaryChanged(user.ID)
 		}
-		return c.JSON(http.StatusOK, diaryResponse(diary, store.DateOnly(diary.Date), true))
+		return c.JSON(http.StatusOK, diaryResponseWithImages(s, diary, store.DateOnly(diary.Date)))
 	})
 
 	group.GET("/:id", func(c echo.Context) error {
@@ -433,7 +433,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return forbidden("Access denied")
 		}
 		recordAudit(c, audit.ActionDiaryView, store.DateOnly(diary.Date), diaryAuditDetail(diary))
-		return c.JSON(http.StatusOK, diaryResponse(diary, store.DateOnly(diary.Date), true))
+		return c.JSON(http.StatusOK, diaryResponseWithImages(s, diary, store.DateOnly(diary.Date)))
 	})
 
 	group.DELETE("/:id", func(c echo.Context) error {
@@ -457,6 +457,19 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		}
 		return c.JSON(http.StatusOK, map[string]any{"success": true})
 	})
+}
+
+// diaryResponseWithImages is diaryResponse plus the images the entry shows,
+// as recorded when it was saved: each URL once, with whether Diarum stores
+// it (local or S3) or it is external.
+func diaryResponseWithImages(s *store.Store, diary *store.Diary, date string) map[string]any {
+	response := diaryResponse(diary, date, true)
+	images, err := s.DiaryImages(diary.ID)
+	if err != nil {
+		images = store.ExtractDiaryImages(diary.Content)
+	}
+	response["images"] = images
+	return response
 }
 
 func diaryResponse(diary *store.Diary, date string, exists bool) map[string]any {

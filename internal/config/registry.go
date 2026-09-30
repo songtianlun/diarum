@@ -56,6 +56,7 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"image_upload.s3.secret":           {Type: "string", Default: "", Encrypted: true},
 	"image_upload.s3.force_path_style": {Type: "bool", Default: false, Encrypted: false},
 	"image_upload.s3.prefix":           {Type: "string", Default: "", Encrypted: false},
+	"image_upload.s3.public_url":       {Type: "string", Default: "", Encrypted: false},
 	"image_upload.display_quality":     {Type: "string", Default: "md", Encrypted: false},
 
 	// Media library housekeeping (see internal/medialib). Trashed images are

@@ -26,7 +26,18 @@ export const mediaLibEn = {
 		yesterday: 'Yesterday',
 		unknownDate: 'Unknown date',
 		itemCount: '{count} items',
-		itemCountOne: '1 item'
+		itemCountOne: '1 item',
+		select: 'Select',
+		selectDay: 'Select day',
+		deselectDay: 'Clear day',
+		selected: '{count} selected',
+		confirmMany: 'Move {count} image(s) to the trash? You can restore them from the trash.',
+		moved: 'Moved {count} image(s) to the trash',
+		partial: '{failed} could not be moved',
+		external: 'External',
+		externalHint: 'This image is hosted elsewhere (e.g. Chevereto). Diarum does not store it, so delete it where it is hosted.',
+		externalNotSelectable: 'External images cannot be deleted here',
+		openOriginal: 'Open original'
 	},
 	trash: {
 		title: 'Trash',
@@ -84,7 +95,8 @@ export const mediaLibEn = {
 			trash: 'In trash',
 			other: 'Stored elsewhere: {detail}',
 			refresh: 'Refresh',
-			failed: "Couldn't load statistics"
+			failed: "Couldn't load statistics",
+			external: 'Entries also show {count} external image(s) (e.g. Chevereto). They appear in the library but are managed where they are hosted.'
 		},
 		trashHeading: 'Trash',
 		trashDesc: 'Deleted images go to the trash first and can be restored from the media library. How long should they be kept?',
@@ -161,6 +173,13 @@ export const mediaLibEn = {
 		},
 		variantsNote: 'Built-in images get thumbnail and medium copies automatically in the background after upload. Older images get them the first time they are viewed. For Chevereto, its own .th and .md copies are used.'
 	},
+	s3PublicUrl: {
+		label: 'Public URL (optional)',
+		placeholder: 'e.g. https://cdn.example.com',
+		hint: 'Address where the bucket root can be read publicly, such as a CDN or custom domain. The bucket or CDN must allow public reads. When set, images load from there directly instead of through Diarum, which is faster. Leave empty to serve images through Diarum.',
+		preview: 'Images load from {url}',
+		invalid: 'Enter an http:// or https:// address without a query string'
+	},
 	s3Prefix: {
 		label: 'Path prefix (optional)',
 		placeholder: 'e.g. diarum/images',
@@ -194,7 +213,18 @@ export const mediaLibZh: typeof mediaLibEn = {
 		yesterday: '昨天',
 		unknownDate: '未知日期',
 		itemCount: '{count} 张',
-		itemCountOne: '1 张'
+		itemCountOne: '1 张',
+		select: '选择',
+		selectDay: '选择当天',
+		deselectDay: '取消当天',
+		selected: '已选 {count} 张',
+		confirmMany: '将 {count} 张图片移入回收站？可在回收站中恢复。',
+		moved: '已将 {count} 张图片移入回收站',
+		partial: '{failed} 张未能移动',
+		external: '外链',
+		externalHint: '这张图片托管在其他地方（例如 Chevereto），Diarum 不保存它，请到其托管处删除。',
+		externalNotSelectable: '外链图片无法在这里删除',
+		openOriginal: '打开原图'
 	},
 	trash: {
 		title: '回收站',
@@ -252,7 +282,8 @@ export const mediaLibZh: typeof mediaLibEn = {
 			trash: '回收站',
 			other: '其他存储：{detail}',
 			refresh: '刷新',
-			failed: '无法加载统计'
+			failed: '无法加载统计',
+			external: '日记中另有 {count} 张外链图片（例如 Chevereto），会显示在图库中，但需在其托管处管理。'
 		},
 		trashHeading: '图片回收站',
 		trashDesc: '删除的图片会先进入回收站，可在图库中恢复。回收站中的图片保留多久？',
@@ -328,6 +359,13 @@ export const mediaLibZh: typeof mediaLibEn = {
 			originalDesc: '处处都用原始分辨率，加载最慢。'
 		},
 		variantsNote: '内置图库的图片上传后会在后台自动生成缩略图和中等尺寸副本，旧图片会在首次查看时生成。Chevereto 使用其自带的 .th 和 .md 副本。'
+	},
+	s3PublicUrl: {
+		label: '公开访问 URL（可选）',
+		placeholder: '例如 https://cdn.example.com',
+		hint: '可公开读取存储桶根目录的地址，例如 CDN 或自定义域名。存储桶或 CDN 需允许公开读取。配置后图片直接从这里加载，不经过 Diarum 代理，速度更快。留空则由 Diarum 代理访问。',
+		preview: '图片将从 {url} 加载',
+		invalid: '请输入以 http:// 或 https:// 开头、不带查询参数的地址'
 	},
 	s3Prefix: {
 		label: '路径前缀（可选）',

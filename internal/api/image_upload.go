@@ -26,6 +26,9 @@ type imageUploadS3Settings struct {
 	ForcePathStyle bool   `json:"force_path_style"`
 	// Prefix is the bucket folder images go to; "" is the bucket root.
 	Prefix string `json:"prefix"`
+	// PublicURL, when set, serves images straight from the bucket (a CDN or
+	// custom domain for its root) instead of through Diarum.
+	PublicURL string `json:"public_url"`
 }
 
 type imageUploadCheveretoSettings struct {
@@ -80,6 +83,7 @@ func RegisterImageUploadRoutes(e *echo.Echo, s *store.Store, authMiddleware echo
 			"image_upload.s3.secret":           settings.S3.Secret,
 			"image_upload.s3.force_path_style": settings.S3.ForcePathStyle,
 			"image_upload.s3.prefix":           settings.S3.Prefix,
+			"image_upload.s3.public_url":       settings.S3.PublicURL,
 			"chevereto.enabled":                settings.Provider == "chevereto",
 			"chevereto.domain":                 settings.Chevereto.Domain,
 			"chevereto.api_key":                settings.Chevereto.APIKey,
@@ -183,6 +187,10 @@ func loadImageUploadSettings(configService *config.ConfigService, s *store.Store
 	if err != nil {
 		return nil, err
 	}
+	publicURL, err := configService.GetString(userID, "image_upload.s3.public_url")
+	if err != nil {
+		return nil, err
+	}
 	domain, err := configService.GetString(userID, "chevereto.domain")
 	if err != nil {
 		return nil, err
@@ -209,6 +217,7 @@ func loadImageUploadSettings(configService *config.ConfigService, s *store.Store
 			Secret:         secret,
 			ForcePathStyle: forcePathStyle,
 			Prefix:         prefix,
+			PublicURL:      publicURL,
 		},
 		Chevereto: imageUploadCheveretoSettings{
 			Domain:  strings.TrimRight(strings.TrimSpace(domain), "/"),
@@ -235,6 +244,11 @@ func normalizeImageUploadSettings(settings imageUploadSettingsResponse, s *store
 		return nil, echo.NewHTTPError(http.StatusBadRequest, "S3 "+err.Error())
 	}
 	settings.S3.Prefix = prefix
+	publicURL, err := store.NormalizeS3PublicURL(settings.S3.PublicURL)
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "S3 "+err.Error())
+	}
+	settings.S3.PublicURL = publicURL
 	settings.Chevereto.Domain = strings.TrimRight(strings.TrimSpace(settings.Chevereto.Domain), "/")
 	settings.Chevereto.APIKey = strings.TrimSpace(settings.Chevereto.APIKey)
 	settings.Chevereto.AlbumID = strings.TrimSpace(settings.Chevereto.AlbumID)
