@@ -1,4 +1,5 @@
-import { writable, type Readable } from 'svelte/store';
+import { get, writable, type Readable } from 'svelte/store';
+import { t, getIntlLocale } from '$lib/i18n';
 import { fetchMediaPage, getMediaFileUrl, type MediaWithDiary } from '$lib/api/media';
 import { variantUrl } from '$lib/utils/imageDisplay';
 
@@ -98,7 +99,6 @@ export function createGalleryFeed<P extends GalleryPage = GalleryPage>(options: 
 
 	const store = writable<GalleryState>(initialState());
 	let state = initialState();
-	let nextPage = 1;
 	let generation = 0;
 	let controller: AbortController | null = null;
 
@@ -113,17 +113,22 @@ export function createGalleryFeed<P extends GalleryPage = GalleryPage>(options: 
 		controller = new AbortController();
 		set({ loading: true, error: '' });
 		try {
-			const result = await fetchPage(nextPage, pageSize, controller.signal);
+			// Ask for the page holding the first item not loaded yet. Counting
+			// what is loaded, rather than the pages fetched, keeps removals
+			// (which shift the server's pages) from skipping images; any overlap
+			// is dropped below.
+			const page = Math.floor(state.items.length / pageSize) + 1;
+			const result = await fetchPage(page, pageSize, controller.signal);
 			if (current !== generation) return;
 			options.onPage?.(result);
 			const seen = new Set(state.items.map((item) => item.key));
 			const fresh = result.items.map((media) => fromMedia(media)).filter((item) => !seen.has(item.key));
+			const items = [...state.items, ...fresh];
 			set({
-				items: [...state.items, ...fresh],
-				hasMore: nextPage < result.totalPages,
+				items,
+				hasMore: fresh.length > 0 && page < result.totalPages,
 				total: result.totalItems
 			});
-			nextPage++;
 		} catch (error) {
 			if (current !== generation || (error instanceof DOMException && error.name === 'AbortError')) return;
 			set({ error: error instanceof Error ? error.message : 'Failed to load images' });
@@ -135,7 +140,6 @@ export function createGalleryFeed<P extends GalleryPage = GalleryPage>(options: 
 	async function reload() {
 		generation++;
 		controller?.abort();
-		nextPage = 1;
 		state = initialState();
 		store.set(state);
 		await loadMore();
@@ -185,14 +189,15 @@ export function groupByDay(items: GalleryItem[]): DayGroup[] {
 }
 
 export function formatDayLabel(date: string, style: 'long' | 'short' = 'long'): string {
-	if (!date) return 'Unknown date';
+	const translate = get(t);
+	if (!date) return translate('mediaLib.library.unknownDate');
 	const [year, month, day] = date.split('-').map(Number);
 	const value = new Date(year, month - 1, day);
 	const today = new Date();
 	const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-	if (value.toDateString() === today.toDateString()) return 'Today';
-	if (value.toDateString() === yesterday.toDateString()) return 'Yesterday';
-	return value.toLocaleDateString('zh-CN', style === 'long'
+	if (value.toDateString() === today.toDateString()) return translate('mediaLib.library.today');
+	if (value.toDateString() === yesterday.toDateString()) return translate('mediaLib.library.yesterday');
+	return value.toLocaleDateString(getIntlLocale(), style === 'long'
 		? { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }
 		: { month: 'short', day: 'numeric' });
 }

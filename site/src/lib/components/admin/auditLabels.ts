@@ -22,6 +22,7 @@ export const CATEGORIES: { id: string; key: string }[] = [
 	{ id: 'auth', key: 'admin.audit.categories.auth' },
 	{ id: 'auth.login_failed,auth.denied,auth.forbidden', key: 'admin.audit.categories.security' },
 	{ id: 'media', key: 'admin.audit.categories.media' },
+	{ id: 'media.trash,media.purge,media.delete', key: 'admin.audit.categories.mediaRemovals' },
 	{ id: 'data', key: 'admin.audit.categories.data' },
 	{ id: 'settings,token,conversation', key: 'admin.audit.categories.settings' },
 	{ id: 'admin', key: 'admin.audit.categories.admin' },

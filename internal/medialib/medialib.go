@@ -49,6 +49,9 @@ type Service struct {
 	store *store.Store
 	audit *audit.Logger
 	now   func() time.Time
+	// startDelay and interval pace Start.
+	startDelay time.Duration
+	interval   time.Duration
 
 	// running keeps two runs from working on the same user at once.
 	mu      sync.Mutex
@@ -57,7 +60,7 @@ type Service struct {
 
 // New creates the service. A nil audit logger records nothing.
 func New(s *store.Store, auditLog *audit.Logger) *Service {
-	return &Service{store: s, audit: auditLog, now: time.Now, running: make(map[string]bool)}
+	return &Service{store: s, audit: auditLog, now: time.Now, startDelay: startupDelay, interval: runInterval, running: make(map[string]bool)}
 }
 
 // LoadSettings reads a user's housekeeping settings, with defaults.
@@ -90,7 +93,7 @@ func toInt(value any) (int, bool) {
 // ctx ends.
 func (svc *Service) Start(ctx context.Context) {
 	go func() {
-		timer := time.NewTimer(startupDelay)
+		timer := time.NewTimer(svc.startDelay)
 		defer timer.Stop()
 		for {
 			select {
@@ -99,7 +102,7 @@ func (svc *Service) Start(ctx context.Context) {
 			case <-timer.C:
 			}
 			svc.RunAll()
-			timer.Reset(runInterval)
+			timer.Reset(svc.interval)
 		}
 	}()
 }

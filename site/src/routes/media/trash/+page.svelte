@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { isAuthenticated } from '$lib/api/client';
-	import { emptyTrash, fetchTrashPage, purgeMedia, restoreMedia, type MediaBatchResult, type TrashPage } from '$lib/api/media';
+	import { emptyTrash, fetchTrashIds, fetchTrashPage, purgeMedia, restoreMedia, type MediaBatchResult, type TrashPage } from '$lib/api/media';
 	import { t, getIntlLocale } from '$lib/i18n';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
@@ -29,6 +29,10 @@
 	// Selection
 	let selecting = false;
 	let selected = new Set<string>();
+	/** True while "select all" fetches the IDs of images not loaded yet. */
+	let selectingAll = false;
+	/** How many images the server takes per request. */
+	let maxBatch = 1000;
 
 	// Lightbox
 	let viewerOpen = false;
@@ -101,8 +105,26 @@
 		selected = next;
 	}
 
-	function toggleAll() {
-		selected = allSelected ? new Set() : new Set(state.items.map((item) => item.key));
+	/** Selects every image in the trash, including those not loaded yet. */
+	async function toggleAll() {
+		if (allSelected) {
+			selected = new Set();
+			return;
+		}
+		if (!state.hasMore) {
+			selected = new Set(state.items.map((item) => item.key));
+			return;
+		}
+		selectingAll = true;
+		try {
+			const result = await fetchTrashIds();
+			maxBatch = result.maxBatch;
+			selected = new Set(result.ids);
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : $t('mediaLib.trash.actionFailed'), false);
+		} finally {
+			selectingAll = false;
+		}
 	}
 
 	function onTile(item: GalleryItem) {
@@ -120,6 +142,9 @@
 
 	/** Drops finished images from the view and reports the outcome. */
 	function settle(result: MediaBatchResult, doneKey: string) {
+		const loaded = new Set($feed.items.map((item) => item.key));
+		// Images acted on that were never loaded change the pages and the total.
+		const unloaded = result.done.some((id) => !loaded.has(id));
 		feed.removeMany(result.done);
 		const next = new Set(selected);
 		for (const id of result.done) next.delete(id);
@@ -130,11 +155,13 @@
 		} else {
 			showToast($t(doneKey, { count: result.done.length }));
 		}
-		if ($feed.items.length === 0) {
-			stopSelecting();
-			closeViewer();
+		if ($feed.items.length === 0 || unloaded) {
+			if ($feed.items.length === 0) {
+				stopSelecting();
+				closeViewer();
+			}
 			// Items further down may still be waiting on the server.
-			if ($feed.hasMore) feed.reload();
+			if ($feed.hasMore || unloaded) feed.reload();
 		} else if (viewerOpen) {
 			viewerIndex = Math.min(viewerIndex, $feed.items.length - 1);
 		}
@@ -144,7 +171,7 @@
 		if (!ids.length || busy) return;
 		busy = true;
 		try {
-			settle(await restoreMedia(ids), 'mediaLib.trash.restored');
+			settle(await restoreMedia(ids, maxBatch), 'mediaLib.trash.restored');
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : $t('mediaLib.trash.actionFailed'), false);
 		} finally {
@@ -157,7 +184,7 @@
 		const { kind, ids } = confirm;
 		busy = true;
 		try {
-			const result = kind === 'empty' ? await emptyTrash() : await purgeMedia(ids);
+			const result = kind === 'empty' ? await emptyTrash() : await purgeMedia(ids, maxBatch);
 			confirm = null;
 			settle(result, 'mediaLib.trash.purged');
 			if (kind === 'empty' && Object.keys(result.failed ?? {}).length === 0) {
@@ -197,7 +224,7 @@
 	$: state = $feed;
 	$: groups = groupByDay(state.items);
 	$: total = state.total ?? state.items.length;
-	$: allSelected = state.items.length > 0 && state.items.every((item) => selected.has(item.key));
+	$: allSelected = state.items.length > 0 && selected.size >= total && state.items.every((item) => selected.has(item.key));
 	$: selectedIds = [...selected];
 	$: viewerItem = viewerOpen ? state.items[viewerIndex] : undefined;
 	$: if (viewerOpen && viewerIndex >= state.items.length - 3) loadMoreIfIdle();
@@ -237,7 +264,12 @@
 			{#if state.items.length > 0}
 				<div class="flex items-center gap-2">
 					{#if selecting}
-						<button class="tb-btn" on:click={toggleAll}>{allSelected ? $t('mediaLib.trash.deselectAll') : $t('mediaLib.trash.selectAll')}</button>
+						<button class="tb-btn" disabled={selectingAll} on:click={toggleAll}>
+							{#if selectingAll}
+								<span class="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" aria-hidden="true"></span>
+							{/if}
+							{allSelected ? $t('mediaLib.trash.deselectAll') : $t('mediaLib.trash.selectAllCount', { count: total })}
+						</button>
 						<button class="tb-btn" on:click={stopSelecting}>{$t('mediaLib.trash.cancel')}</button>
 					{:else}
 						<button class="tb-btn" on:click={startSelecting}>

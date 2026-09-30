@@ -55,3 +55,25 @@ func TestPublicIP(t *testing.T) {
 		}
 	}
 }
+
+func TestImageProxyClientRedirects(t *testing.T) {
+	client := imageProxyClient("")
+	req := func(raw string) *http.Request {
+		u, _ := url.Parse(raw)
+		return &http.Request{URL: u}
+	}
+	if err := client.CheckRedirect(req("https://cdn.example.com/a.png"), nil); err != nil {
+		t.Fatalf("https redirect refused: %v", err)
+	}
+	if err := client.CheckRedirect(req("file:///etc/passwd"), nil); err == nil {
+		t.Fatal("redirect to file:// should be refused")
+	}
+	via := []*http.Request{req("https://a"), req("https://b"), req("https://c")}
+	if err := client.CheckRedirect(req("https://d"), via); err == nil {
+		t.Fatal("too many redirects should be refused")
+	}
+	// A redirect from a public host to a private address is refused at dial time.
+	if _, err := client.Get("http://127.0.0.1:1/a.png"); err == nil {
+		t.Fatal("dialling loopback should fail")
+	}
+}

@@ -843,10 +843,10 @@
 
 	// Image upload functions
 	// Image loading quality (saved on click, independent of the upload form)
-	const displayQualityOptions: { id: DisplayQuality; label: string; description: string }[] = [
-		{ id: 'th', label: 'Thumbnail', description: 'Fastest. Small previews, fine for quick browsing.' },
-		{ id: 'md', label: 'Medium', description: 'Recommended. Sharp on screen at a fraction of the size.' },
-		{ id: 'original', label: 'Original', description: 'Full resolution everywhere. Slowest to load.' }
+	const displayQualityOptions: { id: DisplayQuality; key: string }[] = [
+		{ id: 'th', key: 'thumb' },
+		{ id: 'md', key: 'medium' },
+		{ id: 'original', key: 'original' }
 	];
 	let displayQuality: DisplayQuality = 'md';
 	let displayQualitySaving: DisplayQuality | null = null;
@@ -861,10 +861,10 @@
 		displayQualityMessage = null;
 		try {
 			await saveDisplayQuality(quality);
-			displayQualityMessage = { ok: true, text: 'Saved' };
+			displayQualityMessage = { ok: true, text: $t('mediaLib.upload.saved') };
 		} catch (e) {
 			displayQuality = previous;
-			displayQualityMessage = { ok: false, text: e instanceof Error ? e.message : 'Failed to save' };
+			displayQualityMessage = { ok: false, text: e instanceof Error ? e.message : $t('mediaLib.upload.saveFailed') };
 		} finally {
 			displayQualitySaving = null;
 			clearTimeout(displayQualityTimer);
@@ -895,7 +895,7 @@
 
 	async function handleTestChevereto() {
 		if (!imageUploadSettingsLocal.chevereto.domain || !imageUploadSettingsLocal.chevereto.api_key) {
-			imageUploadError = 'Please enter Domain and API Key first';
+			imageUploadError = $t('mediaLib.upload.cheveretoTestMissing');
 			return;
 		}
 		cheveretoTesting = true;
@@ -907,7 +907,7 @@
 				imageUploadSettingsLocal.chevereto.api_key
 			);
 		} catch (e) {
-			imageUploadError = e instanceof Error ? e.message : 'Connection test failed';
+			imageUploadError = e instanceof Error ? e.message : $t('mediaLib.upload.cheveretoTestFailed');
 		}
 		cheveretoTesting = false;
 	}
@@ -918,7 +918,7 @@
 
 		if (imageUploadSettingsLocal.provider === 's3') {
 			if (!imageUploadSettingsLocal.s3.bucket || !imageUploadSettingsLocal.s3.region || !imageUploadSettingsLocal.s3.access_key || !imageUploadSettingsLocal.s3.secret) {
-				imageUploadError = 'Bucket, region, access key and secret are required for S3';
+				imageUploadError = $t('mediaLib.upload.s3Required');
 				return;
 			}
 			if (!s3Prefix.valid) {
@@ -928,7 +928,7 @@
 		}
 		if (imageUploadSettingsLocal.provider === 'chevereto') {
 			if (!imageUploadSettingsLocal.chevereto.domain || !imageUploadSettingsLocal.chevereto.api_key) {
-				imageUploadError = 'Domain and API Key are required for Chevereto';
+				imageUploadError = $t('mediaLib.upload.cheveretoRequired');
 				return;
 			}
 		}
@@ -940,10 +940,10 @@
 			originalImageUploadSettings = JSON.parse(JSON.stringify(imageUploadSettingsLocal));
 			await loadImageUploadSettings();
 			void refreshImageDisplay();
-			imageUploadSuccess = 'Image upload settings saved successfully';
+			imageUploadSuccess = $t('mediaLib.upload.savedLong');
 			setTimeout(() => imageUploadSuccess = '', 3000);
 		} catch (e) {
-			imageUploadError = e instanceof Error ? e.message : 'Failed to save image upload settings';
+			imageUploadError = e instanceof Error ? e.message : $t('mediaLib.upload.saveFailedLong');
 		}
 		imageUploadSaving = false;
 	}
@@ -2283,9 +2283,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 				{#if activeTab === 'image-upload'}
 				<!-- Image Upload Section -->
 				<div id="image-upload" class="bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
-					<h2 class="text-lg font-semibold text-foreground mb-4">Image Upload</h2>
+					<h2 class="text-lg font-semibold text-foreground mb-4">{$t('mediaLib.upload.title')}</h2>
 					<p class="text-sm text-muted-foreground mb-6">
-						Choose where diary images are stored. Existing local, S3, and Chevereto settings are preserved when you switch providers, so older media can still be resolved after migration.
+						{$t('mediaLib.upload.desc')}
 					</p>
 
 					{#if imageUploadError}
@@ -2301,12 +2301,12 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 					{/if}
 
 					<div class="py-4 border-b border-border/50">
-						<div class="font-medium text-foreground mb-3">Storage Provider</div>
+						<div class="font-medium text-foreground mb-3">{$t('mediaLib.upload.provider')}</div>
 						<div class="grid gap-3 md:grid-cols-3">
 							{#each [
-								{ id: 'local', label: 'Local', description: 'Store images on disk and keep them in the built-in media library.' },
-								{ id: 's3', label: 'S3', description: 'Store media objects in S3-compatible object storage.' },
-								{ id: 'chevereto', label: 'Chevereto', description: 'Upload images to Chevereto and insert external URLs.' }
+								{ id: 'local', label: $t('mediaLib.upload.local'), description: $t('mediaLib.upload.localDesc') },
+								{ id: 's3', label: 'S3', description: $t('mediaLib.upload.s3Desc') },
+								{ id: 'chevereto', label: 'Chevereto', description: $t('mediaLib.upload.cheveretoDesc') }
 							] as option}
 								<button
 									type="button"
@@ -2323,7 +2323,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 					{#if imageUploadSettingsLocal.provider === 'local'}
 						<div class="py-4 border-b border-border/50 space-y-4">
 							<div>
-								<label for="local-media-path" class="block font-medium text-foreground mb-2">Local Storage Path</label>
+								<label for="local-media-path" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.localPath')}</label>
 								<input
 									id="local-media-path"
 									type="text"
@@ -2331,38 +2331,38 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									placeholder="./diarum_data/storage/media"
 									class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
 								/>
-								<p class="text-xs text-muted-foreground mt-1">Default migrated path points to the existing Diarum media storage directory.</p>
+								<p class="text-xs text-muted-foreground mt-1">{$t('mediaLib.upload.localPathHint')}</p>
 							</div>
 						</div>
 					{:else if imageUploadSettingsLocal.provider === 's3'}
 						<div class="py-4 border-b border-border/50 space-y-4">
 							<div class="grid gap-4 md:grid-cols-2">
 								<div>
-									<label for="s3-bucket" class="block font-medium text-foreground mb-2">Bucket</label>
+									<label for="s3-bucket" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.bucket')}</label>
 									<input id="s3-bucket" type="text" bind:value={imageUploadSettingsLocal.s3.bucket} class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" />
 								</div>
 								<div>
-									<label for="s3-region" class="block font-medium text-foreground mb-2">Region</label>
+									<label for="s3-region" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.region')}</label>
 									<input id="s3-region" type="text" bind:value={imageUploadSettingsLocal.s3.region} class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" />
 								</div>
 								<div>
-									<label for="s3-endpoint" class="block font-medium text-foreground mb-2">Endpoint (optional)</label>
+									<label for="s3-endpoint" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.endpoint')}</label>
 									<input id="s3-endpoint" type="text" bind:value={imageUploadSettingsLocal.s3.endpoint} placeholder="https://s3.amazonaws.com" class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" />
 								</div>
 								<div class="flex items-end">
 									<label class="inline-flex items-center gap-2 text-sm text-foreground">
 										<input type="checkbox" bind:checked={imageUploadSettingsLocal.s3.force_path_style} class="rounded border-border text-primary focus:ring-primary" />
-										Use path-style requests
+										{$t('mediaLib.upload.pathStyle')}
 									</label>
 								</div>
 							</div>
 							<div class="grid gap-4 md:grid-cols-2">
 								<div>
-									<label for="s3-access-key" class="block font-medium text-foreground mb-2">Access Key</label>
+									<label for="s3-access-key" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.accessKey')}</label>
 									<input id="s3-access-key" type="text" bind:value={imageUploadSettingsLocal.s3.access_key} class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" />
 								</div>
 								<div>
-									<label for="s3-secret" class="block font-medium text-foreground mb-2">Secret</label>
+									<label for="s3-secret" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.secret')}</label>
 									<input id="s3-secret" type="password" bind:value={imageUploadSettingsLocal.s3.secret} class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" />
 								</div>
 							</div>
@@ -2388,12 +2388,12 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									</p>
 								{/if}
 							</div>
-							<p class="text-xs text-muted-foreground">If you migrated from PocketBase S3 storage, these credentials are also used to keep older gallery images accessible.</p>
+							<p class="text-xs text-muted-foreground">{$t('mediaLib.upload.s3Legacy')}</p>
 						</div>
 					{:else}
 						<div class="py-4 border-b border-border/50 space-y-4">
 							<div>
-								<label for="chevereto-domain" class="block font-medium text-foreground mb-2">Domain</label>
+								<label for="chevereto-domain" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.domain')}</label>
 								<input
 									id="chevereto-domain"
 									type="text"
@@ -2403,7 +2403,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								/>
 							</div>
 							<div>
-								<label for="chevereto-api-key" class="block font-medium text-foreground mb-2">API Key</label>
+								<label for="chevereto-api-key" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.apiKey')}</label>
 								<input
 									id="chevereto-api-key"
 									type="password"
@@ -2413,7 +2413,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								/>
 							</div>
 							<div>
-								<label for="chevereto-album-id" class="block font-medium text-foreground mb-2">Album ID (optional)</label>
+								<label for="chevereto-album-id" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.albumId')}</label>
 								<input
 									id="chevereto-album-id"
 									type="text"
@@ -2423,8 +2423,8 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							</div>
 							<div class="flex items-center justify-between gap-4 rounded-lg bg-muted/40 p-4">
 								<div>
-									<div class="font-medium text-foreground">Test Connection</div>
-									<div class="text-sm text-muted-foreground">Verify your Chevereto server is reachable before saving.</div>
+									<div class="font-medium text-foreground">{$t('mediaLib.upload.testConnection')}</div>
+									<div class="text-sm text-muted-foreground">{$t('mediaLib.upload.testConnectionDesc')}</div>
 								</div>
 								<button
 									on:click={handleTestChevereto}
@@ -2436,9 +2436,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 											<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 											<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 										</svg>
-										Testing...
+										{$t('mediaLib.upload.testing')}
 									{:else}
-										Test
+										{$t('mediaLib.upload.test')}
 									{/if}
 								</button>
 							</div>
@@ -2447,7 +2447,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									{cheveretoTestResult.message}
 								</div>
 							{/if}
-							<p class="text-xs text-muted-foreground">Chevereto uploads insert external image URLs into diary content. They are not tracked by the built-in media library or included in exports.</p>
+							<p class="text-xs text-muted-foreground">{$t('mediaLib.upload.cheveretoNote')}</p>
 						</div>
 					{/if}
 
@@ -2463,9 +2463,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
 									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
 								</svg>
-								Saving...
+								{$t('mediaLib.upload.saving')}
 							{:else}
-								Save Image Upload Settings
+								{$t('mediaLib.upload.save')}
 							{/if}
 						</button>
 						{#if imageUploadSuccess}
@@ -2473,7 +2473,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
 								</svg>
-								Saved
+								{$t('mediaLib.upload.saved')}
 							</span>
 						{/if}
 					</div>
@@ -2482,7 +2482,7 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 				<!-- Image Loading Section -->
 				<div id="image-loading" class="mt-6 bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
 					<div class="flex items-center justify-between gap-3 mb-2">
-						<h2 class="text-lg font-semibold text-foreground">Image Loading</h2>
+						<h2 class="text-lg font-semibold text-foreground">{$t('mediaLib.upload.loadingTitle')}</h2>
 						{#if displayQualityMessage}
 							<span class="text-sm flex items-center gap-1 animate-fade-in {displayQualityMessage.ok ? 'text-green-600' : 'text-destructive'}">
 								{#if displayQualityMessage.ok}
@@ -2493,9 +2493,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						{/if}
 					</div>
 					<p class="text-sm text-muted-foreground mb-5">
-						Which size diary images load at first. Tap an image to view the original. Your entries always keep the original image. If a smaller version isn't available, or the original is already cached, the original is shown.
+						{$t('mediaLib.upload.loadingDesc')}
 					</p>
-					<div class="grid grid-cols-1 sm:grid-cols-3 gap-3" role="radiogroup" aria-label="Default image quality">
+					<div class="grid grid-cols-1 sm:grid-cols-3 gap-3" role="radiogroup" aria-label={$t('mediaLib.upload.loadingAria')}>
 						{#each displayQualityOptions as option}
 							<button
 								type="button"
@@ -2505,20 +2505,20 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 								class="relative text-left rounded-xl border p-4 transition-colors duration-200 {displayQuality === option.id ? 'border-primary bg-primary/5' : 'border-border/50 hover:border-border'}"
 							>
 								<div class="flex items-center gap-2 font-medium text-foreground">
-									{option.label}
+									{$t(`mediaLib.upload.quality.${option.key}`)}
 									{#if option.id === 'md'}
-										<span class="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">Default</span>
+										<span class="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">{$t('mediaLib.upload.default')}</span>
 									{/if}
 									{#if displayQualitySaving === option.id}
 										<span class="ml-auto w-3.5 h-3.5 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"></span>
 									{/if}
 								</div>
-								<div class="text-sm text-muted-foreground mt-1">{option.description}</div>
+								<div class="text-sm text-muted-foreground mt-1">{$t(`mediaLib.upload.quality.${option.key}Desc`)}</div>
 							</button>
 						{/each}
 					</div>
 					<p class="text-xs text-muted-foreground mt-4">
-						Built-in images get thumbnail and medium copies automatically in the background after upload. Older images get them the first time they are viewed. For Chevereto, its own <code>.th</code> and <code>.md</code> copies are used.
+						{$t('mediaLib.upload.variantsNote')}
 					</p>
 				</div>
 

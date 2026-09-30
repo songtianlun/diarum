@@ -121,6 +121,7 @@ func (s *Store) saveDiary(owner, date, content, mood, weather string, forceSnaps
 	if err != nil {
 		return nil, created, err
 	}
+	s.noteDiaryWrite(owner)
 	// Linking is bookkeeping for the media library; the entry itself is
 	// already saved, so a failure here must not fail the save.
 	_ = s.LinkDiaryMedia(owner, id, content)

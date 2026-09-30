@@ -2,7 +2,10 @@ package api
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -107,6 +110,14 @@ func TestMediaTrashLifecycle(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"totalItems":2`) || !strings.Contains(rec.Body.String(), `"retentionDays":30`) {
 		t.Fatalf("trash = %d %s", rec.Code, rec.Body.String())
 	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/media/trash/ids", nil, nil)
+	var trashIDs struct {
+		IDs      []string `json:"ids"`
+		MaxBatch int      `json:"maxBatch"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &trashIDs); err != nil || rec.Code != http.StatusOK || len(trashIDs.IDs) != 2 || trashIDs.MaxBatch != maxMediaBatch {
+		t.Fatalf("trash ids = %d %s", rec.Code, rec.Body.String())
+	}
 
 	// Saving an entry with the auto-cleaned image brings it back; the one
 	// deleted by hand stays in the trash.
@@ -207,5 +218,69 @@ func TestMediaLibrarySettingsAndHousekeeping(t *testing.T) {
 	}
 	if result := svc.RunUser(user.ID); result.Purged != 0 {
 		t.Fatalf("retention 0 purged: %+v", result)
+	}
+}
+
+func TestMediaLibraryRouteErrors(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	RegisterMediaLibraryRoutes(e, s, authMiddlewareFor(user), medialib.New(s, nil))
+	jsonHeader := map[string]string{"Content-Type": "application/json"}
+
+	tooMany := make([]string, maxMediaBatch+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("m%d", i)
+	}
+	tooManyBody, _ := json.Marshal(mediaIDsBody{IDs: tooMany})
+	for _, c := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{http.MethodPost, "/api/v1/media/trash/restore", `{"ids":[" ",""]}`, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/media/trash/purge", `{"ids":`, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/media/unlinked/clean", string(tooManyBody), http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/media/settings", `{"trash_retention_days":-1}`, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/media/settings", `{"trash_retention_days":`, http.StatusBadRequest},
+	} {
+		rec := performRequest(t, e, c.method, c.path, strings.NewReader(c.body), jsonHeader)
+		if rec.Code != c.want {
+			t.Errorf("%s %s = %d, want %d", c.method, c.path, rec.Code, c.want)
+		}
+	}
+
+	// Unknown and duplicate IDs are reported one by one.
+	if result := postMediaIDs(t, e, "/api/v1/media/trash/restore", "missing", "missing"); len(result.Failed) != 1 || result.Failed["missing"] != "not found" {
+		t.Fatalf("restore missing = %+v", result)
+	}
+
+	_ = s.Close()
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodGet, "/api/v1/media/stats", ""},
+		{http.MethodGet, "/api/v1/media/trash", ""},
+		{http.MethodGet, "/api/v1/media/trash/ids", ""},
+		{http.MethodGet, "/api/v1/media/unlinked", ""},
+		{http.MethodPost, "/api/v1/media/unlinked/clean", `{"ids":["a"]}`},
+		{http.MethodPost, "/api/v1/media/trash/empty", ""},
+	} {
+		rec := performRequest(t, e, c.method, c.path, strings.NewReader(c.body), jsonHeader)
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("%s %s on a closed store = %d", c.method, c.path, rec.Code)
+		}
+	}
+	if rec := performRequest(t, e, http.MethodPut, "/api/v1/media/settings", strings.NewReader(`{"trash_retention_days":7}`), jsonHeader); rec.Code != http.StatusBadRequest {
+		t.Errorf("save settings on a closed store = %d", rec.Code)
+	}
+}
+
+func TestFailureMessage(t *testing.T) {
+	for err, want := range map[error]string{
+		sql.ErrNoRows:              "not found",
+		store.ErrMediaBusy:         "changed meanwhile",
+		errors.New("disk on fire"): "disk on fire",
+	} {
+		if got := failureMessage(err); got != want {
+			t.Errorf("failureMessage(%v) = %q, want %q", err, got, want)
+		}
 	}
 }

@@ -260,6 +260,25 @@ func (s *Store) ListTrash(owner string, page, perPage int) ([]MediaWithExpand, i
 	return s.expandMediaRows(owner, rows, total)
 }
 
+// TrashedMediaIDs returns the IDs of all of owner's trashed images, in
+// timeline order, for acting on the whole trash without paging through it.
+func (s *Store) TrashedMediaIDs(owner string) ([]string, error) {
+	rows, err := s.DB.Query(`SELECT id FROM media WHERE owner = ? AND deleted != '' ORDER BY `+mediaTimelineOrder, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // TrashedMedia returns owner's trashed images moved there before the given
 // time; a zero time returns all of them.
 func (s *Store) TrashedMedia(owner string, before time.Time) ([]*Media, error) {

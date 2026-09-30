@@ -2314,3 +2314,34 @@ func TestListDiariesByMonthDay(t *testing.T) {
 		t.Fatalf("empty entries = %#v", empty)
 	}
 }
+
+func TestDiaryFingerprintChangesWithinOneMillisecond(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	if _, _, err := s.UpsertDiary(user.ID, "2024-03-01", "one", "", ""); err != nil {
+		t.Fatalf("UpsertDiary: %v", err)
+	}
+	before := s.DiaryFingerprint(user.ID)
+	var updated string
+	if err := s.DB.QueryRow(`SELECT updated FROM diaries WHERE owner = ?`, user.ID).Scan(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.UpsertDiary(user.ID, "2024-03-01", "two", "", ""); err != nil {
+		t.Fatalf("UpsertDiary: %v", err)
+	}
+	// As if the edit landed in the same millisecond as the first save.
+	if _, err := s.DB.Exec(`UPDATE diaries SET updated = ? WHERE owner = ?`, updated, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if after := s.DiaryFingerprint(user.ID); after == before {
+		t.Fatalf("fingerprint unchanged after an edit: %q", after)
+	}
+	other := newTestUser(t, s)
+	otherBefore := s.DiaryFingerprint(other.ID)
+	if _, _, err := s.UpsertDiary(user.ID, "2024-03-02", "three", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.DiaryFingerprint(other.ID); got != otherBefore {
+		t.Fatalf("another user's write changed the fingerprint: %q -> %q", otherBefore, got)
+	}
+}

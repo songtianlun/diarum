@@ -125,6 +125,14 @@ func RegisterMediaLibraryRoutes(e *echo.Echo, s *store.Store, authMiddleware ech
 		})
 	})
 
+	group.GET("/trash/ids", func(c echo.Context) error {
+		ids, err := s.TrashedMediaIDs(auth.CurrentUser(c).ID)
+		if err != nil {
+			return serverError("Failed to fetch trash", err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"ids": ids, "maxBatch": maxMediaBatch})
+	})
+
 	group.POST("/trash/restore", func(c echo.Context) error {
 		user := auth.CurrentUser(c)
 		ids, err := bindMediaIDs(c)

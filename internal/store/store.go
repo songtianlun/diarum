@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	aws "github.com/aws/aws-sdk-go-v2/aws"
@@ -54,6 +55,9 @@ type Store struct {
 	// MediaEvent, when set, is told about media changes the store makes on
 	// its own, such as restoring a trashed image an entry uses again.
 	MediaEvent func(action string, media *Media, detail map[string]any)
+	// diaryWrites counts diary writes per owner (owner -> *atomic.Int64), so
+	// DiaryFingerprint changes even when two writes share a timestamp.
+	diaryWrites sync.Map
 }
 
 type LegacyS3Config struct {
@@ -940,6 +944,9 @@ func (s *Store) DeleteDiary(id, owner string) error {
 			return err
 		}
 		_, err = tx.Exec(`DELETE FROM diaries WHERE id = ? AND owner = ?`, id, owner)
+		if err == nil {
+			s.noteDiaryWrite(owner)
+		}
 		return err
 	})
 }
@@ -1040,7 +1047,17 @@ func (s *Store) DiaryFingerprint(owner string) string {
 		// Never return a value that could match a cached fingerprint.
 		return "error:" + nowString()
 	}
-	return strconv.Itoa(count) + ":" + latest.String
+	return strconv.Itoa(count) + ":" + latest.String + ":" + strconv.FormatInt(s.diaryWriteCount(owner).Load(), 10)
+}
+
+// noteDiaryWrite records that one of owner's diaries changed.
+func (s *Store) noteDiaryWrite(owner string) {
+	s.diaryWriteCount(owner).Add(1)
+}
+
+func (s *Store) diaryWriteCount(owner string) *atomic.Int64 {
+	counter, _ := s.diaryWrites.LoadOrStore(owner, new(atomic.Int64))
+	return counter.(*atomic.Int64)
 }
 
 func scanDiary(row interface{ Scan(dest ...any) error }) (*Diary, error) {
@@ -1663,6 +1680,7 @@ func (s *Store) InsertImportedDiary(owner, id, date, content, mood, weather stri
 	if err != nil {
 		return nil, err
 	}
+	s.noteDiaryWrite(owner)
 	return s.GetDiaryByID(id)
 }
 

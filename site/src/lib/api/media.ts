@@ -172,12 +172,30 @@ export async function fetchTrashPage(page: number, perPage: number, signal?: Abo
     };
 }
 
-export function restoreMedia(ids: string[]): Promise<MediaBatchResult> {
-    return mediaRequest('/trash/restore', { method: 'POST', body: JSON.stringify({ ids }) });
+/** IDs of every image in the trash, loaded or not, and the batch size limit. */
+export async function fetchTrashIds(): Promise<{ ids: string[]; maxBatch: number }> {
+    const result = await mediaRequest<{ ids?: string[]; maxBatch?: number }>('/trash/ids');
+    return { ids: result.ids || [], maxBatch: result.maxBatch || 1000 };
 }
 
-export function purgeMedia(ids: string[]): Promise<MediaBatchResult> {
-    return mediaRequest('/trash/purge', { method: 'POST', body: JSON.stringify({ ids }) });
+/** Sends ids in batches the server accepts and merges the outcomes. */
+async function batchMediaRequest(path: string, ids: string[], batchSize = 1000): Promise<MediaBatchResult> {
+    const merged: MediaBatchResult = { done: [], failed: {} };
+    for (let start = 0; start < ids.length; start += batchSize) {
+        const chunk = ids.slice(start, start + batchSize);
+        const result = await mediaRequest<MediaBatchResult>(path, { method: 'POST', body: JSON.stringify({ ids: chunk }) });
+        merged.done.push(...(result.done || []));
+        Object.assign(merged.failed, result.failed || {});
+    }
+    return merged;
+}
+
+export function restoreMedia(ids: string[], batchSize?: number): Promise<MediaBatchResult> {
+    return batchMediaRequest('/trash/restore', ids, batchSize);
+}
+
+export function purgeMedia(ids: string[], batchSize?: number): Promise<MediaBatchResult> {
+    return batchMediaRequest('/trash/purge', ids, batchSize);
 }
 
 export function emptyTrash(): Promise<MediaBatchResult> {

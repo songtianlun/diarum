@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { isAuthenticated } from '$lib/api/client';
-	import { t } from '$lib/i18n';
+	import { t, getIntlLocale } from '$lib/i18n';
 	import { deleteMediaById } from '$lib/api/media';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
@@ -46,7 +46,7 @@
 		deleting = false;
 		confirmDelete = false;
 		if (!ok) {
-			actionError = 'Delete failed, please try again';
+			actionError = $t('mediaLib.library.deleteFailed');
 			return;
 		}
 		feed.remove(item.key);
@@ -59,7 +59,7 @@
 		if (!value) return '';
 		const date = new Date(value.replace(' ', 'T'));
 		if (Number.isNaN(date.getTime())) return value;
-		return date.toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+		return date.toLocaleString(getIntlLocale(), { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 	}
 
 	function goToDiary(date: string) {
@@ -94,11 +94,11 @@
 </script>
 
 <svelte:head>
-	<title>Media Library - Diarum</title>
+	<title>{$t('mediaLib.library.title')} - Diarum</title>
 </svelte:head>
 
 <div class="min-h-screen bg-background">
-	<PageHeader title="Media Library">
+	<PageHeader title={$t('mediaLib.library.title')}>
 		<span slot="subtitle" class="ml-1 text-sm text-muted-foreground tabular-nums">{countLabel}</span>
 		<a
 			slot="actions"
@@ -116,7 +116,7 @@
 	<main class="max-w-5xl mx-auto px-4 py-6">
 		{#if state.initial && state.loading}
 			<!-- Skeleton timeline -->
-			<div class="space-y-8" aria-busy="true" aria-label="Loading">
+			<div class="space-y-8" aria-busy="true" aria-label={$t('mediaLib.library.loading')}>
 				{#each [8, 5] as count}
 					<div>
 						<div class="h-4 w-40 mb-4 rounded bg-muted animate-pulse"></div>
@@ -132,11 +132,11 @@
 			<div class="flex flex-col items-center justify-center py-20 gap-4 text-center">
 				<div class="w-12 h-12 rounded-full bg-destructive/10 text-destructive flex items-center justify-center text-xl font-semibold">!</div>
 				<div>
-					<p class="text-lg font-medium text-foreground">Couldn't load images</p>
+					<p class="text-lg font-medium text-foreground">{$t('mediaLib.library.loadFailed')}</p>
 					<p class="text-sm text-muted-foreground mt-1 max-w-md">{state.error}</p>
 				</div>
 				<button class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted/50 transition-colors" on:click={() => feed.reload()}>
-					Try again
+					{$t('mediaLib.library.tryAgain')}
 				</button>
 			</div>
 		{:else if state.items.length === 0}
@@ -145,8 +145,8 @@
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
 				</svg>
 				<div class="text-muted-foreground text-center">
-					<p class="text-lg font-medium">No media yet</p>
-					<p class="text-sm mt-1">Upload images in your diary entries</p>
+					<p class="text-lg font-medium">{$t('mediaLib.library.empty')}</p>
+					<p class="text-sm mt-1">{$t('mediaLib.library.emptyHint')}</p>
 				</div>
 			</div>
 		{:else}
@@ -157,7 +157,7 @@
 						<div class="sticky top-11 z-10 -mx-4 px-4 py-2 mb-2 flex items-center gap-3 bg-background/85 backdrop-blur-sm">
 							<h2 class="text-sm font-medium text-foreground">{formatDayLabel(group.date)}</h2>
 							<div class="flex-1 h-px bg-border/50"></div>
-							<div class="text-xs text-muted-foreground tabular-nums">{group.items.length} {group.items.length === 1 ? 'item' : 'items'}</div>
+							<div class="text-xs text-muted-foreground tabular-nums">{$t(group.items.length === 1 ? 'mediaLib.library.itemCountOne' : 'mediaLib.library.itemCount', { count: group.items.length })}</div>
 						</div>
 
 						<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -189,23 +189,23 @@
 				{#if state.loading}
 					<div class="flex items-center gap-2 text-sm text-muted-foreground">
 						<span class="w-4 h-4 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"></span>
-						Loading more…
+						{$t('mediaLib.library.loadingMore')}
 					</div>
 				{:else if state.error}
 					<div class="flex flex-col items-center gap-2 text-sm">
 						<span class="text-destructive">{state.error}</span>
 						<button class="px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50 transition-colors" on:click={() => feed.loadMore()}>
-							Retry
+							{$t('mediaLib.library.retry')}
 						</button>
 					</div>
 				{:else if !state.hasMore}
-					<span class="text-xs text-muted-foreground/70">That's everything</span>
+					<span class="text-xs text-muted-foreground/70">{$t('mediaLib.library.end')}</span>
 				{/if}
 			</div>
 		{/if}
 	</main>
 
-	<Footer maxWidth="4xl" tagline="Your media library" />
+	<Footer maxWidth="4xl" tagline={$t('mediaLib.library.tagline')} />
 </div>
 
 {#if viewerOpen && state.items.length > 0}
@@ -221,28 +221,28 @@
 					<div class="min-w-0">
 						<div class="font-medium truncate">{viewerItem.title}</div>
 						<div class="text-xs text-white/60 mt-0.5">
-							{#if viewerItem.media.date}{formatDayLabel(viewerItem.date)} · {/if}Uploaded {formatTimestamp(viewerItem.media.created)}
+							{#if viewerItem.media.date}{formatDayLabel(viewerItem.date)} · {/if}{$t('mediaLib.library.uploaded', { time: formatTimestamp(viewerItem.media.created) })}
 						</div>
 					</div>
 
 					<div class="flex flex-wrap items-center gap-2">
 						{#if !confirmDelete}
-							<button class="info-btn danger" on:click={() => (confirmDelete = true)}>Move to trash</button>
+							<button class="info-btn danger" on:click={() => (confirmDelete = true)}>{$t('mediaLib.library.moveToTrash')}</button>
 						{:else}
 							<span class="text-xs text-red-300">
-								{viewerItem.media.expand?.diary?.length ? `Used in ${viewerItem.media.expand.diary.length} diary(s). Move to trash anyway?` : 'Move this image to the trash?'}
+								{viewerItem.media.expand?.diary?.length ? $t('mediaLib.library.confirmUsed', { count: viewerItem.media.expand.diary.length }) : $t('mediaLib.library.confirm')}
 							</span>
 							<button class="info-btn danger solid" disabled={deleting} on:click={() => viewerItem && handleDelete(viewerItem)}>
-								{deleting ? 'Moving…' : 'Move to trash'}
+								{deleting ? $t('mediaLib.library.moving') : $t('mediaLib.library.moveToTrash')}
 							</button>
-							<button class="info-btn" on:click={() => (confirmDelete = false)}>Cancel</button>
+							<button class="info-btn" on:click={() => (confirmDelete = false)}>{$t('mediaLib.library.cancel')}</button>
 						{/if}
 					</div>
 				</div>
 
 				{#if viewerItem.media.expand?.diary && viewerItem.media.expand.diary.length > 0}
 					<div class="flex flex-wrap items-center gap-2 mt-3">
-						<span class="text-xs text-white/60">Linked diaries</span>
+						<span class="text-xs text-white/60">{$t('mediaLib.library.linkedDiaries')}</span>
 						{#each viewerItem.media.expand.diary as diary}
 							<button class="info-chip" on:click={() => goToDiary(diary.date.split(' ')[0])}>
 								{diary.date?.split(' ')[0]}
