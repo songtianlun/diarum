@@ -176,6 +176,23 @@ func TestMediaLifecycleOnS3WithPrefix(t *testing.T) {
 			if rec := performRequest(t, e, http.MethodGet, url+"?direct=1", nil, nil); rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), original) {
 				t.Fatalf("direct = %d", rec.Code)
 			}
+			// Sharing maps the entry's image URLs, relative or absolute, to
+			// the same public addresses; anything else is left out.
+			shareBody, _ := json.Marshal(map[string][]string{"urls": {url, "https://diary.example.com" + thumb, "https://elsewhere.example.com/x.jpg", "/api/v1/files/media/missing/x.jpg"}})
+			rec = performRequest(t, e, http.MethodPost, "/api/v1/media/share-urls", bytes.NewReader(shareBody), map[string]string{"Content-Type": "application/json"})
+			var shared struct {
+				URLs map[string]string `json:"urls"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &shared); err != nil || rec.Code != http.StatusOK {
+				t.Fatalf("share-urls = %d %s", rec.Code, rec.Body.String())
+			}
+			wantShared := map[string]string{
+				url:                                 "https://cdn.example.com/" + root + "photo.jpg",
+				"https://diary.example.com" + thumb: "https://cdn.example.com/" + root + "photo.th.jpg",
+			}
+			if len(shared.URLs) != len(wantShared) || shared.URLs[url] != wantShared[url] || shared.URLs["https://diary.example.com"+thumb] != wantShared["https://diary.example.com"+thumb] {
+				t.Fatalf("share-urls = %v, want %v", shared.URLs, wantShared)
+			}
 			if err := s.SetSetting(user.ID, "image_upload.s3.public_url", "", false); err != nil {
 				t.Fatal(err)
 			}

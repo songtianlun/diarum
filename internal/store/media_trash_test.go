@@ -372,3 +372,30 @@ func TestPurgeMediaKeepsRecordWhenFileRemovalFails(t *testing.T) {
 		t.Fatalf("purge missing = %v", err)
 	}
 }
+
+// An entry showing an image makes it linked in the statistics, as in the
+// unused image scan, even when the image's diary field was never filled.
+func TestMediaStatsLinkedFollowsEntries(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	if _, err := s.InsertImportedMedia(user.ID, "m1", "a.png", "a", "", nil); err != nil {
+		t.Fatalf("InsertImportedMedia: %v", err)
+	}
+	if _, err := s.InsertImportedMedia(user.ID, "m2", "b.png", "b", "", nil); err != nil {
+		t.Fatalf("InsertImportedMedia: %v", err)
+	}
+	if _, _, err := s.UpsertDiary(user.ID, "2024-01-01", `<p><img src="/api/v1/files/media/m1/a.png"></p>`, "", ""); err != nil {
+		t.Fatalf("UpsertDiary: %v", err)
+	}
+	if _, err := s.DB.Exec(`UPDATE media SET diary = '[]'`); err != nil {
+		t.Fatalf("clear diary: %v", err)
+	}
+	stats, err := s.MediaStats(user.ID)
+	if err != nil || stats.Total != 2 || stats.Linked != 1 {
+		t.Fatalf("stats = %+v %v", stats, err)
+	}
+	unlinked, err := s.UnlinkedMedia(user.ID, time.Time{})
+	if err != nil || len(unlinked) != 1 || unlinked[0].ID != "m2" {
+		t.Fatalf("UnlinkedMedia = %v %v", unlinked, err)
+	}
+}

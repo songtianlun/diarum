@@ -361,7 +361,7 @@ type MediaStats struct {
 	// their files live.
 	Total     int            `json:"total"`
 	ByStorage map[string]int `json:"byStorage"`
-	// Linked counts images linked to at least one entry.
+	// Linked counts images at least one entry shows.
 	Linked int `json:"linked"`
 	// Trash counts images in the trash; OldestTrash is when the longest
 	// waiting one was moved there.
@@ -375,7 +375,11 @@ type MediaStats struct {
 // MediaStats counts owner's images, by storage and trash state.
 func (s *Store) MediaStats(owner string) (*MediaStats, error) {
 	stats := &MediaStats{ByStorage: map[string]int{}}
-	rows, err := s.DB.Query(`SELECT storage, COUNT(*), SUM(CASE WHEN diary NOT IN ('[]', '', 'null') THEN 1 ELSE 0 END)
+	// Linked follows what entries show (diary_images), like the unused image
+	// scan, not the media's diary field, which misses images whose entry was
+	// never saved again after the upload.
+	rows, err := s.DB.Query(`SELECT storage, COUNT(*), SUM(CASE WHEN EXISTS(
+			SELECT 1 FROM diary_images di WHERE di.owner = media.owner AND di.media = media.id) THEN 1 ELSE 0 END)
 		FROM media WHERE owner = ? AND deleted = '' GROUP BY storage`, owner)
 	if err != nil {
 		return nil, err
