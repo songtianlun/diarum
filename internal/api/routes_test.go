@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -618,6 +619,34 @@ func TestMemosDateParsingAndAppendFormatting(t *testing.T) {
 	}
 }
 
+func TestMemosBlocksDoNotStackHorizontalRules(t *testing.T) {
+	first := renderMemosBlock(memosMemo{ID: "first", Content: "one"}, "2026-09-28")
+	second := renderMemosBlock(memosMemo{ID: "second", Content: "two"}, "2026-09-28")
+	consecutive := regexp.MustCompile(`(?is)<hr\s*/?>(?:\s|<!--.*?-->|<p>\s*</p>)*<hr\s*/?>`)
+
+	content := appendMemosBlock(appendMemosBlock("<p>existing</p>", first), second)
+	if consecutive.MatchString(content) {
+		t.Fatalf("appending after a memos block stacked horizontal rules: %q", content)
+	}
+	if strings.Count(content, "<hr>") != 3 {
+		t.Fatalf("expected 3 horizontal rules, got %q", content)
+	}
+
+	content = appendMemosBlock("<p>existing</p><hr><p></p>", first)
+	if consecutive.MatchString(content) {
+		t.Fatalf("appending after hr with empty paragraph stacked horizontal rules: %q", content)
+	}
+
+	updated := renderMemosBlock(memosMemo{ID: "second", Content: "two updated"}, "2026-09-28")
+	replaced, ok := replaceMemosBlock(appendMemosBlock(first, second), "second", updated)
+	if !ok || !strings.Contains(replaced, "two updated") {
+		t.Fatalf("replaceMemosBlock failed: %q", replaced)
+	}
+	if consecutive.MatchString(replaced) {
+		t.Fatalf("replacing a memos block stacked horizontal rules: %q", replaced)
+	}
+}
+
 func TestMemosSettingsAndWebhookFailures(t *testing.T) {
 	s := newTestStore(t)
 	user := newTestUser(t, s)
@@ -799,7 +828,7 @@ func TestMemosBlockReplacementAndDateVariants(t *testing.T) {
 
 	legacy := "before\n<hr><pre><code>Source: Memos\nMemo ID: legacy&amp;id</code></pre><p>old</p><hr>\nafter"
 	replaced, ok := replaceMemosBlock(legacy, "legacy&id", "NEW")
-	if !ok || !strings.Contains(replaced, "beforeNEWafter") {
+	if !ok || replaced != "before\n\nNEW\n\nafter" {
 		t.Fatalf("replace legacy block = %q, %v", replaced, ok)
 	}
 	removed, ok := removeMemosBlockFromContent(legacy, "legacy&id")
