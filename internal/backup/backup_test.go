@@ -513,7 +513,8 @@ func TestConnectionTest(t *testing.T) {
 			t.Fatalf("want %q, got %v", want, err)
 		}
 	}
-	f.mem.FailDelete = nil
+	// Map order is random: clear whichever failure the last case set.
+	f.mem.FailPut, f.mem.FailGet, f.mem.FailList, f.mem.FailDelete = nil, nil, nil, nil
 	f.svc.OpenStore = func(S3Config) (ObjectStore, error) { return mismatchStore{f.mem}, nil }
 	if err := f.svc.Test(ctx, f.user.ID, testS3()); err == nil || !strings.Contains(err.Error(), "did not match") {
 		t.Fatalf("mismatch err = %v", err)

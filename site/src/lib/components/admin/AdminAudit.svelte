@@ -584,6 +584,7 @@
 											<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
 												<span class="tabular-nums">{timeOf(entry)}</span>
 												{#if entry.action}<span class="px-1.5 py-px rounded ring-1 ring-inset {TONE_CLASS[tone]}">{actionLabel(entry.action, $locale)}</span>{/if}
+												{#if entry.detail?.trigger === 'auto' || entry.detail?.trigger === 'manual'}<span class="px-1.5 py-px rounded ring-1 ring-inset {entry.detail.trigger === 'auto' ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-500/20' : 'bg-muted text-muted-foreground ring-border/60'}">{$t(`admin.audit.trigger.${entry.detail.trigger}`)}</span>{/if}
 												{#if entry.action && entry.method}<span class="font-mono">{entry.method}</span>{/if}
 												{#if entry.ms !== undefined}<span class="tabular-nums">{entry.ms} ms</span>{/if}
 												{#if entry.source && entry.source !== 'web'}<span>{$t(`admin.audit.sources.${entry.source}`)}</span>{/if}

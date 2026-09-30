@@ -27,10 +27,33 @@ func ReferencedMediaIDs(content string) []string {
 // content references. Links are only ever added: removing an image from an
 // entry keeps the association, matching how uploads were always tracked.
 // Doing this on save means uploads never need to create the entry up front.
+//
+// An image gets its date from the first entry it is linked to. An image that
+// went to the trash because no entry used it comes back out when an entry is
+// saved with it again; one deleted by hand stays in the trash.
 func (s *Store) LinkDiaryMedia(owner, diaryID, content string) error {
 	for _, id := range ReferencedMediaIDs(content) {
 		media, err := s.GetMedia(id, owner)
-		if err != nil || slices.Contains(media.Diary, diaryID) {
+		if err != nil {
+			continue
+		}
+		if media.InTrash() {
+			if media.DeleteReason != MediaReasonUnlinked {
+				continue
+			}
+			restored, err := s.RestoreMedia(media.ID, owner)
+			if err != nil {
+				continue
+			}
+			if s.MediaEvent != nil {
+				s.MediaEvent("media.restore", restored, map[string]any{"diary": diaryID, "reason": MediaReasonReferenced})
+			}
+			media = restored
+		}
+		if err := s.setMediaDateIfEmpty(media, diaryID); err != nil {
+			return err
+		}
+		if slices.Contains(media.Diary, diaryID) {
 			continue
 		}
 		if _, err := s.UpdateMediaDiary(media.ID, owner, append(media.Diary, diaryID)); err != nil {

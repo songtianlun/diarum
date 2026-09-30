@@ -1,4 +1,5 @@
-import { writable, type Readable } from 'svelte/store';
+import { get, writable, type Readable } from 'svelte/store';
+import { t, getIntlLocale } from '$lib/i18n';
 import { fetchMediaPage, getMediaFileUrl, type MediaWithDiary } from '$lib/api/media';
 import { variantUrl } from '$lib/utils/imageDisplay';
 
@@ -9,8 +10,10 @@ export interface GalleryItem {
 	/** Thumbnail variant for grids; falls back to `src` if it fails. */
 	thumb: string;
 	title: string;
-	/** Local calendar day (YYYY-MM-DD) or '' when unknown. */
+	/** The image's own day (YYYY-MM-DD): see imageDay. '' when unknown. */
 	date: string;
+	/** Stored by Diarum (local or S3): can be selected and deleted. External images (e.g. Chevereto) cannot. */
+	managed: boolean;
 	media: MediaWithDiary;
 }
 
@@ -28,6 +31,7 @@ export interface GalleryFeed extends Readable<GalleryState> {
 	loadMore: () => Promise<void>;
 	reload: () => Promise<void>;
 	remove: (key: string) => void;
+	removeMany: (keys: string[]) => void;
 	destroy: () => void;
 }
 
@@ -43,14 +47,26 @@ export function localDay(timestamp: string | undefined): string {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/**
+ * The day an image belongs to on the timeline: its own date (the day of the
+ * first entry it was used in), not when it was uploaded. Images never used in
+ * an entry have no date yet and fall back to their upload day.
+ */
+export function imageDay(media: Pick<MediaWithDiary, 'date' | 'created'>): string {
+	if (media.date && /^\d{4}-\d{2}-\d{2}/.test(media.date)) return media.date.slice(0, 10);
+	return localDay(media.created);
+}
+
 function fromMedia(media: MediaWithDiary): GalleryItem {
-	const src = getMediaFileUrl(media);
+	const external = media.kind === 'external' && !!media.url;
+	const src = external ? media.url! : getMediaFileUrl(media);
 	return {
-		key: media.id ?? media.file ?? '',
+		key: external ? `ext:${media.url}` : media.id ?? media.file ?? '',
+		managed: !external,
 		src,
 		thumb: variantUrl(src, 'th') ?? src,
 		title: media.name || media.alt || 'Image',
-		date: localDay(media.created),
+		date: imageDay(media),
 		media
 	};
 }
@@ -59,8 +75,23 @@ function fromMedia(media: MediaWithDiary): GalleryItem {
  * Paged, append-only list of the built-in media library. Responses that
  * arrive after a reload or destroy are discarded.
  */
-export function createGalleryFeed(options: { pageSize?: number } = {}): GalleryFeed {
+export interface GalleryFeedOptions<P extends GalleryPage = GalleryPage> {
+	pageSize?: number;
+	/** Where pages come from; defaults to the media library. */
+	fetchPage?: (page: number, perPage: number, signal: AbortSignal) => Promise<P>;
+	/** Called with every page that arrives, e.g. to read extra fields. */
+	onPage?: (page: P) => void;
+}
+
+export interface GalleryPage {
+	items: MediaWithDiary[];
+	totalPages: number;
+	totalItems: number;
+}
+
+export function createGalleryFeed<P extends GalleryPage = GalleryPage>(options: GalleryFeedOptions<P> = {}): GalleryFeed {
 	const pageSize = options.pageSize ?? 30;
+	const fetchPage = options.fetchPage ?? (fetchMediaPage as unknown as (page: number, perPage: number, signal: AbortSignal) => Promise<P>);
 	const initialState = (): GalleryState => ({
 		items: [],
 		loading: false,
@@ -72,7 +103,6 @@ export function createGalleryFeed(options: { pageSize?: number } = {}): GalleryF
 
 	const store = writable<GalleryState>(initialState());
 	let state = initialState();
-	let nextPage = 1;
 	let generation = 0;
 	let controller: AbortController | null = null;
 
@@ -87,16 +117,22 @@ export function createGalleryFeed(options: { pageSize?: number } = {}): GalleryF
 		controller = new AbortController();
 		set({ loading: true, error: '' });
 		try {
-			const result = await fetchMediaPage(nextPage, pageSize, controller.signal);
+			// Ask for the page holding the first item not loaded yet. Counting
+			// what is loaded, rather than the pages fetched, keeps removals
+			// (which shift the server's pages) from skipping images; any overlap
+			// is dropped below.
+			const page = Math.floor(state.items.length / pageSize) + 1;
+			const result = await fetchPage(page, pageSize, controller.signal);
 			if (current !== generation) return;
+			options.onPage?.(result);
 			const seen = new Set(state.items.map((item) => item.key));
 			const fresh = result.items.map((media) => fromMedia(media)).filter((item) => !seen.has(item.key));
+			const items = [...state.items, ...fresh];
 			set({
-				items: [...state.items, ...fresh],
-				hasMore: nextPage < result.totalPages,
+				items,
+				hasMore: fresh.length > 0 && page < result.totalPages,
 				total: result.totalItems
 			});
-			nextPage++;
 		} catch (error) {
 			if (current !== generation || (error instanceof DOMException && error.name === 'AbortError')) return;
 			set({ error: error instanceof Error ? error.message : 'Failed to load images' });
@@ -108,7 +144,6 @@ export function createGalleryFeed(options: { pageSize?: number } = {}): GalleryF
 	async function reload() {
 		generation++;
 		controller?.abort();
-		nextPage = 1;
 		state = initialState();
 		store.set(state);
 		await loadMore();
@@ -121,12 +156,19 @@ export function createGalleryFeed(options: { pageSize?: number } = {}): GalleryF
 		});
 	}
 
+	function removeMany(keys: string[]) {
+		const drop = new Set(keys);
+		const items = state.items.filter((item) => !drop.has(item.key));
+		const removed = state.items.length - items.length;
+		set({ items, total: state.total === null ? null : Math.max(0, state.total - removed) });
+	}
+
 	function destroy() {
 		generation++;
 		controller?.abort();
 	}
 
-	return { subscribe: store.subscribe, loadMore, reload, remove, destroy };
+	return { subscribe: store.subscribe, loadMore, reload, remove, removeMany, destroy };
 }
 
 export interface DayGroup {
@@ -151,14 +193,15 @@ export function groupByDay(items: GalleryItem[]): DayGroup[] {
 }
 
 export function formatDayLabel(date: string, style: 'long' | 'short' = 'long'): string {
-	if (!date) return 'Unknown date';
+	const translate = get(t);
+	if (!date) return translate('mediaLib.library.unknownDate');
 	const [year, month, day] = date.split('-').map(Number);
 	const value = new Date(year, month - 1, day);
 	const today = new Date();
 	const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-	if (value.toDateString() === today.toDateString()) return 'Today';
-	if (value.toDateString() === yesterday.toDateString()) return 'Yesterday';
-	return value.toLocaleDateString('zh-CN', style === 'long'
+	if (value.toDateString() === today.toDateString()) return translate('mediaLib.library.today');
+	if (value.toDateString() === yesterday.toDateString()) return translate('mediaLib.library.yesterday');
+	return value.toLocaleDateString(getIntlLocale(), style === 'long'
 		? { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }
 		: { month: 'short', day: 'numeric' });
 }

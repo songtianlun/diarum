@@ -17,6 +17,7 @@ import (
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/imaging"
+	"github.com/songtianlun/diarum/internal/medialib"
 	"github.com/songtianlun/diarum/internal/store"
 )
 
@@ -43,7 +44,7 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 	group.GET("/:id", func(c echo.Context) error {
 		user := auth.CurrentUser(c)
 		media, err := s.GetMedia(c.PathParam("id"), user.ID)
-		if err != nil {
+		if err != nil || media.InTrash() {
 			return notFound("Media not found")
 		}
 		return c.JSON(http.StatusOK, media)
@@ -87,7 +88,12 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return serverError("Failed to save media file", err)
 		}
 		s.QueueMediaVariants(media)
-		recordAudit(c, audit.ActionMediaUpload, media.Name, map[string]any{"id": media.ID, "file": media.File, "size": header.Size, "diary": media.Diary})
+		detail := medialib.Detail(media, store.MediaTriggerManual, "")
+		detail["size"] = header.Size
+		if len(media.Diary) > 0 {
+			detail["diary"] = media.Diary
+		}
+		recordAudit(c, audit.ActionMediaUpload, media.Name, detail)
 		return c.JSON(http.StatusOK, media)
 	})
 
@@ -99,6 +105,9 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		if err := c.Bind(&body); err != nil {
 			return badRequest("Invalid request body", err)
 		}
+		if current, err := s.GetMedia(c.PathParam("id"), user.ID); err != nil || current.InTrash() {
+			return notFound("Media not found")
+		}
 		media, err := s.UpdateMediaDiary(c.PathParam("id"), user.ID, body.Diary)
 		if err != nil {
 			return notFound("Media not found")
@@ -106,20 +115,19 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		return c.JSON(http.StatusOK, media)
 	})
 
+	// Deleting moves the image to the trash; its file is only removed once
+	// the trash is emptied (by hand or after the retention period).
 	group.DELETE("/:id", func(c echo.Context) error {
 		user := auth.CurrentUser(c)
-		media, err := s.GetMedia(c.PathParam("id"), user.ID)
+		media, err := s.TrashMedia(c.PathParam("id"), user.ID, store.TrashInfo{By: user.Username, Reason: store.MediaReasonUser, Trigger: store.MediaTriggerManual})
 		if err != nil {
-			return notFound("Media not found")
+			if store.IsNoRows(err) {
+				return notFound("Media not found")
+			}
+			return serverError("Failed to delete media", err)
 		}
-		if err := s.DeleteMedia(media.ID, user.ID); err != nil {
-			return notFound("Media not found")
-		}
-		recordAudit(c, audit.ActionMediaDelete, media.Name, map[string]any{"id": media.ID, "file": media.File})
-		if err := s.DeleteMediaFile(media); err != nil && !os.IsNotExist(err) {
-			return serverError("Failed to delete media file", err)
-		}
-		return c.JSON(http.StatusOK, map[string]any{"success": true})
+		recordAudit(c, audit.ActionMediaTrash, media.Name, medialib.Detail(media, store.MediaTriggerManual, store.MediaReasonUser))
+		return c.JSON(http.StatusOK, map[string]any{"success": true, "trashed": true})
 	})
 
 	// Files are served by media ID. Besides the original, the thumbnail and
@@ -133,12 +141,26 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return notFound("File not found")
 		}
 		filename := c.PathParam("filename")
+		// With a public URL for the S3 bucket, send the browser there instead
+		// of streaming through Diarum; ?direct=1 opts out (e.g. for exports
+		// that must read the bytes from this origin).
+		direct := c.QueryParam("direct") == "1"
 		if filename == media.File {
+			if !direct {
+				if target, ok := s.MediaPublicURL(media); ok {
+					return redirectToPublicURL(c, target)
+				}
+			}
 			return serveOriginal(c, s, media)
 		}
 		variant, ok := imaging.ParseVariant(media.File, filename)
 		if !ok {
 			return notFound("File not found")
+		}
+		if !direct && imaging.Supported(media.File) {
+			if target, ok := s.MediaPublicURL(store.VariantMedia(media, variant)); ok {
+				return redirectToPublicURL(c, target)
+			}
 		}
 		if imaging.Supported(media.File) {
 			err := serveMediaObject(c, s, store.VariantMedia(media, variant))
@@ -173,6 +195,14 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		target := "/api/v1/files/media/" + url.PathEscape(id) + "/" + url.PathEscape(filename)
 		return c.Redirect(http.StatusMovedPermanently, target)
 	})
+}
+
+// redirectToPublicURL sends the browser to the file's public address. The
+// redirect is cached for a while only, so changing the public URL takes
+// effect within the hour.
+func redirectToPublicURL(c echo.Context, target string) error {
+	c.Response().Header().Set("Cache-Control", "public, max-age=3600")
+	return c.Redirect(http.StatusFound, target)
 }
 
 // setImmutableCache lets browsers keep media for good: a media URL never

@@ -1,4 +1,5 @@
 import { toPng, toJpeg } from 'html-to-image';
+import { pb } from '$lib/api/client';
 
 // Share options interface
 export interface ShareOptions {
@@ -125,6 +126,118 @@ export function shareThemeForVisualStyle(style: string | null | undefined): Them
 // Export image format
 export type ImageFormat = 'png' | 'jpeg';
 
+// A transparent pixel drawn in place of an image that cannot be read, so one
+// broken image never makes the whole export fail.
+const IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+// Images already turned into data URLs, by source, for repeated exports.
+const inlinedImages = new Map<string, Promise<string | null>>();
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result));
+		reader.onerror = () => reject(reader.error);
+		reader.readAsDataURL(blob);
+	});
+}
+
+async function fetchAsDataUrl(url: string, init?: RequestInit): Promise<string | null> {
+	try {
+		const response = await fetch(url, init);
+		if (!response.ok) return null;
+		const blob = await response.blob();
+		if (!blob.type.startsWith('image/')) return null;
+		return await blobToDataUrl(blob);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Reads an image from another origin as a data URL. Image hosts such as
+ * Chevereto CDNs often send no CORS headers, so the browser refuses to let the
+ * page read them. They go through the server's image proxy first; a direct
+ * read is only tried if the proxy cannot reach the host.
+ */
+function inlineExternalImage(src: string): Promise<string | null> {
+	let pending = inlinedImages.get(src);
+	if (!pending) {
+		pending = (async () => {
+			const token = pb.authStore.token;
+			const proxied = await fetchAsDataUrl(`/api/v1/image-proxy?url=${encodeURIComponent(src)}`, {
+				headers: token ? { Authorization: `Bearer ${token}` } : undefined
+			});
+			return proxied ?? fetchAsDataUrl(src, { mode: 'cors', credentials: 'omit' });
+		})();
+		inlinedImages.set(src, pending);
+		// Do not remember failures: the next export tries again.
+		pending.then((value) => value || inlinedImages.delete(src));
+	}
+	return pending;
+}
+
+function isExternal(src: string): boolean {
+	if (!src || src.startsWith('data:') || src.startsWith('blob:')) return false;
+	try {
+		const url = new URL(src, location.href);
+		return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== location.origin;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Diarum's own image URLs may redirect to the S3 bucket's public URL, which
+ * usually sends no CORS headers. For exports they are read with ?direct=1,
+ * which always streams from this origin.
+ */
+function directMediaUrl(src: string): string | null {
+	try {
+		const url = new URL(src, location.href);
+		if (url.origin !== location.origin || !url.pathname.startsWith('/api/v1/files/media/')) return null;
+		url.searchParams.set('direct', '1');
+		return url.toString();
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Swaps every cross-origin image inside element for an inlined copy while fn
+ * runs, then puts the original sources back.
+ */
+async function withInlinedImages<T>(element: HTMLElement, fn: () => Promise<T>): Promise<T> {
+	const images = Array.from(element.querySelectorAll('img')).filter((img) => {
+		const src = img.currentSrc || img.src;
+		return isExternal(src) || directMediaUrl(src) !== null;
+	});
+	const restore: Array<() => void> = [];
+	await Promise.all(
+		images.map(async (img) => {
+			const src = img.currentSrc || img.src;
+			const direct = directMediaUrl(src);
+			const inlined = direct ? await fetchAsDataUrl(direct) : await inlineExternalImage(src);
+			// Diarum's own image stays as is if it cannot be read; the export
+			// can still load it from this origin.
+			if (direct && !inlined) return;
+			const original = { src: img.getAttribute('src'), srcset: img.getAttribute('srcset') };
+			img.removeAttribute('srcset');
+			img.src = inlined ?? IMAGE_PLACEHOLDER;
+			if (img.decode) await img.decode().catch(() => undefined);
+			restore.push(() => {
+				if (original.srcset !== null) img.setAttribute('srcset', original.srcset);
+				if (original.src !== null) img.setAttribute('src', original.src);
+			});
+		})
+	);
+	try {
+		return await fn();
+	} finally {
+		for (const undo of restore) undo();
+	}
+}
+
 // Generate image from element
 export async function generateImage(
 	element: HTMLElement,
@@ -135,18 +248,23 @@ export async function generateImage(
 		width: options.width,
 		height: element.offsetHeight,
 		pixelRatio: options.scale,
-		cacheBust: true,
+		// Media URLs never change content, so the HTTP cache is safe to use;
+		// busting it would also defeat the inlined copies above.
+		cacheBust: false,
 		skipAutoScale: true,
+		imagePlaceholder: IMAGE_PLACEHOLDER,
 		style: {
 			transform: 'scale(1)',
 			transformOrigin: 'top left'
 		}
 	};
 
-	if (format === 'jpeg') {
-		return await toJpeg(element, { ...config, quality: 0.95 });
-	}
-	return await toPng(element, config);
+	return withInlinedImages(element, async () => {
+		if (format === 'jpeg') {
+			return await toJpeg(element, { ...config, quality: 0.95 });
+		}
+		return await toPng(element, config);
+	});
 }
 
 // Download image

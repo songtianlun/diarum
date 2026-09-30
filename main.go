@@ -26,6 +26,7 @@ import (
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/logger"
+	"github.com/songtianlun/diarum/internal/medialib"
 	"github.com/songtianlun/diarum/internal/static"
 	"github.com/songtianlun/diarum/internal/store"
 )
@@ -192,6 +193,10 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterAuthRoutes(e, appStore, authService)
 	api.RegisterDiaryRoutes(e, appStore, authMiddleware, onDiaryChanged)
 	api.RegisterMediaRoutes(e, appStore, authMiddleware)
+	mediaLibrary := medialib.New(appStore, auditLog)
+	appStore.MediaEvent = mediaLibrary.OnStoreEvent
+	api.RegisterMediaLibraryRoutes(e, appStore, authMiddleware, mediaLibrary)
+	mediaLibrary.Start(context.Background())
 	api.RegisterImageUploadRoutes(e, appStore, authMiddleware)
 	api.RegisterSettingsRoutes(e, appStore, authMiddleware)
 	api.RegisterMemosRoutes(e, appStore, authMiddleware, onDiaryChanged)
@@ -203,6 +208,7 @@ func run(args []string, stdout io.Writer) error {
 	backupScheduler.Start(context.Background())
 	api.RegisterBackupRoutes(e, appStore, authMiddleware, backupService, backupScheduler)
 	api.RegisterCheveretoRoutes(e, appStore, authMiddleware)
+	api.RegisterImageProxyRoutes(e, appStore, authMiddleware)
 	api.RegisterPublicRoutes(e, appStore)
 	api.RegisterMCPRoutes(e, appStore, Version)
 	api.RegisterAdminRoutes(e, appStore, authMiddleware, auditLog, Version)

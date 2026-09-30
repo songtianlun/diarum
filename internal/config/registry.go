@@ -55,7 +55,15 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"image_upload.s3.access_key":       {Type: "string", Default: "", Encrypted: true},
 	"image_upload.s3.secret":           {Type: "string", Default: "", Encrypted: true},
 	"image_upload.s3.force_path_style": {Type: "bool", Default: false, Encrypted: false},
+	"image_upload.s3.prefix":           {Type: "string", Default: "", Encrypted: false},
+	"image_upload.s3.public_url":       {Type: "string", Default: "", Encrypted: false},
 	"image_upload.display_quality":     {Type: "string", Default: "md", Encrypted: false},
+
+	// Media library housekeeping (see internal/medialib). Trashed images are
+	// removed for good after this many days; 0 keeps them until removed by hand.
+	"media.trash_retention_days": {Type: "int", Default: 30, Min: 0, Max: 3650},
+	// Move images no entry uses any more to the trash automatically.
+	"media.auto_clean_unlinked": {Type: "bool", Default: false},
 
 	// Data backup to S3-compatible storage (see internal/backup)
 	"backup.enabled":             {Type: "bool", Default: false, Encrypted: false},
