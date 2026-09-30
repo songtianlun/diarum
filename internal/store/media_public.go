@@ -4,12 +4,19 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	aws "github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/songtianlun/diarum/internal/imaging"
 )
+
+// mediaFileURLPattern matches a Diarum file URL, relative or absolute:
+// /api/v1/files/media/<id>/<file>, or a legacy PocketBase one.
+var mediaFileURLPattern = regexp.MustCompile(`^(?:https?://[^/]+)?/api/(?:v1/files/media|files(?:/media)?/[A-Za-z0-9_]+)/([A-Za-z0-9_-]+)/([^/?#]+)`)
 
 // publicKeyMissTTL is how long an object found missing is not looked up
 // again, e.g. a variant still being generated.
@@ -83,6 +90,31 @@ func (s *Store) MediaPublicURL(media *Media) (string, bool) {
 		return "", false
 	}
 	return joinPublicURL(cfg.PublicURL, found), true
+}
+
+// MediaURLPublicURL is MediaPublicURL for an image address as it appears in
+// an entry: the original or a variant (photo.md.jpg) of owner's media. ok is
+// false for any other address, or when the file has no public URL.
+func (s *Store) MediaURLPublicURL(owner, src string) (string, bool) {
+	m := mediaFileURLPattern.FindStringSubmatch(strings.TrimSpace(src))
+	if m == nil {
+		return "", false
+	}
+	filename, err := url.PathUnescape(m[2])
+	if err != nil {
+		return "", false
+	}
+	media, err := s.GetMedia(m[1], owner)
+	if err != nil {
+		return "", false
+	}
+	if filename == media.File {
+		return s.MediaPublicURL(media)
+	}
+	if variant, ok := imaging.ParseVariant(media.File, filename); ok && imaging.Supported(media.File) {
+		return s.MediaPublicURL(VariantMedia(media, variant))
+	}
+	return "", false
 }
 
 // forgetPublicURLs drops what MediaPublicURL remembered about media and its

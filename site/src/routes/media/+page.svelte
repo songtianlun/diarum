@@ -131,6 +131,14 @@
 		else viewerIndex = Math.min(viewerIndex, remaining - 1);
 	}
 
+	/** Where a stored image lives: S3 or local disk ('' when unknown). */
+	function storageLabel(item: GalleryItem): string {
+		if (!item.managed) return '';
+		if (item.media.storage === 's3') return $t('mediaLib.library.storageS3');
+		if (item.media.storage === 'local') return $t('mediaLib.library.storageLocal');
+		return '';
+	}
+
 	function formatTimestamp(value: string | undefined): string {
 		if (!value) return '';
 		const date = new Date(value.replace(' ', 'T'));
@@ -282,6 +290,10 @@
 											<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
 											{$t('mediaLib.library.external')}
 										</span>
+									{:else if storageLabel(item)}
+										<span class="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] font-medium text-white">
+											{storageLabel(item)}
+										</span>
 									{/if}
 									{#if item.media.expand?.diary && item.media.expand.diary.length > 0}
 										<div class="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 rounded text-xs text-white">
@@ -336,7 +348,7 @@
 						<div class="font-medium truncate">{viewerItem.title}</div>
 						<div class="text-xs text-white/60 mt-0.5">
 							{#if viewerItem.managed}
-								{#if viewerItem.media.date}{formatDayLabel(viewerItem.date)} · {/if}{$t('mediaLib.library.uploaded', { time: formatTimestamp(viewerItem.media.created) })}
+								{#if viewerItem.media.date}{formatDayLabel(viewerItem.date)} · {/if}{$t('mediaLib.library.uploaded', { time: formatTimestamp(viewerItem.media.created) })}{#if storageLabel(viewerItem)} · {storageLabel(viewerItem)}{/if}
 							{:else}
 								{formatDayLabel(viewerItem.date)} · {$t('mediaLib.library.external')}
 							{/if}

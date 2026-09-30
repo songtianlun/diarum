@@ -140,6 +140,27 @@ export function getMediaFileUrl(media: Media, thumb?: string): string {
     return thumb ? `${url}?thumb=${encodeURIComponent(thumb)}` : url;
 }
 
+/**
+ * Direct (S3 public URL) addresses of image URLs, for sharing. URLs without
+ * one are left out of the result; on failure the result is empty.
+ */
+export async function fetchShareUrls(urls: string[]): Promise<Record<string, string>> {
+    if (urls.length === 0) return {};
+    try {
+        const response = await fetch('/api/v1/media/share-urls', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${pb.authStore.token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls })
+        });
+        if (!response.ok) return {};
+        const result = await response.json();
+        return result?.urls ?? {};
+    } catch (error) {
+        console.error('Error resolving share URLs:', error);
+        return {};
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Trash, statistics, unused image scan and housekeeping settings
 

@@ -35,6 +35,8 @@ export const mediaLibEn = {
 		moved: 'Moved {count} image(s) to the trash',
 		partial: '{failed} could not be moved',
 		external: 'External',
+		storageS3: 'S3',
+		storageLocal: 'Local',
 		externalHint: 'This image is hosted elsewhere (e.g. Chevereto). Diarum does not store it, so delete it where it is hosted.',
 		externalNotSelectable: 'External images cannot be deleted here',
 		openOriginal: 'Open original'
@@ -222,6 +224,8 @@ export const mediaLibZh: typeof mediaLibEn = {
 		moved: '已将 {count} 张图片移入回收站',
 		partial: '{failed} 张未能移动',
 		external: '外链',
+		storageS3: 'S3',
+		storageLocal: '本地',
 		externalHint: '这张图片托管在其他地方（例如 Chevereto），Diarum 不保存它，请到其托管处删除。',
 		externalNotSelectable: '外链图片无法在这里删除',
 		openOriginal: '打开原图'

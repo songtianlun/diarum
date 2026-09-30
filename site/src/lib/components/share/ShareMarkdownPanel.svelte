@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { marked } from 'marked';
-	import { htmlToMarkdown } from '$lib/utils/htmlToMarkdown';
+	import { htmlToMarkdown, imageSources } from '$lib/utils/htmlToMarkdown';
+	import { fetchShareUrls } from '$lib/api/media';
 	import { copyText } from '$lib/utils/clipboard';
 	import { formatDisplayDate, getDayOfWeek } from '$lib/utils/date';
 
@@ -28,6 +29,9 @@
 	let copyState: 'idle' | 'copied' | 'failed' = 'idle';
 	let copyTimer: ReturnType<typeof setTimeout> | undefined;
 	let textarea: HTMLTextAreaElement;
+	// Images on S3 with a public URL are shared by their direct link.
+	let imageUrls: Record<string, string> = {};
+	let resolveRun = 0;
 
 	onMount(() => {
 		try {
@@ -54,6 +58,12 @@
 		return trimmed.startsWith('<') ? trimmed : (marked.parse(trimmed) as string);
 	}
 
+	async function resolveImageUrls(html: string) {
+		const run = ++resolveRun;
+		const urls = await fetchShareUrls(imageSources(html));
+		if (run === resolveRun) imageUrls = urls;
+	}
+
 	function buildMarkdown(): string {
 		const parts: string[] = [];
 		if (options.date && date) parts.push(`# ${formatDisplayDate(date)} ${getDayOfWeek(date)}`);
@@ -61,7 +71,8 @@
 		if (options.meta && meta) parts.push(meta);
 		const body = htmlToMarkdown(toHtml(content ?? ''), {
 			baseUrl: window.location.origin,
-			includeImages: options.images
+			includeImages: options.images,
+			imageUrls
 		});
 		if (body) parts.push(body);
 		const tagLine = tags.filter(Boolean).map((tag) => `#${tag.replace(/\s+/g, '-')}`).join(' ');
@@ -71,8 +82,9 @@
 
 	// Regenerate when inputs change; this replaces manual edits, which the
 	// Reset button makes explicit.
+	$: if (typeof window !== 'undefined') resolveImageUrls(toHtml(content ?? ''));
 	$: {
-		options, content, date, mood, weather, tags;
+		options, content, date, mood, weather, tags, imageUrls;
 		if (typeof window !== 'undefined') {
 			generated = buildMarkdown();
 			text = generated;

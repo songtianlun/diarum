@@ -115,6 +115,32 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		return c.JSON(http.StatusOK, media)
 	})
 
+	// Direct addresses for sharing: each image URL of the caller's media that
+	// has an S3 public URL maps to it. Other URLs are left out, so the caller
+	// keeps its own (absolute) link for them.
+	group.POST("/share-urls", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		var body struct {
+			URLs []string `json:"urls"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return badRequest("Invalid request body", err)
+		}
+		if len(body.URLs) > maxMediaBatch {
+			return badRequest("Too many images in one request", nil)
+		}
+		urls := map[string]string{}
+		for _, src := range body.URLs {
+			if _, done := urls[src]; done {
+				continue
+			}
+			if target, ok := s.MediaURLPublicURL(user.ID, src); ok {
+				urls[src] = target
+			}
+		}
+		return c.JSON(http.StatusOK, map[string]any{"urls": urls})
+	})
+
 	// Deleting moves the image to the trash; its file is only removed once
 	// the trash is emptied (by hand or after the retention period).
 	group.DELETE("/:id", func(c echo.Context) error {

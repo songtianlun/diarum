@@ -9,11 +9,20 @@ export interface MarkdownOptions {
 	/** Base for relative image and link URLs, so they work outside the app. */
 	baseUrl?: string;
 	includeImages?: boolean;
+	/** Replacement addresses for image src values, e.g. S3 direct links. */
+	imageUrls?: Record<string, string>;
 }
 
 const BLOCK_TAGS = new Set([
 	'P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'HR', 'IMG', 'TABLE', 'FIGURE'
 ]);
+
+/** The src of every image in html, as image() reads it. */
+export function imageSources(html: string): string[] {
+	const doc = new DOMParser().parseFromString(html, 'text/html');
+	const sources = Array.from(doc.querySelectorAll('img'), (img) => img.dataset.fullSrc || img.getAttribute('src') || '');
+	return [...new Set(sources.filter((src) => src && !src.startsWith('blob:') && !src.startsWith('data:')))];
+}
 
 /** Resolves relative URLs against base; absolute ones are kept verbatim. */
 function absolute(url: string, base?: string): string {
@@ -108,7 +117,8 @@ class Converter {
 		const src = img.dataset.fullSrc || img.getAttribute('src') || '';
 		if (!src || src.startsWith('blob:') || img.dataset.uploading === 'true') return '';
 		const alt = (img.getAttribute('alt') ?? '').replace(/[[\]]/g, '');
-		return `![${alt}](${absolute(src, this.options.baseUrl).replace(/\)/g, '%29').replace(/ /g, '%20')})`;
+		const url = this.options.imageUrls?.[src] ?? absolute(src, this.options.baseUrl);
+		return `![${alt}](${url.replace(/\)/g, '%29').replace(/ /g, '%20')})`;
 	}
 
 	/** Inline content of a block, one Markdown line per source line. */
