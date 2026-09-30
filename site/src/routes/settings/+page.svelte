@@ -2368,9 +2368,10 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									<label for="s3-endpoint" class="block font-medium text-foreground mb-2">{$t('mediaLib.upload.endpoint')}</label>
 									<input id="s3-endpoint" type="text" bind:value={imageUploadSettingsLocal.s3.endpoint} placeholder="https://s3.amazonaws.com" class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" />
 								</div>
+								<!-- Same height as the inputs, so it lines up with Endpoint beside it. -->
 								<div class="flex items-end">
-									<label class="inline-flex items-center gap-2 text-sm text-foreground">
-										<input type="checkbox" bind:checked={imageUploadSettingsLocal.s3.force_path_style} class="rounded border-border text-primary focus:ring-primary" />
+									<label class="flex h-9 items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+										<input type="checkbox" bind:checked={imageUploadSettingsLocal.s3.force_path_style} class="h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))] cursor-pointer" />
 										{$t('mediaLib.upload.pathStyle')}
 									</label>
 								</div>
