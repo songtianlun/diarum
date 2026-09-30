@@ -27,15 +27,20 @@ import (
 // Actions handlers attach to requests. Requests without one are still
 // recorded, identified by method and route.
 const (
-	ActionDiaryCreate    = "diary.create"
-	ActionDiaryUpdate    = "diary.update"
-	ActionDiaryDelete    = "diary.delete"
-	ActionDiaryRestore   = "diary.restore"
-	ActionDiaryView      = "diary.view"
-	ActionDiarySearch    = "diary.search"
-	ActionConvDelete     = "conversation.delete"
-	ActionMediaUpload    = "media.upload"
+	ActionDiaryCreate  = "diary.create"
+	ActionDiaryUpdate  = "diary.update"
+	ActionDiaryDelete  = "diary.delete"
+	ActionDiaryRestore = "diary.restore"
+	ActionDiaryView    = "diary.view"
+	ActionDiarySearch  = "diary.search"
+	ActionConvDelete   = "conversation.delete"
+	ActionMediaUpload  = "media.upload"
+	// ActionMediaDelete is what deleting an image was logged as before the
+	// trash existed; deleting now moves the image to the trash.
 	ActionMediaDelete    = "media.delete"
+	ActionMediaTrash     = "media.trash"
+	ActionMediaRestore   = "media.restore"
+	ActionMediaPurge     = "media.purge"
 	ActionDataImport     = "data.import"
 	ActionDataExport     = "data.export"
 	ActionSettingsUpdate = "settings.update"

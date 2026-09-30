@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/songtianlun/diarum/internal/medialib"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -164,9 +165,19 @@ func TestFocusedMediaRouteErrors(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(blockedPath, "child"), 0o755); err != nil {
 		t.Fatalf("MkdirAll blocked media path: %v", err)
 	}
+	// Deleting only moves the image to the trash; the file error surfaces
+	// when the trash is purged, and the image stays in the trash for a retry.
 	rec = performRequest(t, e, http.MethodDelete, "/api/v1/media/"+deleteMedia.ID, nil, nil)
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("DELETE /media file delete error status = %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /media status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	RegisterMediaLibraryRoutes(e, s, authMiddlewareFor(user), medialib.New(s, nil))
+	result := purgeMediaForTest(t, e, deleteMedia.ID)
+	if len(result.Done) != 0 || result.Failed[deleteMedia.ID] == "" {
+		t.Fatalf("purge with file delete error = %+v", result)
+	}
+	if media, err := s.GetMedia(deleteMedia.ID, user.ID); err != nil || !media.InTrash() {
+		t.Fatalf("media should stay in the trash after a failed purge: %+v %v", media, err)
 	}
 }
 

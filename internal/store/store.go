@@ -11,8 +11,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	aws "github.com/aws/aws-sdk-go-v2/aws"
@@ -46,6 +48,12 @@ type Store struct {
 	SnapshotInterval time.Duration
 	now              func() time.Time
 	variants         variantWorker
+	// mediaMu serialises trash state changes (restore, purge), so a purge
+	// never deletes the files of an image being restored at the same time.
+	mediaMu sync.Mutex
+	// MediaEvent, when set, is told about media changes the store makes on
+	// its own, such as restoring a trashed image an entry uses again.
+	MediaEvent func(action string, media *Media, detail map[string]any)
 }
 
 type LegacyS3Config struct {
@@ -56,6 +64,8 @@ type LegacyS3Config struct {
 	AccessKey      string `json:"accessKey"`
 	Secret         string `json:"secret"`
 	ForcePathStyle bool   `json:"forcePathStyle"`
+	// Prefix is the folder media objects are stored under; "" is the root.
+	Prefix string `json:"prefix,omitempty"`
 }
 
 type User struct {
@@ -98,6 +108,25 @@ type Media struct {
 	Owner   string   `json:"owner"`
 	Created string   `json:"created"`
 	Updated string   `json:"updated"`
+	// Date is the image's own date: the day of the first entry it was used
+	// in, at midnight ("2026-09-28 00:00:00.000Z"); empty until linked.
+	Date string `json:"date"`
+	// Storage is where the file was uploaded to: local, s3 or unknown.
+	Storage string `json:"storage"`
+	// Deleted is when the image was moved to the trash; empty if it is not
+	// in the trash. The other Delete* fields describe that move.
+	Deleted       string `json:"deleted,omitempty"`
+	DeletedBy     string `json:"deletedBy,omitempty"`
+	DeleteReason  string `json:"deleteReason,omitempty"`
+	DeleteTrigger string `json:"deleteTrigger,omitempty"`
+	// S3Prefix is the bucket folder the file was uploaded under ("" for the
+	// bucket root); only meaningful when Storage is s3.
+	S3Prefix string `json:"-"`
+}
+
+// InTrash reports whether the image has been moved to the trash.
+func (m *Media) InTrash() bool {
+	return m != nil && m.Deleted != ""
 }
 
 type Conversation struct {
@@ -213,6 +242,12 @@ func Open(dataDir string) (*Store, error) {
 	}
 	if err := appStore.initLegacyS3Client(); err != nil {
 		logger.Warn("[Store] legacy S3 client init failed: %v", err)
+	}
+	if err := appStore.BackfillMediaDates(); err != nil {
+		logger.Warn("[Store] media date backfill failed: %v", err)
+	}
+	if err := appStore.backfillMediaStorage(); err != nil {
+		logger.Warn("[Store] media storage backfill failed: %v", err)
 	}
 
 	return appStore, nil
@@ -348,7 +383,10 @@ func createSchema(db *sql.DB) error {
 			return err
 		}
 	}
-	return migrateAdminSchema(db)
+	if err := migrateAdminSchema(db); err != nil {
+		return err
+	}
+	return migrateMediaSchema(db)
 }
 
 func migrateLegacyData(db *sql.DB, oldPath string) error {
@@ -766,8 +804,11 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
+// timeLayout is how timestamps are stored; they sort as strings.
+const timeLayout = "2006-01-02 15:04:05.000Z"
+
 func nowString() string {
-	return time.Now().UTC().Format("2006-01-02 15:04:05.000Z")
+	return time.Now().UTC().Format(timeLayout)
 }
 
 func GenerateID() (string, error) {
@@ -1137,13 +1178,19 @@ func (s *Store) ListMedia(owner string, page, perPage int) ([]MediaWithExpand, i
 		perPage = 50
 	}
 	var total int
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM media WHERE owner = ?`, owner).Scan(&total); err != nil {
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM media WHERE owner = ? AND deleted = ''`, owner).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.DB.Query(`SELECT alt, created, file, id, name, owner, updated, diary FROM media WHERE owner = ? ORDER BY created DESC LIMIT ? OFFSET ?`, owner, perPage, (page-1)*perPage)
+	rows, err := s.DB.Query(`SELECT `+mediaColumns+` FROM media WHERE owner = ? AND deleted = '' ORDER BY `+mediaTimelineOrder+` LIMIT ? OFFSET ?`, owner, perPage, (page-1)*perPage)
 	if err != nil {
 		return nil, 0, err
 	}
+	return s.expandMediaRows(owner, rows, total)
+}
+
+// expandMediaRows scans media rows and attaches the diaries each is linked
+// to, as "expand.diary". It closes rows.
+func (s *Store) expandMediaRows(owner string, rows *sql.Rows, total int) ([]MediaWithExpand, int, error) {
 	defer rows.Close()
 	items := make([]MediaWithExpand, 0)
 	diaryIDs := make(map[string]struct{})
@@ -1191,7 +1238,7 @@ func (s *Store) ListMedia(owner string, page, perPage int) ([]MediaWithExpand, i
 }
 
 func (s *Store) GetMedia(id, owner string) (*Media, error) {
-	media, err := scanMedia(s.DB.QueryRow(`SELECT alt, created, file, id, name, owner, updated, diary FROM media WHERE id = ?`, id))
+	media, err := scanMedia(s.DB.QueryRow(`SELECT `+mediaColumns+` FROM media WHERE id = ?`, id))
 	if err != nil {
 		return nil, err
 	}
@@ -1218,7 +1265,17 @@ func (s *Store) InsertImportedMedia(owner, id, file, name, alt string, diary []s
 	if err != nil {
 		return nil, err
 	}
-	return s.GetMedia(id, owner)
+	media, err := s.GetMedia(id, owner)
+	if err != nil {
+		return nil, err
+	}
+	// Date the image after the first of its entries that exists.
+	for _, diaryID := range media.Diary {
+		if err := s.setMediaDateIfEmpty(media, diaryID); err != nil || media.Date != "" {
+			break
+		}
+	}
+	return media, nil
 }
 
 func (s *Store) UpdateMediaDiary(id, owner string, diary []string) (*Media, error) {
@@ -1244,7 +1301,8 @@ func (s *Store) DeleteMedia(id, owner string) error {
 func scanMedia(row interface{ Scan(dest ...any) error }) (*Media, error) {
 	var diaryRaw string
 	media := &Media{}
-	err := row.Scan(&media.Alt, &media.Created, &media.File, &media.ID, &media.Name, &media.Owner, &media.Updated, &diaryRaw)
+	err := row.Scan(&media.Alt, &media.Created, &media.File, &media.ID, &media.Name, &media.Owner, &media.Updated, &diaryRaw,
+		&media.Date, &media.Storage, &media.Deleted, &media.DeletedBy, &media.DeleteReason, &media.DeleteTrigger, &media.S3Prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -1281,11 +1339,56 @@ func (s *Store) mediaFileCandidates(media *Media) []string {
 	return uniqueStrings(candidates)
 }
 
-func (s *Store) mediaObjectKeys(media *Media) []string {
-	return []string{
-		strings.Join([]string{s.MediaCollectionID, media.ID, media.File}, "/"),
-		strings.Join([]string{DefaultMediaCollectionID, media.ID, media.File}, "/"),
+// mediaObjectKeys lists the object keys a media file may live under: the
+// prefix it was uploaded with, then the bucket's current prefix, then the
+// root (PocketBase-era objects), each in the current and default collection.
+func (s *Store) mediaObjectKeys(media *Media, cfg *LegacyS3Config) []string {
+	prefixes := []string{}
+	if media.Storage == MediaStorageS3 {
+		prefixes = append(prefixes, media.S3Prefix)
 	}
+	if cfg != nil {
+		prefixes = append(prefixes, cfg.Prefix)
+	}
+	prefixes = append(prefixes, "")
+	keys := make([]string, 0, len(prefixes)*2)
+	for _, prefix := range prefixes {
+		for _, collection := range []string{s.MediaCollectionID, DefaultMediaCollectionID} {
+			keys = append(keys, mediaObjectKey(prefix, collection, media))
+		}
+	}
+	return uniqueStrings(keys)
+}
+
+func mediaObjectKey(prefix, collection string, media *Media) string {
+	key := strings.Join([]string{collection, media.ID, media.File}, "/")
+	if prefix == "" {
+		return key
+	}
+	return prefix + "/" + key
+}
+
+// s3PrefixSegment is one folder name of an S3 prefix.
+var s3PrefixSegment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// NormalizeS3Prefix checks and tidies a bucket folder such as "diarum/media":
+// surrounding slashes are dropped, backslashes count as slashes, and every
+// folder name must start with a letter or digit and contain only letters,
+// digits, dots, dashes and underscores. "" means the bucket root.
+func NormalizeS3Prefix(prefix string) (string, error) {
+	prefix = strings.Trim(strings.ReplaceAll(strings.TrimSpace(prefix), "\\", "/"), "/")
+	if prefix == "" {
+		return "", nil
+	}
+	if len(prefix) > 200 {
+		return "", errors.New("the path prefix is longer than 200 characters")
+	}
+	for _, segment := range strings.Split(prefix, "/") {
+		if !s3PrefixSegment.MatchString(segment) {
+			return "", fmt.Errorf("invalid folder name %q in the path prefix: use letters, digits, dots, dashes and underscores, separated by /", segment)
+		}
+	}
+	return prefix, nil
 }
 
 func (s *Store) NewMediaFilePath(mediaID, filename string) string {
@@ -1336,6 +1439,9 @@ func (s *Store) userS3Config(userID string) *LegacyS3Config {
 		Secret:         strings.TrimSpace(s.userStringSetting(userID, "image_upload.s3.secret")),
 		ForcePathStyle: s.userBoolSetting(userID, "image_upload.s3.force_path_style"),
 	}
+	// An invalid stored prefix (never saved through the API) falls back to
+	// the bucket root rather than writing to a surprising key.
+	cfg.Prefix, _ = NormalizeS3Prefix(s.userStringSetting(userID, "image_upload.s3.prefix"))
 	if cfg.Bucket == "" || cfg.Region == "" || cfg.AccessKey == "" || cfg.Secret == "" {
 		return nil
 	}
@@ -1593,12 +1699,19 @@ func (s *Store) SaveUploadedMedia(media *Media, reader io.Reader) error {
 		if cfg == nil {
 			return fmt.Errorf("s3 settings are incomplete")
 		}
-		return s.saveMediaToS3(cfg, media, reader)
+		media.Storage, media.S3Prefix = MediaStorageS3, cfg.Prefix
+		if err := s.saveMediaToS3(cfg, media, reader); err != nil {
+			return err
+		}
+		return s.setMediaStorage(media, MediaStorageS3, cfg.Prefix)
 	}
 	if s.imageUploadProvider(media.Owner) == "chevereto" {
 		return fmt.Errorf("chevereto uploads must use the chevereto upload endpoint")
 	}
-	return s.SaveUploadedFile(filepath.Join(s.userLocalMediaDir(media.Owner), media.ID, media.File), reader)
+	if err := s.SaveUploadedFile(filepath.Join(s.userLocalMediaDir(media.Owner), media.ID, media.File), reader); err != nil {
+		return err
+	}
+	return s.setMediaStorage(media, MediaStorageLocal, "")
 }
 
 // NewS3Client builds a client for an S3-compatible endpoint. It returns nil
@@ -1634,10 +1747,19 @@ func (s *Store) saveMediaToS3(cfg *LegacyS3Config, media *Media, reader io.Reade
 	}
 	_, err = client.PutObject(context.Background(), &awss3.PutObjectInput{
 		Bucket: aws.String(cfg.Bucket),
-		Key:    aws.String(strings.Join([]string{DefaultMediaCollectionID, media.ID, media.File}, "/")),
+		Key:    aws.String(mediaObjectKey(s3UploadPrefix(media, cfg), DefaultMediaCollectionID, media)),
 		Body:   reader,
 	})
 	return err
+}
+
+// s3UploadPrefix is the folder a new object for media goes to: the one its
+// original was uploaded under, so variants sit next to it, else the current.
+func s3UploadPrefix(media *Media, cfg *LegacyS3Config) string {
+	if media.Storage == MediaStorageS3 {
+		return media.S3Prefix
+	}
+	return cfg.Prefix
 }
 
 func (s *Store) initLegacyS3Client() error {
@@ -1725,7 +1847,7 @@ func (s *Store) openMediaFromS3(client *awss3.Client, cfg *LegacyS3Config, media
 		return nil, os.ErrNotExist
 	}
 	var lastErr error
-	for _, key := range s.mediaObjectKeys(media) {
+	for _, key := range s.mediaObjectKeys(media, cfg) {
 		result, err := client.GetObject(context.Background(), &awss3.GetObjectInput{
 			Bucket: aws.String(cfg.Bucket),
 			Key:    aws.String(key),
@@ -1754,7 +1876,7 @@ func (s *Store) deleteMediaFromS3(client *awss3.Client, cfg *LegacyS3Config, med
 		return nil
 	}
 	var firstErr error
-	for _, key := range s.mediaObjectKeys(media) {
+	for _, key := range s.mediaObjectKeys(media, cfg) {
 		_, err := client.DeleteObject(context.Background(), &awss3.DeleteObjectInput{
 			Bucket: aws.String(cfg.Bucket),
 			Key:    aws.String(key),

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"github.com/songtianlun/diarum/internal/medialib"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -493,9 +494,18 @@ func TestDiaryMediaAndPublicRoutes(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("DELETE /media missing status = %d", rec.Code)
 	}
+	// Deleted images wait in the trash and stay viewable until purged.
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/files/media/"+mediaID+"/photo.png", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET trashed media file status = %d", rec.Code)
+	}
+	RegisterMediaLibraryRoutes(e, s, authMiddlewareFor(user), medialib.New(s, nil))
+	if result := purgeMediaForTest(t, e, mediaID); len(result.Done) != 1 {
+		t.Fatalf("purge = %+v", result)
+	}
 	rec = performRequest(t, e, http.MethodGet, "/api/v1/files/media/"+mediaID+"/photo.png", nil, nil)
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("GET deleted media file status = %d", rec.Code)
+		t.Fatalf("GET purged media file status = %d", rec.Code)
 	}
 
 	rec = performRequest(t, e, http.MethodDelete, "/api/v1/diaries/"+diaryID, nil, nil)

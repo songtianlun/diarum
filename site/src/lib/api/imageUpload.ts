@@ -14,6 +14,8 @@ export interface ImageUploadSettings {
         access_key: string;
         secret: string;
         force_path_style: boolean;
+        /** Bucket folder for images; empty is the bucket root. */
+        prefix: string;
     };
     chevereto: {
         domain: string;
@@ -33,7 +35,8 @@ export const defaultImageUploadSettings: ImageUploadSettings = {
         endpoint: '',
         access_key: '',
         secret: '',
-        force_path_style: false
+        force_path_style: false,
+        prefix: ''
     },
     chevereto: {
         domain: '',

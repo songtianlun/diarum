@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { isAuthenticated } from '$lib/api/client';
+	import { t } from '$lib/i18n';
 	import { deleteMediaById } from '$lib/api/media';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
@@ -99,6 +100,17 @@
 <div class="min-h-screen bg-background">
 	<PageHeader title="Media Library">
 		<span slot="subtitle" class="ml-1 text-sm text-muted-foreground tabular-nums">{countLabel}</span>
+		<a
+			slot="actions"
+			href="/media/trash"
+			class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200 text-muted-foreground hover:text-foreground"
+			title={$t('mediaLib.trash.entryHint')}
+			aria-label={$t('mediaLib.trash.entry')}
+		>
+			<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+			</svg>
+		</a>
 	</PageHeader>
 
 	<main class="max-w-5xl mx-auto px-4 py-6">
@@ -209,19 +221,19 @@
 					<div class="min-w-0">
 						<div class="font-medium truncate">{viewerItem.title}</div>
 						<div class="text-xs text-white/60 mt-0.5">
-							Uploaded {formatTimestamp(viewerItem.media.created)}
+							{#if viewerItem.media.date}{formatDayLabel(viewerItem.date)} · {/if}Uploaded {formatTimestamp(viewerItem.media.created)}
 						</div>
 					</div>
 
 					<div class="flex flex-wrap items-center gap-2">
 						{#if !confirmDelete}
-							<button class="info-btn danger" on:click={() => (confirmDelete = true)}>Delete</button>
+							<button class="info-btn danger" on:click={() => (confirmDelete = true)}>Move to trash</button>
 						{:else}
 							<span class="text-xs text-red-300">
-								{viewerItem.media.expand?.diary?.length ? `Used in ${viewerItem.media.expand.diary.length} diary(s). Delete anyway?` : 'Delete this image?'}
+								{viewerItem.media.expand?.diary?.length ? `Used in ${viewerItem.media.expand.diary.length} diary(s). Move to trash anyway?` : 'Move this image to the trash?'}
 							</span>
 							<button class="info-btn danger solid" disabled={deleting} on:click={() => viewerItem && handleDelete(viewerItem)}>
-								{deleting ? 'Deleting…' : 'Delete'}
+								{deleting ? 'Moving…' : 'Move to trash'}
 							</button>
 							<button class="info-btn" on:click={() => (confirmDelete = false)}>Cancel</button>
 						{/if}

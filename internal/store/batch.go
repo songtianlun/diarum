@@ -23,12 +23,13 @@ func (s *Store) ListDiariesAfter(owner, afterDate, afterID string, limit int) ([
 
 // ListMediaAfter returns up to limit media records of owner ordered by
 // (created, id), starting after the given key, without expanding diaries.
+// Images in the trash are left out.
 func (s *Store) ListMediaAfter(owner, afterCreated, afterID string, limit int) ([]*Media, error) {
 	if limit <= 0 {
 		limit = 500
 	}
-	rows, err := s.DB.Query(`SELECT alt, created, file, id, name, owner, updated, diary FROM media
-		WHERE owner = ? AND (created > ? OR (created = ? AND id > ?))
+	rows, err := s.DB.Query(`SELECT `+mediaColumns+` FROM media
+		WHERE owner = ? AND deleted = '' AND (created > ? OR (created = ? AND id > ?))
 		ORDER BY created ASC, id ASC LIMIT ?`, owner, afterCreated, afterCreated, afterID, limit)
 	if err != nil {
 		return nil, err
@@ -45,10 +46,10 @@ func (s *Store) ListMediaAfter(owner, afterCreated, afterID string, limit int) (
 	return items, rows.Err()
 }
 
-// CountMedia returns how many media records owner has.
+// CountMedia returns how many media records owner has outside the trash.
 func (s *Store) CountMedia(owner string) int {
 	var total int
-	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM media WHERE owner = ?`, owner).Scan(&total)
+	_ = s.DB.QueryRow(`SELECT COUNT(*) FROM media WHERE owner = ? AND deleted = ''`, owner).Scan(&total)
 	return total
 }
 

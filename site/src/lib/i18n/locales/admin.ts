@@ -179,6 +179,7 @@ export const adminEn = {
 			source: 'Source',
 			device: 'Device'
 		},
+		trigger: { auto: 'Automatic', manual: 'Manual' },
 		actions: {
 			diary_create: 'Created entry',
 			diary_update: 'Edited entry',
@@ -189,6 +190,9 @@ export const adminEn = {
 			conversation_delete: 'Deleted chat',
 			media_upload: 'Uploaded image',
 			media_delete: 'Deleted image',
+			media_trash: 'Moved image to trash',
+			media_restore: 'Restored image',
+			media_purge: 'Deleted image forever',
 			data_import: 'Imported data',
 			data_export: 'Exported data',
 			settings_update: 'Changed settings',
@@ -449,6 +453,7 @@ export const adminZh: typeof adminEn = {
 			source: '来源',
 			device: '设备'
 		},
+		trigger: { auto: '自动', manual: '手动' },
 		actions: {
 			diary_create: '创建日记',
 			diary_update: '修改日记',
@@ -459,6 +464,9 @@ export const adminZh: typeof adminEn = {
 			conversation_delete: '删除对话',
 			media_upload: '上传图片',
 			media_delete: '删除图片',
+			media_trash: '图片移入回收站',
+			media_restore: '恢复图片',
+			media_purge: '彻底删除图片',
 			data_import: '导入数据',
 			data_export: '导出数据',
 			settings_update: '修改设置',

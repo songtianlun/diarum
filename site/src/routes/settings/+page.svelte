@@ -44,6 +44,7 @@
 	import type { ChartPoint } from '$lib/components/stats/types';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import BackupSettings from '$lib/components/settings/BackupSettings.svelte';
+	import MediaLibrarySettings from '$lib/components/settings/MediaLibrarySettings.svelte';
 	import { t, locale, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
 	import { formatHumanNumber } from '$lib/utils/number';
 	import {
@@ -881,6 +882,17 @@
 
 	$: imageUploadSettingsChanged = JSON.stringify(imageUploadSettingsLocal) !== JSON.stringify(originalImageUploadSettings);
 
+	/** Mirrors the server's check of the S3 folder: "" (bucket root) or folder names of letters, digits, . _ - joined by /. */
+	function normalizeS3Prefix(prefix: string | undefined): { value: string; valid: boolean } {
+		const value = (prefix ?? '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+		if (!value) return { value: '', valid: true };
+		const valid = value.length <= 200 && value.split('/').every((segment) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(segment));
+		return { value, valid };
+	}
+	$: s3Prefix = normalizeS3Prefix(imageUploadSettingsLocal.s3.prefix);
+	$: s3PrefixNormalized = s3Prefix.value;
+	$: s3PrefixError = s3Prefix.valid ? '' : $t('mediaLib.s3Prefix.invalid');
+
 	async function handleTestChevereto() {
 		if (!imageUploadSettingsLocal.chevereto.domain || !imageUploadSettingsLocal.chevereto.api_key) {
 			imageUploadError = 'Please enter Domain and API Key first';
@@ -907,6 +919,10 @@
 		if (imageUploadSettingsLocal.provider === 's3') {
 			if (!imageUploadSettingsLocal.s3.bucket || !imageUploadSettingsLocal.s3.region || !imageUploadSettingsLocal.s3.access_key || !imageUploadSettingsLocal.s3.secret) {
 				imageUploadError = 'Bucket, region, access key and secret are required for S3';
+				return;
+			}
+			if (!s3Prefix.valid) {
+				imageUploadError = s3PrefixError;
 				return;
 			}
 		}
@@ -2350,6 +2366,28 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 									<input id="s3-secret" type="password" bind:value={imageUploadSettingsLocal.s3.secret} class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" />
 								</div>
 							</div>
+							<div>
+								<label for="s3-prefix" class="block font-medium text-foreground mb-2">{$t('mediaLib.s3Prefix.label')}</label>
+								<input
+									id="s3-prefix"
+									type="text"
+									bind:value={imageUploadSettingsLocal.s3.prefix}
+									placeholder={$t('mediaLib.s3Prefix.placeholder')}
+									autocapitalize="off"
+									autocomplete="off"
+									spellcheck="false"
+									aria-invalid={s3PrefixError ? 'true' : undefined}
+									class="w-full px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 {s3PrefixError ? 'ring-2 ring-rose-500/60 focus:ring-rose-500' : 'focus:ring-primary'}"
+								/>
+								{#if s3PrefixError}
+									<p class="text-xs text-rose-600 dark:text-rose-400 mt-1">{s3PrefixError}</p>
+								{:else}
+									<p class="text-xs text-muted-foreground mt-1">
+										{$t('mediaLib.s3Prefix.hint')}
+										<span class="block mt-0.5 font-mono break-all">{$t('mediaLib.s3Prefix.preview', { path: `${s3PrefixNormalized ? s3PrefixNormalized + '/' : ''}media/<id>/<file>` })}</span>
+									</p>
+								{/if}
+							</div>
 							<p class="text-xs text-muted-foreground">If you migrated from PocketBase S3 storage, these credentials are also used to keep older gallery images accessible.</p>
 						</div>
 					{:else}
@@ -2483,6 +2521,12 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 						Built-in images get thumbnail and medium copies automatically in the background after upload. Older images get them the first time they are viewed. For Chevereto, its own <code>.th</code> and <code>.md</code> copies are used.
 					</p>
 				</div>
+
+				{#if originalImageUploadSettings.provider === 'local' || originalImageUploadSettings.provider === 's3'}
+					{#key originalImageUploadSettings.provider}
+						<MediaLibrarySettings provider={originalImageUploadSettings.provider} />
+					{/key}
+				{/if}
 				{/if}
 
 				{#if activeTab === 'data-management'}

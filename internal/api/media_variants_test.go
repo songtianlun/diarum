@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"github.com/songtianlun/diarum/internal/medialib"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -101,10 +102,19 @@ func TestMediaVariantsRoute(t *testing.T) {
 		t.Fatal("missing variant should be regenerated in the background")
 	}
 
-	// Deleting the media removes its variants too.
+	// Purging the media from the trash removes its variants too.
 	rec = performRequest(t, e, http.MethodDelete, "/api/v1/media/"+id, nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d", rec.Code)
+	}
+	for _, v := range imaging.Variants {
+		if _, ok := s.MediaVariantPath(media, v); !ok {
+			t.Fatalf("%s variant should stay while the image is in the trash", v)
+		}
+	}
+	RegisterMediaLibraryRoutes(e, s, authMiddlewareFor(user), medialib.New(s, nil))
+	if result := purgeMediaForTest(t, e, id); len(result.Done) != 1 {
+		t.Fatalf("purge = %+v", result)
 	}
 	for _, v := range imaging.Variants {
 		if _, ok := s.MediaVariantPath(media, v); ok {

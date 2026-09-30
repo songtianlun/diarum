@@ -30,6 +30,15 @@ export interface Media {
     owner: string;
     created?: string;
     updated?: string;
+    /** The image's own date: day of the first entry it was used in, at midnight. */
+    date?: string;
+    /** Where the file lives: local, s3 or unknown. */
+    storage?: string;
+    /** When it was moved to the trash; absent outside the trash. */
+    deleted?: string;
+    deletedBy?: string;
+    deleteReason?: string;
+    deleteTrigger?: string;
 }
 
 export interface UploadProgress {

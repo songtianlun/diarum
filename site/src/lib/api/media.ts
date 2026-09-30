@@ -113,3 +113,94 @@ export function getMediaFileUrl(media: Media, thumb?: string): string {
     const url = `/api/v1/files/media/${encodeURIComponent(media.id)}/${encodeURIComponent(media.file)}`;
     return thumb ? `${url}?thumb=${encodeURIComponent(thumb)}` : url;
 }
+
+// ---------------------------------------------------------------------------
+// Trash, statistics, unused image scan and housekeeping settings
+
+export interface MediaPage {
+    items: MediaWithDiary[];
+    totalPages: number;
+    totalItems: number;
+}
+
+export interface TrashPage extends MediaPage {
+    /** Days an image stays in the trash; 0 keeps it until removed by hand. */
+    retentionDays: number;
+}
+
+export interface MediaBatchResult {
+    done: string[];
+    failed: Record<string, string>;
+}
+
+export interface MediaLibraryStats {
+    provider: string;
+    /** Images stored with the current provider. */
+    current: number;
+    stats: {
+        total: number;
+        byStorage: Record<string, number>;
+        linked: number;
+        trash: number;
+        oldestTrash: string;
+    };
+}
+
+export interface MediaLibrarySettings {
+    trash_retention_days: number;
+    auto_clean_unlinked: boolean;
+}
+
+async function mediaRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${pb.authStore.token}` };
+    if (init.body) headers['Content-Type'] = 'application/json';
+    const response = await fetch(`/api/v1/media${path}`, { ...init, headers: { ...headers, ...(init.headers as Record<string, string> | undefined) } });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(result?.message || `Request failed (${response.status})`);
+    }
+    return result as T;
+}
+
+export async function fetchTrashPage(page: number, perPage: number, signal?: AbortSignal): Promise<TrashPage> {
+    const result = await mediaRequest<Partial<TrashPage>>(`/trash?page=${page}&perPage=${perPage}`, { signal });
+    return {
+        items: result.items || [],
+        totalPages: result.totalPages || 0,
+        totalItems: result.totalItems || 0,
+        retentionDays: result.retentionDays ?? 30
+    };
+}
+
+export function restoreMedia(ids: string[]): Promise<MediaBatchResult> {
+    return mediaRequest('/trash/restore', { method: 'POST', body: JSON.stringify({ ids }) });
+}
+
+export function purgeMedia(ids: string[]): Promise<MediaBatchResult> {
+    return mediaRequest('/trash/purge', { method: 'POST', body: JSON.stringify({ ids }) });
+}
+
+export function emptyTrash(): Promise<MediaBatchResult> {
+    return mediaRequest('/trash/empty', { method: 'POST' });
+}
+
+export function getMediaStats(): Promise<MediaLibraryStats> {
+    return mediaRequest('/stats');
+}
+
+export function scanUnlinkedMedia(): Promise<{ items: MediaWithDiary[]; total: number }> {
+    return mediaRequest('/unlinked');
+}
+
+export function cleanUnlinkedMedia(ids: string[]): Promise<MediaBatchResult> {
+    return mediaRequest('/unlinked/clean', { method: 'POST', body: JSON.stringify({ ids }) });
+}
+
+export function getMediaLibrarySettings(): Promise<MediaLibrarySettings> {
+    return mediaRequest('/settings');
+}
+
+export async function saveMediaLibrarySettings(settings: MediaLibrarySettings): Promise<MediaLibrarySettings> {
+    const result = await mediaRequest<{ settings: MediaLibrarySettings }>('/settings', { method: 'PUT', body: JSON.stringify(settings) });
+    return result.settings;
+}

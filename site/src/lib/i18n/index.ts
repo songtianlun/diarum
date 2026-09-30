@@ -4,6 +4,7 @@ import { en } from './locales/en';
 import { zh } from './locales/zh';
 import { backupEn, backupZh } from './locales/backup';
 import { adminEn, adminZh } from './locales/admin';
+import { mediaLibEn, mediaLibZh } from './locales/mediaLib';
 
 /**
  * Supported concrete locales. English is the fallback for any missing key.
@@ -23,8 +24,8 @@ const STORAGE_KEY = 'locale';
 type Dict = Record<string, unknown>;
 
 const dictionaries: Record<Locale, Dict> = {
-	en: { ...en, backup: backupEn, admin: adminEn },
-	zh: { ...zh, backup: backupZh, admin: adminZh }
+	en: { ...en, backup: backupEn, admin: adminEn, mediaLib: mediaLibEn },
+	zh: { ...zh, backup: backupZh, admin: adminZh, mediaLib: mediaLibZh }
 };
 
 /**

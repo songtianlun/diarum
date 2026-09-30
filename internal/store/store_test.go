@@ -499,7 +499,7 @@ func TestStoreS3AndHelperFunctions(t *testing.T) {
 	if got := s.DefaultLocalMediaDir(); got != filepath.Join(s.DataDir, "storage", DefaultMediaCollectionID) {
 		t.Fatalf("DefaultLocalMediaDir = %q", got)
 	}
-	if keys := s.mediaObjectKeys(&Media{ID: "mid", File: "photo.png"}); len(keys) != 2 || keys[0] != "media/mid/photo.png" {
+	if keys := s.mediaObjectKeys(&Media{ID: "mid", File: "photo.png"}, nil); len(keys) != 1 || keys[0] != "media/mid/photo.png" {
 		t.Fatalf("mediaObjectKeys = %#v", keys)
 	}
 	if got := SafeFilename(""); got != "upload" {

@@ -38,7 +38,8 @@ export function toneOf(entry: Pick<AuditEntry, 'action' | 'status'>): Tone {
 	if ((entry.status ?? 0) >= 500) return 'danger';
 	if (action.startsWith('admin.')) return 'admin';
 	if (action.startsWith('auth.')) return 'auth';
-	if (action.endsWith('.delete')) return 'danger';
+	if (action.endsWith('.delete') || action === 'media.purge') return 'danger';
+	if (action === 'media.trash') return 'warn';
 	if (action.endsWith('.create') || action.endsWith('.upload') || action === 'data.import') return 'create';
 	if (action.endsWith('.update') || action.endsWith('.restore') || action.startsWith('settings') || action.startsWith('token')) return 'edit';
 	if (action.endsWith('.view') || action.endsWith('.search') || action === 'data.export') return 'read';
