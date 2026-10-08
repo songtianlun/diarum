@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/songtianlun/diarum/internal/config"
+	"github.com/songtianlun/diarum/internal/imaging"
 	"github.com/songtianlun/diarum/internal/logger"
 	"github.com/songtianlun/diarum/internal/store"
 )
@@ -230,7 +231,32 @@ func (im *importer) importMedia(m Media) error {
 		_ = im.s.DeleteMedia(media.ID, im.userID)
 		return err
 	}
+	im.importLive(m, media)
 	return nil
+}
+
+// importLive restores the clip of a live photo. The still is imported
+// either way: a clip that is missing or invalid only leaves it a plain image.
+func (im *importer) importLive(m Media, media *store.Media) {
+	f, ok := im.files[m.LivePath]
+	if m.LivePath == "" || !ok {
+		return
+	}
+	rc, err := f.Open()
+	if err != nil {
+		logger.Warn("[Import] media %s live video failed: %v", m.ID, err)
+		return
+	}
+	defer rc.Close()
+	body := bufio.NewReaderSize(rc, 4096)
+	head, _ := body.Peek(16)
+	if !imaging.IsLiveVideo(head) {
+		logger.Warn("[Import] media %s live video is not an MP4/QuickTime file", m.ID)
+		return
+	}
+	if err := im.s.SaveMediaLive(media, body); err != nil {
+		logger.Warn("[Import] media %s live video failed: %v", m.ID, err)
+	}
 }
 
 func (im *importer) conversation(c Conversation) error {

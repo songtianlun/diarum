@@ -341,7 +341,7 @@
 									aria-pressed={selecting ? isSelected : undefined}
 								>
 									<div class="w-full h-full transition-transform duration-150 {isSelected ? 'scale-[0.92] rounded-md overflow-hidden' : ''}">
-										<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} />
+										<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} live={!!item.live} />
 									</div>
 									{#if selecting}
 										<span class="absolute top-1.5 left-1.5 w-5 h-5 rounded-full border-2 flex items-center justify-center {isSelected ? 'bg-primary border-primary text-primary-foreground' : 'bg-black/25 border-white/90'}">
@@ -433,7 +433,7 @@
 
 {#if viewerOpen && state.items.length > 0}
 	<Lightbox
-		items={state.items.map((item) => ({ src: item.src, thumb: item.thumb, title: item.title }))}
+		items={state.items.map((item) => ({ src: item.src, thumb: item.thumb, title: item.title, live: item.live }))}
 		bind:index={viewerIndex}
 		onClose={closeViewer}
 		hasInfo

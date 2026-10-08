@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"mime"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -87,9 +89,22 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			_ = s.DeleteMedia(media.ID, user.ID)
 			return serverError("Failed to save media file", err)
 		}
+		// A live photo arrives as its still ("file") plus its clip ("live"),
+		// whatever the phone stored them as; the client splits and pairs them.
+		if liveFile, liveHeader, err := c.Request().FormFile("live"); err == nil {
+			defer liveFile.Close()
+			if err := saveLiveVideo(s, media, liveFile, liveHeader.Size); err != nil {
+				_ = s.DeleteMediaFile(media)
+				_ = s.DeleteMedia(media.ID, user.ID)
+				return err
+			}
+		}
 		s.QueueMediaVariants(media)
 		detail := medialib.Detail(media, store.MediaTriggerManual, "")
 		detail["size"] = header.Size
+		if media.Live != "" {
+			detail["live"] = true
+		}
 		if len(media.Diary) > 0 {
 			detail["diary"] = media.Diary
 		}
@@ -178,6 +193,14 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 				}
 			}
 			return serveOriginal(c, s, media)
+		}
+		if live := store.LiveMedia(media); live != nil && filename == live.File {
+			if !direct {
+				if target, ok := s.MediaPublicURL(live); ok {
+					return redirectToPublicURL(c, target)
+				}
+			}
+			return serveLiveVideo(c, s, live)
 		}
 		variant, ok := imaging.ParseVariant(media.File, filename)
 		if !ok {
@@ -288,6 +311,53 @@ func serveMediaObject(c echo.Context, s *store.Store, media *store.Media) error 
 	}
 	_, err = io.Copy(c.Response().Writer, reader)
 	return err
+}
+
+// saveLiveVideo checks an uploaded live photo clip and stores it with media.
+func saveLiveVideo(s *store.Store, media *store.Media, file io.ReadSeeker, size int64) error {
+	if size > imaging.MaxLiveVideoBytes {
+		return badRequest("Live photo video exceeds 50MB limit", nil)
+	}
+	head := make([]byte, 16)
+	n, _ := io.ReadFull(file, head)
+	if !imaging.IsLiveVideo(head[:n]) {
+		return badRequest("Invalid live photo video: expected MP4 or QuickTime", nil)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return serverError("Failed to read live photo video", err)
+	}
+	if err := s.SaveMediaLive(media, file); err != nil {
+		if errors.Is(err, store.ErrLiveVideoTooLarge) {
+			return badRequest("Live photo video exceeds 50MB limit", nil)
+		}
+		return serverError("Failed to save live photo video", err)
+	}
+	return nil
+}
+
+// serveLiveVideo serves a live photo clip. Browsers (Safari above all) only
+// play video that supports range requests, so a clip in object storage is
+// read into memory first; clips are small and capped in size.
+func serveLiveVideo(c echo.Context, s *store.Store, live *store.Media) error {
+	path := s.MediaFilePath(live)
+	if _, err := os.Stat(path); err == nil {
+		setImmutableCache(c)
+		c.Response().Header().Set(echo.HeaderContentType, "video/mp4")
+		return c.File(path)
+	}
+	reader, err := s.OpenMediaFile(live)
+	if err != nil {
+		return notFound("File not found")
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(io.LimitReader(reader, imaging.MaxLiveVideoBytes))
+	if err != nil {
+		return serverError("Failed to read media file", err)
+	}
+	setImmutableCache(c)
+	c.Response().Header().Set(echo.HeaderContentType, "video/mp4")
+	http.ServeContent(c.Response(), c.Request(), live.File, time.Time{}, bytes.NewReader(data))
+	return nil
 }
 
 func parsePositiveInt(raw string, fallback int) int {

@@ -101,37 +101,82 @@ func RegisterImageUploadRoutes(e *echo.Echo, s *store.Store, authMiddleware echo
 		return c.JSON(http.StatusOK, map[string]any{"success": true, "settings": updated})
 	})
 
-	// Which size of an image entries show first. It only affects loading: the
-	// stored content always references the original.
+	// How entries show images: which size loads first (quality) and how live
+	// photos play by default (live_mode). It only affects display: the stored
+	// content always references the original.
 	group.GET("/display", func(c echo.Context) error {
-		quality, err := configService.GetString(auth.CurrentUser(c).ID, "image_upload.display_quality")
+		userID := auth.CurrentUser(c).ID
+		quality, err := configService.GetString(userID, "image_upload.display_quality")
 		if err != nil {
 			return serverError("Failed to load image display settings", err)
 		}
 		if quality = normalizeDisplayQuality(quality); quality == "" {
 			quality = "md"
 		}
-		return c.JSON(http.StatusOK, map[string]any{"quality": quality})
+		liveMode, err := configService.GetString(userID, "image_upload.live_mode")
+		if err != nil {
+			return serverError("Failed to load image display settings", err)
+		}
+		if liveMode = normalizeLiveMode(liveMode); liveMode == "" {
+			liveMode = "loop"
+		}
+		return c.JSON(http.StatusOK, map[string]any{"quality": quality, "live_mode": liveMode})
 	})
 
+	// Either setting may be sent alone; the other one is kept.
 	group.PUT("/display", func(c echo.Context) error {
 		var body struct {
-			Quality string `json:"quality"`
+			Quality  *string `json:"quality"`
+			LiveMode *string `json:"live_mode"`
 		}
 		if err := c.Bind(&body); err != nil {
 			return badRequest("Invalid request body", err)
 		}
-		quality := normalizeDisplayQuality(body.Quality)
-		if quality == "" {
-			return badRequest("Quality must be one of th, md, original", nil)
+		if body.Quality == nil && body.LiveMode == nil {
+			return badRequest("Nothing to update: send quality or live_mode", nil)
 		}
-		payload := map[string]any{"image_upload.display_quality": quality}
+		payload := map[string]any{}
+		response := map[string]any{"success": true}
+		if body.Quality != nil {
+			quality := normalizeDisplayQuality(*body.Quality)
+			if quality == "" {
+				return badRequest("Quality must be one of th, md, original", nil)
+			}
+			payload["image_upload.display_quality"] = quality
+			response["quality"] = quality
+		}
+		if body.LiveMode != nil {
+			liveMode := normalizeLiveMode(*body.LiveMode)
+			if liveMode == "" {
+				return badRequest("Live mode must be one of loop, once, off", nil)
+			}
+			payload["image_upload.live_mode"] = liveMode
+			response["live_mode"] = liveMode
+		}
 		if err := configService.SetBatch(auth.CurrentUser(c).ID, payload); err != nil {
 			return badRequest("Failed to save image display settings", err)
 		}
-		recordAudit(c, audit.ActionSettingsUpdate, "image_upload", map[string]any{"keys": settingKeys(payload), "display_quality": quality})
-		return c.JSON(http.StatusOK, map[string]any{"success": true, "quality": quality})
+		detail := map[string]any{"keys": settingKeys(payload)}
+		if quality, ok := response["quality"]; ok {
+			detail["display_quality"] = quality
+		}
+		if liveMode, ok := response["live_mode"]; ok {
+			detail["live_mode"] = liveMode
+		}
+		recordAudit(c, audit.ActionSettingsUpdate, "image_upload", detail)
+		return c.JSON(http.StatusOK, response)
 	})
+}
+
+// normalizeLiveMode maps a live photo playback mode to loop, once or off;
+// "" when it is none of them.
+func normalizeLiveMode(mode string) string {
+	switch m := strings.ToLower(strings.TrimSpace(mode)); m {
+	case "loop", "once", "off":
+		return m
+	default:
+		return ""
+	}
 }
 
 // normalizeDisplayQuality maps a requested image display quality to th

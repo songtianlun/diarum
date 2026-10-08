@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from 'svelte';
 	import type { LightboxItem } from '$lib/stores/lightbox';
+	import { effectiveLiveMode, modeLabel, readLiveMode } from '$lib/utils/livePlayer';
+	import { t } from '$lib/i18n';
 
 	export let items: LightboxItem[] = [];
 	export let index = 0;
@@ -50,7 +52,51 @@
 		resetView(false);
 		loaded = false;
 		failed = false;
+		livePlaying = false;
+		liveFailed = false;
 		preloadNeighbours();
+	}
+
+	// Live photos: the clip plays over the image, in the photo's mode.
+	let liveEl: HTMLVideoElement | null = null;
+	let liveBox = { left: 0, top: 0, width: 0, height: 0 };
+	let livePlaying = false;
+	let liveFailed = false;
+	$: liveMode = item?.live ? effectiveLiveMode(readLiveMode(item.liveMode), item.live) : 'off';
+	$: showLive = !!item?.live && loaded && !liveFailed;
+
+	/** The clip covers exactly the box the image is laid out in. */
+	function measureLive() {
+		if (!imgEl) return;
+		liveBox = { left: imgEl.offsetLeft, top: imgEl.offsetTop, width: imgEl.offsetWidth, height: imgEl.offsetHeight };
+	}
+
+	function liveVideo(node: HTMLVideoElement) {
+		liveEl = node;
+		measureLive();
+		node.muted = true;
+		if (liveMode !== 'off') {
+			node.loop = liveMode === 'loop';
+			node.play().catch(() => {});
+		}
+		const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measureLive);
+		if (observer && stage) observer.observe(stage);
+		return {
+			destroy() {
+				observer?.disconnect();
+				node.pause();
+				node.removeAttribute('src');
+				node.load();
+				if (liveEl === node) liveEl = null;
+			}
+		};
+	}
+
+	function playLive() {
+		if (!liveEl) return;
+		liveEl.loop = false;
+		liveEl.currentTime = 0;
+		liveEl.play().catch(() => {});
 	}
 
 	function preloadNeighbours() {
@@ -272,6 +318,20 @@
 				<button type="button" class="lb-btn" on:click={() => zoomBy(1.5)} disabled={scale >= MAX_SCALE} title="Zoom in (+)" aria-label="Zoom in">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path stroke-linecap="round" d="M8 11h6M11 8v6M20 20l-3.5-3.5" /></svg>
 				</button>
+				{#if item.live}
+					<button
+						type="button"
+						class="lb-btn lb-live"
+						class:active={livePlaying}
+						on:click={playLive}
+						disabled={!showLive}
+						title={liveFailed ? $t('live.unsupported') : `${$t('live.playNow')} · ${modeLabel(liveMode)}`}
+						aria-label={$t('live.playNow')}
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="5.6" /><circle cx="12" cy="12" r="9.2" stroke-dasharray="1.6 2.4" /></svg>
+						<span>{$t('live.badge')}</span>
+					</button>
+				{/if}
 				<span class="lb-divider"></span>
 				<a class="lb-btn" href={item.src} target="_blank" rel="noopener noreferrer" title="Open original" aria-label="Open original">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" /></svg>
@@ -328,6 +388,27 @@
 					on:load={() => (loaded = true)}
 					on:error={() => (failed = true)}
 				/>
+				{#if showLive && item.live}
+					<video
+						use:liveVideo
+						src={item.live}
+						class="lightbox-live"
+						class:playing={livePlaying}
+						class:animating
+						style="left: {liveBox.left}px; top: {liveBox.top}px; width: {liveBox.width}px; height: {liveBox.height}px; transform: translate3d({tx + swipe.dx}px, {ty + swipe.dy}px, 0) scale({scale});"
+						muted
+						playsinline
+						disablepictureinpicture
+						aria-hidden="true"
+						tabindex="-1"
+						on:playing={() => (livePlaying = true)}
+						on:ended={() => (livePlaying = false)}
+						on:error={() => {
+							livePlaying = false;
+							liveFailed = true;
+						}}
+					></video>
+				{/if}
 			{/key}
 		</div>
 
@@ -499,6 +580,38 @@
 
 	.lightbox-image.animating {
 		transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	.lightbox-live {
+		position: absolute;
+		object-fit: cover;
+		border-radius: 4px;
+		opacity: 0;
+		pointer-events: none;
+		transform-origin: center center;
+		will-change: transform;
+		transition: opacity 0.3s ease;
+	}
+
+	.lightbox-live.playing {
+		opacity: 1;
+	}
+
+	.lightbox-live.animating {
+		transition: opacity 0.3s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	.lb-live {
+		gap: 4px;
+		padding: 0 10px 0 8px;
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.06em;
+	}
+
+	.lb-live svg {
+		width: 16px;
+		height: 16px;
 	}
 
 	/* The smaller image already on screen stands in until the original loads,

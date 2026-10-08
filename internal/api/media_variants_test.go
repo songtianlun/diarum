@@ -163,8 +163,25 @@ func TestImageDisplayQualityRoutes(t *testing.T) {
 		t.Fatalf("save quality status = %d body=%s", rec.Code, rec.Body.String())
 	}
 	rec = performRequest(t, e, http.MethodGet, "/api/v1/image-upload/display", nil, nil)
-	if payload := decodeJSONBody(t, rec); payload["quality"] != "original" {
+	if payload := decodeJSONBody(t, rec); payload["quality"] != "original" || payload["live_mode"] != "loop" {
 		t.Fatalf("saved quality = %#v", payload)
+	}
+
+	// The default live photo mode is saved on its own, keeping the quality.
+	for body, want := range map[string]int{
+		`{}`:                     http.StatusBadRequest,
+		`{"live_mode":"bounce"}`: http.StatusBadRequest,
+		`not json`:               http.StatusBadRequest,
+		`{"live_mode":" Once "}`: http.StatusOK,
+	} {
+		rec = performRequest(t, e, http.MethodPut, "/api/v1/image-upload/display", strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
+		if rec.Code != want {
+			t.Fatalf("PUT %s status = %d, want %d", body, rec.Code, want)
+		}
+	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/image-upload/display", nil, nil)
+	if payload := decodeJSONBody(t, rec); payload["quality"] != "original" || payload["live_mode"] != "once" {
+		t.Fatalf("saved live mode = %#v", payload)
 	}
 }
 

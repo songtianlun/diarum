@@ -6,6 +6,10 @@ export interface LightboxItem {
 	thumb?: string;
 	alt?: string;
 	title?: string;
+	/** The clip of a live photo, played over the image. */
+	live?: string;
+	/** The photo's own live playback mode (loop, once, off), if set. */
+	liveMode?: string;
 }
 
 export interface LightboxRequest {
@@ -30,7 +34,13 @@ function imageItem(img: HTMLImageElement): LightboxItem {
 	// original, with what is on screen as its instant placeholder.
 	const shown = img.currentSrc || img.src;
 	const original = img.dataset.fullSrc ? new URL(img.dataset.fullSrc, window.location.href).toString() : shown;
-	return { src: original, thumb: original !== shown ? shown : undefined, alt: img.alt || undefined };
+	return {
+		src: original,
+		thumb: original !== shown ? shown : undefined,
+		alt: img.alt || undefined,
+		live: img.dataset.liveVideo || undefined,
+		liveMode: img.dataset.liveMode || undefined
+	};
 }
 
 /**

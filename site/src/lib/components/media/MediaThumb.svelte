@@ -4,6 +4,8 @@
 	export let fallback = '';
 	export let alt = '';
 	export let eager = false;
+	/** Marks a live photo. */
+	export let live = false;
 
 	let loaded = false;
 	let failed = false;
@@ -47,6 +49,12 @@
 			/>
 		{/key}
 	{/if}
+	{#if live}
+		<span class="thumb-live" title="Live">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="5.6" /><circle cx="12" cy="12" r="9.2" stroke-dasharray="1.6 2.4" /></svg>
+			LIVE
+		</span>
+	{/if}
 </div>
 
 <style>
@@ -77,6 +85,30 @@
 	.loaded img {
 		opacity: 1;
 		transform: none;
+	}
+
+	.thumb-live {
+		position: absolute;
+		top: 6px;
+		left: 6px;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		height: 18px;
+		padding: 0 6px 0 4px;
+		border-radius: 999px;
+		background: rgb(0 0 0 / 0.42);
+		color: #fff;
+		font-size: 9px;
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		pointer-events: none;
+		backdrop-filter: blur(4px);
+	}
+
+	.thumb-live svg {
+		width: 12px;
+		height: 12px;
 	}
 
 	.thumb-broken {

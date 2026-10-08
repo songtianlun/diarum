@@ -15,13 +15,15 @@
 	import Focus from '@tiptap/extension-focus';
 	import { common, createLowlight } from 'lowlight';
 	import { DOMSerializer, type Fragment } from '@tiptap/pm/model';
-	import { validateImageFile } from '$lib/utils/uploadImage';
+	import { validateUploadSource } from '$lib/utils/uploadImage';
+	import { groupLiveFiles, isImageFile, isVideoFile } from '$lib/utils/livePhoto';
+	import { t } from '$lib/i18n';
 	import { SlashCommands } from './SlashCommands';
 	import { getSuggestionItems, setImageUploadTrigger, setGalleryPickerTrigger, setImageUrlTrigger } from './commands';
 	import { suggestionRenderer, showCommandMenu } from './suggestionRenderer';
 	import MediaPicker from './MediaPicker.svelte';
 	import ImageUrlDialog from './ImageUrlDialog.svelte';
-	import { UploadQueue } from './uploadQueue';
+	import { UploadQueue, type UploadNotice } from './uploadQueue';
 	import type { ImageInsert } from './ImageNodeView';
 
 	export let content = '';
@@ -34,6 +36,7 @@
 	let editor: Editor | null = null;
 	let fileInput: HTMLInputElement;
 	let uploadError = '';
+	let uploadErrorTone: 'error' | 'info' = 'error';
 	let uploadErrorTimer: ReturnType<typeof setTimeout> | undefined;
 	let showMediaPicker = false;
 	let showImageUrlDialog = false;
@@ -60,7 +63,24 @@
 		onActivity: () => {
 			uploadingCount = uploadQueue.busyCount;
 		},
+		onNotice: (notice) => showUploadError(noticeText(notice), 'info'),
 	});
+
+	function noticeText(notice: UploadNotice): string {
+		switch (notice.kind) {
+			case 'liveDroppedChevereto':
+				return $t('live.droppedChevereto');
+			case 'liveVideoTooLarge':
+				return $t('live.videoTooLarge', { name: notice.fileName });
+			case 'liveVideoInvalid':
+				return $t('live.videoInvalid', { name: notice.fileName });
+		}
+	}
+
+	/** Files an upload can start from: images, and videos that may pair with one. */
+	function uploadableFiles(files: File[]): File[] {
+		return files.filter((file) => isImageFile(file) || isVideoFile(file));
+	}
 
 	// Upload placeholders only exist in this editor session; their blob: URLs
 	// must never reach the saved entry.
@@ -69,8 +89,9 @@
 		return html.includes('data-uploading') ? html.replace(PENDING_IMAGE, '') : html;
 	}
 
-	function showUploadError(message: string) {
+	function showUploadError(message: string, tone: 'error' | 'info' = 'error') {
 		uploadError = message;
+		uploadErrorTone = tone;
 		clearTimeout(uploadErrorTimer);
 		uploadErrorTimer = setTimeout(() => (uploadError = ''), 4000);
 	}
@@ -101,7 +122,7 @@
 			const id = node.attrs['data-placeholder-id'] as string | null;
 			const task = id ? uploadQueue.get(id) : undefined;
 			if (id && task?.status === 'done' && task.url) {
-				const image = { src: task.url, alt: task.fileName };
+				const image: ImageInsert = { src: task.url, alt: task.fileName, live: task.liveUrl };
 				finishedUploads.set(id, image);
 				uploadQueue.release(id);
 				changes.push({ pos, size: node.nodeSize, attrs: node.attrs, image });
@@ -119,6 +140,7 @@
 					...change.attrs,
 					src: change.image.src,
 					alt: change.image.alt || null,
+					'data-live-video': change.image.live || null,
 					'data-uploading': null,
 					'data-placeholder-id': null,
 				});
@@ -130,22 +152,25 @@
 		editor.view.dispatch(tr);
 	}
 
-	/** Uploads the images among `files`, showing a placeholder for each right away. */
+	/**
+	 * Uploads the images among `files`, showing a placeholder for each right
+	 * away. A live photo given as a still and its video becomes one upload.
+	 */
 	function uploadFiles(files: File[], at?: number) {
 		if (!editor) return;
-		const images = files.filter((file) => file.type.startsWith('image/'));
-		if (images.length === 0) return;
+		const { sources, strayVideos } = groupLiveFiles(uploadableFiles(files));
+		if (sources.length === 0 && strayVideos.length === 0) return;
 
-		const rejected: string[] = [];
+		const rejected: string[] = strayVideos.map((video) => $t('live.strayVideo', { name: video.name || 'Video' }));
 		const placeholders: { id: string; src: string; alt: string }[] = [];
-		for (const file of images) {
-			const invalid = validateImageFile(file);
+		for (const source of sources) {
+			const invalid = validateUploadSource(source.file);
 			if (invalid) {
-				rejected.push(`${file.name || 'Image'}: ${invalid}`);
+				rejected.push(`${source.file.name || 'Image'}: ${invalid}`);
 				continue;
 			}
-			const id = uploadQueue.add(file);
-			placeholders.push({ id, src: uploadQueue.get(id)!.previewUrl, alt: file.name });
+			const id = uploadQueue.add(source);
+			placeholders.push({ id, src: uploadQueue.get(id)!.previewUrl, alt: source.file.name });
 		}
 
 		if (placeholders.length > 0) {
@@ -160,7 +185,7 @@
 
 	// Handle paste event
 	function handlePaste(_view: any, event: ClipboardEvent) {
-		const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith('image/'));
+		const files = uploadableFiles(Array.from(event.clipboardData?.files ?? []));
 		if (files.length === 0) return false;
 		event.preventDefault();
 		uploadFiles(files);
@@ -170,7 +195,7 @@
 	// Handle drop event
 	function handleDrop(view: any, event: DragEvent, _slice: unknown, moved: boolean) {
 		if (moved) return false;
-		const files = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith('image/'));
+		const files = uploadableFiles(Array.from(event.dataTransfer?.files ?? []));
 		if (files.length === 0) return false;
 		event.preventDefault();
 		const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
@@ -436,7 +461,7 @@
 	{/if}
 	<input
 		type="file"
-		accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+		accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml,image/heic,image/heif,.heic,.heif,video/quicktime,video/mp4,.mov,.mp4"
 		multiple
 		bind:this={fileInput}
 		on:change={handleFileSelect}
@@ -449,7 +474,7 @@
 		</div>
 	{/if}
 	{#if uploadError}
-		<div class="upload-error" role="alert">{uploadError}</div>
+		<div class="upload-error" class:info={uploadErrorTone === 'info'} role={uploadErrorTone === 'info' ? 'status' : 'alert'}>{uploadError}</div>
 	{/if}
 </div>
 
@@ -518,6 +543,12 @@
 		bottom: 20px;
 		background: hsl(0 84% 60%);
 		color: white;
+	}
+
+	.upload-error.info {
+		background: hsl(var(--card));
+		color: hsl(var(--foreground));
+		border: 1px solid hsl(var(--border));
 	}
 
 	.upload-status {

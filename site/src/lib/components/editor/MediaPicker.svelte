@@ -29,7 +29,7 @@
 	}
 
 	function toInsert(item: GalleryItem): ImageInsert {
-		return { src: item.src, alt: item.title };
+		return { src: item.src, alt: item.title, live: item.live };
 	}
 
 	function insert(items: GalleryItem[]) {
@@ -144,7 +144,7 @@
 								title="{item.title} — double-click to insert"
 								aria-pressed={!!order}
 							>
-								<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} />
+								<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} live={!!item.live} />
 								<span class="check" aria-hidden="true">
 									{#if order}{order}{/if}
 								</span>

@@ -29,7 +29,8 @@
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
 	import { loadImageUploadSettings } from '$lib/stores/imageUpload';
-	import { loadDisplayQuality, saveDisplayQuality, refreshImageDisplay, type DisplayQuality } from '$lib/utils/imageDisplay';
+	import { loadDisplayQuality, saveDisplayQuality, refreshImageDisplay, loadLiveDefaultMode, saveLiveDefaultMode, type DisplayQuality } from '$lib/utils/imageDisplay';
+	import { LIVE_MODES, type LiveMode } from '$lib/utils/livePhoto';
 	import {
 		getWordStats,
 		getDailySeries,
@@ -872,8 +873,34 @@
 		}
 	}
 
+	// Default live photo playback (saved on click, like the quality)
+	let liveMode: LiveMode = 'loop';
+	let liveModeSaving: LiveMode | null = null;
+	let liveModeMessage: { ok: boolean; text: string } | null = null;
+	let liveModeTimer: ReturnType<typeof setTimeout> | undefined;
+
+	async function selectLiveMode(mode: LiveMode) {
+		if (mode === liveMode || liveModeSaving) return;
+		const previous = liveMode;
+		liveMode = mode;
+		liveModeSaving = mode;
+		liveModeMessage = null;
+		try {
+			await saveLiveDefaultMode(mode);
+			liveModeMessage = { ok: true, text: $t('mediaLib.upload.saved') };
+		} catch (e) {
+			liveMode = previous;
+			liveModeMessage = { ok: false, text: e instanceof Error ? e.message : $t('mediaLib.upload.saveFailed') };
+		} finally {
+			liveModeSaving = null;
+			clearTimeout(liveModeTimer);
+			liveModeTimer = setTimeout(() => (liveModeMessage = null), 2000);
+		}
+	}
+
 	async function loadImageUploadSettingsLocal() {
 		loadDisplayQuality().then((quality) => (displayQuality = quality));
+		loadLiveDefaultMode().then((mode) => (liveMode = mode));
 		imageUploadSettingsLocal = await getImageUploadSettings();
 		originalImageUploadSettings = JSON.parse(JSON.stringify(imageUploadSettingsLocal));
 	}
@@ -2564,6 +2591,49 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 					</div>
 					<p class="text-xs text-muted-foreground mt-4">
 						{$t('mediaLib.upload.variantsNote')}
+					</p>
+				</div>
+
+				<!-- Live Photos Section -->
+				<div id="live-photos" class="mt-6 bg-card rounded-xl shadow-sm border border-border/50 p-6 animate-fade-in scroll-mt-16">
+					<div class="flex items-center justify-between gap-3 mb-2">
+						<h2 class="text-lg font-semibold text-foreground">{$t('live.settingsTitle')}</h2>
+						{#if liveModeMessage}
+							<span class="text-sm flex items-center gap-1 animate-fade-in {liveModeMessage.ok ? 'text-green-600' : 'text-destructive'}">
+								{#if liveModeMessage.ok}
+									<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+								{/if}
+								{liveModeMessage.text}
+							</span>
+						{/if}
+					</div>
+					<p class="text-sm text-muted-foreground mb-5">
+						{$t('live.settingsDesc')}
+					</p>
+					<div class="grid grid-cols-1 sm:grid-cols-3 gap-3" role="radiogroup" aria-label={$t('live.settingsAria')}>
+						{#each LIVE_MODES as mode}
+							<button
+								type="button"
+								role="radio"
+								aria-checked={liveMode === mode}
+								on:click={() => selectLiveMode(mode)}
+								class="relative text-left rounded-xl border p-4 transition-colors duration-200 {liveMode === mode ? 'border-primary bg-primary/5' : 'border-border/50 hover:border-border'}"
+							>
+								<div class="flex items-center gap-2 font-medium text-foreground">
+									{$t(`live.${mode}`)}
+									{#if mode === 'loop'}
+										<span class="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/10 text-primary">{$t('mediaLib.upload.default')}</span>
+									{/if}
+									{#if liveModeSaving === mode}
+										<span class="ml-auto w-3.5 h-3.5 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"></span>
+									{/if}
+								</div>
+								<div class="text-sm text-muted-foreground mt-1">{$t(`live.${mode}Desc`)}</div>
+							</button>
+						{/each}
+					</div>
+					<p class="text-xs text-muted-foreground mt-4">
+						{$t('live.uploadNote')}
 					</p>
 				</div>
 

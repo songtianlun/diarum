@@ -133,6 +133,9 @@ type Media struct {
 	// S3Prefix is the bucket folder the file was uploaded under ("" for the
 	// bucket root); only meaningful when Storage is s3.
 	S3Prefix string `json:"-"`
+	// Live is the file name of the clip that makes the image a live photo
+	// (photo.live.mp4, stored beside it); empty for a plain still.
+	Live string `json:"live,omitempty"`
 }
 
 // InTrash reports whether the image has been moved to the trash.
@@ -1332,7 +1335,7 @@ func scanMedia(row interface{ Scan(dest ...any) error }) (*Media, error) {
 	var diaryRaw string
 	media := &Media{}
 	err := row.Scan(&media.Alt, &media.Created, &media.File, &media.ID, &media.Name, &media.Owner, &media.Updated, &diaryRaw,
-		&media.Date, &media.Storage, &media.Deleted, &media.DeletedBy, &media.DeleteReason, &media.DeleteTrigger, &media.S3Prefix)
+		&media.Date, &media.Storage, &media.Deleted, &media.DeletedBy, &media.DeleteReason, &media.DeleteTrigger, &media.S3Prefix, &media.Live)
 	if err != nil {
 		return nil, err
 	}
@@ -1844,13 +1847,17 @@ func (s *Store) OpenMediaFile(media *Media) (io.ReadCloser, error) {
 	return s.openMediaFromS3(s.legacyS3Client, s.LegacyS3, media)
 }
 
-// DeleteMediaFile removes a media file and, best effort, its variants.
+// DeleteMediaFile removes a media file and, best effort, its variants and
+// live photo clip.
 func (s *Store) DeleteMediaFile(media *Media) error {
 	err := s.deleteMediaObject(media)
 	if media != nil && imaging.Supported(media.File) {
 		for _, v := range imaging.Variants {
 			_ = s.deleteMediaObject(VariantMedia(media, v))
 		}
+	}
+	if live := LiveMedia(media); live != nil {
+		_ = s.deleteMediaObject(live)
 	}
 	return err
 }

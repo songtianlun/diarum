@@ -44,6 +44,8 @@ export interface Media {
     date?: string;
     /** Where the file lives: local, s3 or unknown. */
     storage?: string;
+    /** File name of the clip that makes it a live photo; absent for a still. */
+    live?: string;
     /** When it was moved to the trash; absent outside the trash. */
     deleted?: string;
     deletedBy?: string;

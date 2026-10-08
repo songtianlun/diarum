@@ -2,6 +2,7 @@ import { get, writable, type Readable } from 'svelte/store';
 import { t, getIntlLocale } from '$lib/i18n';
 import { fetchMediaPage, getMediaFileUrl, type MediaWithDiary } from '$lib/api/media';
 import { variantUrl } from '$lib/utils/imageDisplay';
+import { getMediaLiveUrl } from '$lib/utils/uploadImage';
 
 export interface GalleryItem {
 	key: string;
@@ -12,6 +13,8 @@ export interface GalleryItem {
 	title: string;
 	/** The image's own day (YYYY-MM-DD): see imageDay. '' when unknown. */
 	date: string;
+	/** The clip of a live photo, absent for a still. */
+	live?: string;
 	/** Stored by Diarum (local or S3): can be selected and deleted. External images (e.g. Chevereto) cannot. */
 	managed: boolean;
 	media: MediaWithDiary;
@@ -65,6 +68,7 @@ function fromMedia(media: MediaWithDiary): GalleryItem {
 		managed: !external,
 		src,
 		thumb: variantUrl(src, 'th') ?? src,
+		live: external ? undefined : getMediaLiveUrl(media) ?? undefined,
 		title: media.name || media.alt || 'Image',
 		date: imageDay(media),
 		media

@@ -114,6 +114,9 @@ func (s *Store) MediaURLPublicURL(owner, src string) (string, bool) {
 	if variant, ok := imaging.ParseVariant(media.File, filename); ok && imaging.Supported(media.File) {
 		return s.MediaPublicURL(VariantMedia(media, variant))
 	}
+	if live := LiveMedia(media); live != nil && filename == live.File {
+		return s.MediaPublicURL(live)
+	}
 	return "", false
 }
 

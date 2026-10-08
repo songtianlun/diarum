@@ -61,7 +61,10 @@ type Media struct {
 	Name  string   `json:"name,omitempty"`
 	Alt   string   `json:"alt,omitempty"`
 	Diary []string `json:"diary,omitempty"`
-	Owner string   `json:"-"`
+	// Live and LivePath name a live photo's clip and its archive entry.
+	Live     string `json:"live,omitempty"`
+	LivePath string `json:"livePath,omitempty"`
+	Owner    string `json:"-"`
 }
 
 type Conversation struct {
