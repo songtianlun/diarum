@@ -1,5 +1,7 @@
 import { browser } from '$app/environment';
+import { writable, type Readable } from 'svelte/store';
 import { pb } from '$lib/api/client';
+import { isLiveMode, type LiveMode } from '$lib/utils/livePhoto';
 
 /**
  * Loading images at a lighter size first.
@@ -21,6 +23,8 @@ interface DisplayState {
 	quality: DisplayQuality;
 	/** Chevereto is set up, so external image links may have variants. */
 	externalVariants: boolean;
+	/** How live photos play unless one is set to play otherwise. */
+	liveMode: LiveMode;
 }
 
 const STATE_KEY = 'diarum.imageDisplay';
@@ -31,7 +35,21 @@ const BUILTIN_PATH = /^\/api\/v1\/files\/media\/[^/]+\/[^/]+$/;
 const BUILTIN_EXTENSIONS = new Set(['jpg', 'jpeg', 'png']);
 const EXTERNAL_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif']);
 
-let state: DisplayState = { quality: 'md', externalVariants: false };
+let state: DisplayState = { quality: 'md', externalVariants: false, liveMode: 'loop' };
+const liveModeStore = writable<LiveMode>('loop');
+
+/** The default live photo playback mode; players follow changes live. */
+export const liveDefaultMode: Readable<LiveMode> = {
+	subscribe(run) {
+		ensureInitialized();
+		return liveModeStore.subscribe(run);
+	}
+};
+
+function setState(next: DisplayState) {
+	state = next;
+	liveModeStore.set(next.liveMode);
+}
 let noVariantHosts = new Set<string>();
 let initialized = false;
 let refreshing: Promise<void> | null = null;
@@ -68,10 +86,11 @@ function ensureInitialized() {
 	}
 	initialized = true;
 	const stored = readJSON<Partial<DisplayState>>(STATE_KEY, {});
-	state = {
+	setState({
 		quality: isQuality(stored.quality) ? stored.quality : 'md',
-		externalVariants: !!stored.externalVariants
-	};
+		externalVariants: !!stored.externalVariants,
+		liveMode: isLiveMode(stored.liveMode) ? stored.liveMode : 'loop'
+	});
 	try {
 		localStorage.removeItem(LEGACY_SEEN_KEY);
 	} catch {
@@ -94,8 +113,9 @@ export function refreshImageDisplay(): Promise<void> {
 			]);
 			const next: DisplayState = { ...state };
 			if (isQuality(display?.quality)) next.quality = display.quality;
+			if (isLiveMode(display?.live_mode)) next.liveMode = display.live_mode;
 			if (upload) next.externalVariants = !!(upload.chevereto?.domain && upload.chevereto?.api_key);
-			state = next;
+			setState(next);
 			writeJSON(STATE_KEY, state);
 		} catch {
 			// Keep the cached preference.
@@ -111,19 +131,41 @@ export function getDisplayQuality(): DisplayQuality {
 	return state.quality;
 }
 
-export async function saveDisplayQuality(quality: DisplayQuality): Promise<void> {
+async function putDisplay(patch: { quality?: DisplayQuality; live_mode?: LiveMode }): Promise<void> {
 	const response = await fetch('/api/v1/image-upload/display', {
 		method: 'PUT',
 		headers: { Authorization: `Bearer ${pb.authStore.token}`, 'Content-Type': 'application/json' },
-		body: JSON.stringify({ quality })
+		body: JSON.stringify(patch)
 	});
 	if (!response.ok) {
 		const data = await response.json().catch(() => ({}));
 		throw new Error(data?.message || 'Failed to save');
 	}
+}
+
+export async function saveDisplayQuality(quality: DisplayQuality): Promise<void> {
+	await putDisplay({ quality });
 	ensureInitialized();
-	state = { ...state, quality };
+	setState({ ...state, quality });
 	writeJSON(STATE_KEY, state);
+}
+
+export function getLiveDefaultMode(): LiveMode {
+	ensureInitialized();
+	return state.liveMode;
+}
+
+export async function saveLiveDefaultMode(liveMode: LiveMode): Promise<void> {
+	await putDisplay({ live_mode: liveMode });
+	ensureInitialized();
+	setState({ ...state, liveMode });
+	writeJSON(STATE_KEY, state);
+}
+
+export async function loadLiveDefaultMode(): Promise<LiveMode> {
+	ensureInitialized();
+	await refreshImageDisplay();
+	return state.liveMode;
 }
 
 export async function loadDisplayQuality(): Promise<DisplayQuality> {
@@ -220,6 +262,8 @@ export function noteVariantFailed(variant: string, original: string) {
 /**
  * Rewrites the images of read-only entry HTML to load their display variant,
  * keeping the original in data-full-src. Pair with the `imageFallback` action.
+ * Live photos are also put in a frame (span.live-photo-frame) for the
+ * `livePhotos` action to play them in.
  */
 export function withDisplayImages(html: string): string {
 	if (!browser || !html || !html.includes('<img')) return html;
@@ -231,6 +275,13 @@ export function withDisplayImages(html: string): string {
 		if (display !== original) {
 			img.setAttribute('data-full-src', original);
 			img.setAttribute('src', display);
+			changed = true;
+		}
+		if (img.getAttribute('data-live-video') && !img.parentElement?.classList.contains('live-photo-frame')) {
+			const frame = doc.createElement('span');
+			frame.className = 'live-photo-frame';
+			img.replaceWith(frame);
+			frame.appendChild(img);
 			changed = true;
 		}
 	}

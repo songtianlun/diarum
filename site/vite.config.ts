@@ -84,6 +84,13 @@ export default defineConfig({
 			},
 			workbox: {
 				globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff,woff2}'],
+				// The HEIC decoder (~3 MB, loaded only to convert HEIC uploads in
+				// browsers that cannot decode it) is fetched on demand instead of
+				// precached for everyone.
+				maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+				manifestTransforms: [
+					async (entries) => ({ manifest: entries.filter((entry) => entry.size <= 2 * 1024 * 1024), warnings: [] })
+				],
 				cleanupOutdatedCaches: true,
 				clientsClaim: true,
 				runtimeCaching: [

@@ -386,5 +386,27 @@ export const en = {
 		tabOnThisDay: 'On This Day',
 		notToday: "Can't go past today",
 		clear: 'Clear'
+	},
+	live: {
+		badge: 'LIVE',
+		menuLabel: 'Live photo playback',
+		followDefault: 'Default · {mode}',
+		loop: 'Loop',
+		once: 'Play once',
+		off: "Don't play",
+		playNow: 'Play now',
+		modeTitle: 'Live photo: {mode}. Click to change',
+		unsupported: "This browser can't play the motion of this live photo",
+		settingsTitle: 'Live Photos',
+		settingsDesc: 'How live photos (iPhone Live Photos, HarmonyOS / Android moving photos) play in your entries by default. Each photo can still be set on its own from the LIVE badge in its top-left corner.',
+		settingsAria: 'Default live photo playback',
+		loopDesc: 'Plays over and over while the photo is on screen.',
+		onceDesc: 'Plays once when the photo comes into view, then shows the still.',
+		offDesc: 'Shows the still. Hover or tap the LIVE badge to play.',
+		uploadNote: 'Supported: motion photos from HarmonyOS, Huawei, Honor, Xiaomi, OPPO, vivo, Samsung and Pixel (a single JPG/HEIC file), and iPhone Live Photos (select the photo and its .MOV together, e.g. after saving with "All Photos Data" on). The motion is kept with the built-in library (local or S3); Chevereto keeps the still only.',
+		strayVideo: '{name}: videos are only kept as the motion of a live photo. Select the photo with it.',
+		droppedChevereto: 'Chevereto keeps only the still image of live photos.',
+		videoTooLarge: '{name}: the live photo video is over 50MB, uploaded as a still.',
+		videoInvalid: '{name}: the live photo video is not MP4/MOV, uploaded as a still.'
 	}
 } as const;

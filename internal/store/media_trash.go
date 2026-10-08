@@ -39,7 +39,7 @@ const (
 )
 
 // mediaColumns is the column list scanMedia reads, in order.
-const mediaColumns = `alt, created, file, id, name, owner, updated, diary, date, storage, deleted, deleted_by, delete_reason, delete_trigger, s3_prefix`
+const mediaColumns = `alt, created, file, id, name, owner, updated, diary, date, storage, deleted, deleted_by, delete_reason, delete_trigger, s3_prefix, live`
 
 // mediaTimelineOrder sorts images by their own date, newest first. Images not
 // used in any entry yet have no date and fall back to their upload time.
@@ -60,6 +60,7 @@ func migrateMediaSchema(db *sql.DB) error {
 		{"delete_reason", `ALTER TABLE media ADD COLUMN delete_reason TEXT DEFAULT '' NOT NULL`},
 		{"delete_trigger", `ALTER TABLE media ADD COLUMN delete_trigger TEXT DEFAULT '' NOT NULL`},
 		{"s3_prefix", `ALTER TABLE media ADD COLUMN s3_prefix TEXT DEFAULT '' NOT NULL`},
+		{"live", `ALTER TABLE media ADD COLUMN live TEXT DEFAULT '' NOT NULL`},
 	}
 	for _, column := range columns {
 		exists, err := columnExists(db, "media", column.name)

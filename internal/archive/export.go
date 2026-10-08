@@ -218,6 +218,9 @@ func (e *exporter) eachMedia(fn func(Media) error) error {
 				continue
 			}
 			item := Media{ID: m.ID, File: m.File, Path: "media/" + m.ID + "/" + store.SafeFilename(m.File), Name: m.Name, Alt: m.Alt, Diary: m.Diary, Owner: m.Owner}
+			if m.Live != "" {
+				item.Live, item.LivePath = m.Live, "media/"+m.ID+"/"+store.SafeFilename(m.Live)
+			}
 			if err := fn(item); err != nil {
 				return err
 			}
@@ -246,13 +249,30 @@ func (e *exporter) writeMarkdown() error {
 	})
 }
 
-// writeMediaFile copies one media file into the archive. A file that cannot
-// be read is recorded as failed; an error means the archive is broken.
+// writeMediaFile copies one media file, and its live photo clip if any, into
+// the archive. A file that cannot be read is recorded as failed; an error
+// means the archive is broken.
 func (e *exporter) writeMediaFile(m Media) error {
-	reader, err := e.s.OpenMediaFile(&store.Media{ID: m.ID, File: m.File, Owner: m.Owner})
+	copied, err := e.copyMediaObject(m, m.File, m.Path)
+	if err != nil || !copied {
+		return err
+	}
+	e.stats.Media.ActualExported++
+	if m.Live != "" {
+		if _, err := e.copyMediaObject(m, m.Live, m.LivePath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyMediaObject copies the stored file of m named file to the archive
+// entry path; false (and no error) when the file cannot be read.
+func (e *exporter) copyMediaObject(m Media, file, path string) (bool, error) {
+	reader, err := e.s.OpenMediaFile(&store.Media{ID: m.ID, File: file, Owner: m.Owner})
 	if err != nil {
 		e.fail("media", m.ID, err)
-		return nil
+		return false, nil
 	}
 	defer reader.Close()
 
@@ -262,7 +282,7 @@ func (e *exporter) writeMediaFile(m Media) error {
 		// not leave a truncated entry behind in the archive.
 		spool, err := os.CreateTemp(e.opts.TempDir, "diarum-media-*")
 		if err != nil {
-			return fmt.Errorf("create spool file: %w", err)
+			return false, fmt.Errorf("create spool file: %w", err)
 		}
 		defer func() {
 			_ = spool.Close()
@@ -270,23 +290,22 @@ func (e *exporter) writeMediaFile(m Media) error {
 		}()
 		if _, err := io.Copy(spool, reader); err != nil {
 			e.fail("media", m.ID, err)
-			return nil
+			return false, nil
 		}
 		if _, err := spool.Seek(0, io.SeekStart); err != nil {
-			return fmt.Errorf("rewind spool file: %w", err)
+			return false, fmt.Errorf("rewind spool file: %w", err)
 		}
 		src = spool
 	}
 
-	w, err := e.create(m.Path)
+	w, err := e.create(path)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err := io.Copy(w, src); err != nil {
-		return fmt.Errorf("write %s: %w", m.Path, err)
+		return false, fmt.Errorf("write %s: %w", path, err)
 	}
-	e.stats.Media.ActualExported++
-	return nil
+	return true, nil
 }
 
 func (e *exporter) fail(kind, id string, err error) {

@@ -44,6 +44,7 @@
 		"@tiptap/pm": "^2.11.5",
 		"@tiptap/starter-kit": "^2.11.5",
 		"@tiptap/suggestion": "^2.11.5",
+		"heic-to": "1.5.2",
 		"html-to-image": "^1.11.13",
 		"lowlight": "^3.2.0",
 		"marked": "^17.0.1"

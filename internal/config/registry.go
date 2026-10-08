@@ -58,6 +58,7 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"image_upload.s3.prefix":           {Type: "string", Default: "", Encrypted: false},
 	"image_upload.s3.public_url":       {Type: "string", Default: "", Encrypted: false},
 	"image_upload.display_quality":     {Type: "string", Default: "md", Encrypted: false},
+	"image_upload.live_mode":           {Type: "string", Default: "loop", Encrypted: false},
 
 	// Media library housekeeping (see internal/medialib). Trashed images are
 	// removed for good after this many days; 0 keeps them until removed by hand.

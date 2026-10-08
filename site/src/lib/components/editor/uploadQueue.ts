@@ -1,6 +1,13 @@
-import { uploadImage, isCheveretoResult, getMediaUrl, UploadAbortedError } from '$lib/utils/uploadImage';
+import { uploadImage, isCheveretoResult, getMediaUrl, getMediaLiveUrl, UploadAbortedError } from '$lib/utils/uploadImage';
+import { prepareUpload, isHeicFile, type UploadSource, type PreparedUpload } from '$lib/utils/livePhoto';
 
-export type UploadStatus = 'queued' | 'uploading' | 'finishing' | 'done' | 'error';
+export type UploadStatus = 'queued' | 'preparing' | 'uploading' | 'finishing' | 'done' | 'error';
+
+/** Something worth telling the user about an upload that still went ahead. */
+export type UploadNotice =
+	| { kind: 'liveDroppedChevereto'; fileName: string }
+	| { kind: 'liveVideoTooLarge'; fileName: string }
+	| { kind: 'liveVideoInvalid'; fileName: string };
 
 export interface UploadState {
 	status: UploadStatus;
@@ -9,6 +16,8 @@ export interface UploadState {
 	fileName: string;
 	previewUrl: string;
 	url?: string;
+	/** The uploaded live photo clip, when the image is a live photo. */
+	liveUrl?: string;
 	error?: string;
 }
 
@@ -16,13 +25,17 @@ type Listener = (state: UploadState) => void;
 
 interface Task {
 	id: string;
-	file: File;
+	source: UploadSource;
+	/** Normalised once and kept for retries. */
+	prepared?: PreparedUpload;
 	state: UploadState;
 	listeners: Set<Listener>;
 	controller?: AbortController;
 }
 
 const DEFAULT_CONCURRENCY = 3;
+// Stands in for the preview of an image the browser cannot show yet (HEIC).
+const BLANK_PREVIEW = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 // How long to wait for the uploaded image to load before swapping anyway.
 const PRELOAD_TIMEOUT_MS = 15000;
 
@@ -60,17 +73,24 @@ export class UploadQueue {
 			onSettled: (id: string) => void;
 			/** Any task changed state; for aggregate progress displays. */
 			onActivity?: () => void;
+			/** An upload went ahead with a caveat, e.g. a live photo kept as a still. */
+			onNotice?: (notice: UploadNotice) => void;
 		},
 		private readonly concurrency = DEFAULT_CONCURRENCY
 	) {}
 
-	add(file: File): string {
+	/** Queues an image, or a live photo given as `{ file, video }`. */
+	add(input: File | UploadSource): string {
+		const source = input instanceof File ? { file: input } : input;
+		const { file } = source;
 		const id = `upload-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+		// Most browsers cannot show HEIC: its preview appears once converted.
+		const previewUrl = isHeicFile(file) ? BLANK_PREVIEW : URL.createObjectURL(file);
 		this.tasks.set(id, {
 			id,
-			file,
+			source,
 			listeners: new Set(),
-			state: { status: 'queued', progress: 0, fileName: file.name, previewUrl: URL.createObjectURL(file) }
+			state: { status: 'queued', progress: 0, fileName: file.name, previewUrl }
 		});
 		this.pending.push(id);
 		this.pump();
@@ -143,7 +163,7 @@ export class UploadQueue {
 		task.listeners.clear();
 		// Keep the blob alive briefly: the image element may still be painting it.
 		const previewUrl = task.state.previewUrl;
-		setTimeout(() => URL.revokeObjectURL(previewUrl), 2000);
+		if (previewUrl.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(previewUrl), 2000);
 	}
 
 	private update(task: Task, patch: Partial<UploadState>) {
@@ -159,20 +179,48 @@ export class UploadQueue {
 		}
 	}
 
+	/** Splits off a live photo clip and converts HEIC, once per task. */
+	private async prepare(task: Task): Promise<PreparedUpload> {
+		if (task.prepared) return task.prepared;
+		this.update(task, { status: 'preparing', progress: 0 });
+		const prepared = await prepareUpload(task.source);
+		task.prepared = prepared;
+		if (prepared.still !== task.source.file && this.tasks.has(task.id)) {
+			const previous = task.state.previewUrl;
+			this.update(task, { previewUrl: URL.createObjectURL(prepared.still) });
+			if (previous.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(previous), 2000);
+		}
+		return prepared;
+	}
+
 	private async run(task: Task) {
 		this.active++;
 		const controller = new AbortController();
 		task.controller = controller;
-		this.update(task, { status: 'uploading', progress: 0 });
 		try {
-			const result = await uploadImage(task.file, {
+			const prepared = await this.prepare(task);
+			if (controller.signal.aborted || !this.tasks.has(task.id)) return;
+			this.update(task, { status: 'uploading', progress: 0 });
+			const result = await uploadImage(prepared.still, {
+				live: prepared.video,
 				signal: controller.signal,
 				onProgress: ({ percentage }) => {
 					if (task.state.status === 'uploading') this.update(task, { progress: percentage });
 				}
 			});
-			const url = isCheveretoResult(result) ? result.cheveretoUrl : getMediaUrl(result);
-			this.update(task, { status: 'finishing', progress: 100, url });
+			const fileName = task.state.fileName;
+			if (prepared.videoSkipped === 'too-large') this.hooks.onNotice?.({ kind: 'liveVideoTooLarge', fileName });
+			if (prepared.videoSkipped === 'invalid') this.hooks.onNotice?.({ kind: 'liveVideoInvalid', fileName });
+			let url: string;
+			let liveUrl: string | undefined;
+			if (isCheveretoResult(result)) {
+				url = result.cheveretoUrl;
+				if (result.liveDropped) this.hooks.onNotice?.({ kind: 'liveDroppedChevereto', fileName });
+			} else {
+				url = getMediaUrl(result);
+				liveUrl = getMediaLiveUrl(result) ?? undefined;
+			}
+			this.update(task, { status: 'finishing', progress: 100, url, liveUrl });
 			await preloadImage(url);
 			if (!this.tasks.has(task.id)) return;
 			this.update(task, { status: 'done' });

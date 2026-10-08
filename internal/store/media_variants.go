@@ -108,19 +108,24 @@ func (s *Store) GenerateMediaVariants(media *Media) error {
 	return nil
 }
 
-// saveMediaVariant stores a variant beside its original: in the same local
-// directory when the original is on disk, otherwise where uploads go now.
+// saveMediaVariant stores a variant beside its original.
 func (s *Store) saveMediaVariant(media *Media, v imaging.Variant, data []byte) error {
-	variant := VariantMedia(media, v)
+	return s.saveMediaCompanion(media, VariantMedia(media, v), bytes.NewReader(data))
+}
+
+// saveMediaCompanion stores a file derived from media (a variant, a live
+// photo clip) beside it: in the same local directory when the original is on
+// disk, otherwise where uploads go now.
+func (s *Store) saveMediaCompanion(media, companion *Media, reader io.Reader) error {
 	if original := s.MediaFilePath(media); fileExists(original) {
-		return s.SaveUploadedFile(filepath.Join(filepath.Dir(original), variant.File), bytes.NewReader(data))
+		return s.SaveUploadedFile(filepath.Join(filepath.Dir(original), companion.File), reader)
 	}
 	if s.imageUploadProvider(media.Owner) == "s3" {
 		if cfg := s.userS3Config(media.Owner); cfg != nil {
-			return s.saveMediaToS3(cfg, variant, bytes.NewReader(data))
+			return s.saveMediaToS3(cfg, companion, reader)
 		}
 	}
-	return s.SaveUploadedFile(filepath.Join(s.userLocalMediaDir(media.Owner), variant.ID, variant.File), bytes.NewReader(data))
+	return s.SaveUploadedFile(filepath.Join(s.userLocalMediaDir(media.Owner), companion.ID, companion.File), reader)
 }
 
 // OpenMediaVariant opens a stored variant; os.ErrNotExist when there is none.

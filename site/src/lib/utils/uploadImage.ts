@@ -2,6 +2,7 @@ import { pb } from '$lib/api/client';
 import type { Media, UploadProgress } from '$lib/api/client';
 import { get } from 'svelte/store';
 import { imageUploadSettings, loadImageUploadSettings, isImageUploadLoaded } from '$lib/stores/imageUpload';
+import { isHeicFile, LIVE_SOURCE_MAX_BYTES } from '$lib/utils/livePhoto';
 
 export const IMAGE_UPLOAD_LIMITS = {
 	maxSize: 50 * 1024 * 1024, // must match the backend media limit
@@ -10,12 +11,16 @@ export const IMAGE_UPLOAD_LIMITS = {
 
 export interface UploadOptions {
 	alt?: string;
+	/** The clip of a live photo, stored with the image (built-in library only). */
+	live?: File;
 	onProgress?: (progress: UploadProgress) => void;
 	signal?: AbortSignal;
 }
 
 export interface CheveretoUploadResult {
 	cheveretoUrl: string;
+	/** A live photo's clip was given but Chevereto only takes the still. */
+	liveDropped?: boolean;
 }
 
 export class UploadAbortedError extends Error {
@@ -38,6 +43,38 @@ export function validateImageFile(file: File): string | null {
 	}
 	if (file.size > IMAGE_UPLOAD_LIMITS.maxSize) {
 		return `Larger than ${IMAGE_UPLOAD_LIMITS.maxSize / 1024 / 1024}MB`;
+	}
+	return null;
+}
+
+const TYPES_BY_EXTENSION: Record<string, string> = {
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	png: 'image/png',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	svg: 'image/svg+xml'
+};
+
+/** The image type a file name suggests, for pickers that report none. */
+function typeFromName(name: string): string {
+	return TYPES_BY_EXTENSION[name.split('.').pop()?.toLowerCase() ?? ''] ?? '';
+}
+
+/**
+ * Like validateImageFile, for a file as picked: HEIC is accepted (it is
+ * converted to JPEG before upload) and JPEG/HEIC may be larger, since a
+ * motion photo carries its clip inside until it is split off.
+ */
+export function validateUploadSource(file: File): string | null {
+	const heic = isHeicFile(file);
+	const type = file.type || (heic ? 'image/heic' : typeFromName(file.name));
+	if (!heic && !IMAGE_UPLOAD_LIMITS.allowedTypes.includes(type)) {
+		return 'Unsupported format. Use JPG, PNG, GIF, WebP, SVG or HEIC';
+	}
+	const limit = heic || type === 'image/jpeg' ? LIVE_SOURCE_MAX_BYTES : IMAGE_UPLOAD_LIMITS.maxSize;
+	if (file.size > limit) {
+		return `Larger than ${limit / 1024 / 1024}MB`;
 	}
 	return null;
 }
@@ -119,7 +156,7 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 		if (!result?.url) {
 			throw new Error('Chevereto did not return an image URL');
 		}
-		return { cheveretoUrl: result.url };
+		return { cheveretoUrl: result.url, liveDropped: !!options.live };
 	}
 
 	const form = new FormData();
@@ -127,6 +164,9 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 	form.append('name', file.name);
 	if (options.alt) {
 		form.append('alt', options.alt);
+	}
+	if (options.live) {
+		form.append('live', options.live, options.live.name || 'live.mp4');
 	}
 	return await postForm<Media>('/api/v1/media', form, options);
 }
@@ -144,6 +184,12 @@ export function getMediaUrl(media: Media, thumb?: string): string {
 
 	const url = `/api/v1/files/media/${encodeURIComponent(media.id)}/${encodeURIComponent(media.file)}`;
 	return thumb ? `${url}?thumb=${encodeURIComponent(thumb)}` : url;
+}
+
+/** The URL of a media record's live photo clip, or null when it has none. */
+export function getMediaLiveUrl(media: Media): string | null {
+	if (!media.id || !media.live) return null;
+	return `/api/v1/files/media/${encodeURIComponent(media.id)}/${encodeURIComponent(media.live)}`;
 }
 
 /**

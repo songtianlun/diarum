@@ -2,6 +2,8 @@ import { Node, mergeAttributes } from '@tiptap/core';
 import type { UploadQueue, UploadState } from './uploadQueue';
 import { openLightboxFor } from '$lib/stores/lightbox';
 import { displaySrcSync, resolveDisplaySrc, noteVariantFailed } from '$lib/utils/imageDisplay';
+import { LivePhoto, readLiveMode } from '$lib/utils/livePlayer';
+import type { LiveMode } from '$lib/utils/livePhoto';
 
 export interface ImageOptions {
 	inline: boolean;
@@ -15,6 +17,13 @@ export interface ImageInsert {
 	src: string;
 	alt?: string;
 	title?: string;
+	/** The clip of a live photo. */
+	live?: string;
+}
+
+/** Node attributes for an image to insert. */
+function insertAttrs({ live, ...image }: ImageInsert): Record<string, any> {
+	return live ? { ...image, 'data-live-video': live } : image;
 }
 
 declare module '@tiptap/core' {
@@ -24,7 +33,7 @@ declare module '@tiptap/core' {
 			insertImages: (images: ImageInsert[]) => ReturnType;
 			insertUploadPlaceholders: (placeholders: { id: string; src: string; alt?: string }[]) => ReturnType;
 			removePlaceholder: (id: string) => ReturnType;
-			replacePlaceholderWithImage: (options: { id: string; src: string; alt?: string }) => ReturnType;
+			replacePlaceholderWithImage: (options: { id: string; src: string; alt?: string; live?: string }) => ReturnType;
 		};
 	}
 }
@@ -58,6 +67,8 @@ function statusLabel(state: UploadState | undefined): string {
 	switch (state.status) {
 		case 'queued':
 			return 'Waiting…';
+		case 'preparing':
+			return 'Preparing…';
 		case 'uploading':
 			return state.progress >= 100 ? 'Processing…' : `${state.progress}%`;
 		case 'finishing':
@@ -107,6 +118,14 @@ export const ImageExtension = Node.create<ImageOptions>({
 			'data-placeholder-id': {
 				default: null,
 			},
+			// A live photo: the URL of its clip, and how this photo plays
+			// (loop, once, off; unset follows the default from settings).
+			'data-live-video': {
+				default: null,
+			},
+			'data-live-mode': {
+				default: null,
+			},
 		};
 	},
 
@@ -128,6 +147,26 @@ export const ImageExtension = Node.create<ImageOptions>({
 			let currentNode = node;
 			let unsubscribe: (() => void) | null = null;
 			let overlay: HTMLDivElement | null = null;
+			let live: LivePhoto | null = null;
+
+			const setLiveMode = (mode: LiveMode | null) => {
+				const pos = typeof getPos === 'function' ? getPos() : undefined;
+				if (typeof pos !== 'number' || !editor.isEditable) return;
+				editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...currentNode.attrs, 'data-live-mode': mode }));
+			};
+
+			// Live photos get their player once the upload is done.
+			const syncLive = (attrs: Record<string, any> | null) => {
+				const clip: string | null = attrs?.['data-live-video'] || null;
+				if (!clip) {
+					live?.destroy();
+					live = null;
+					return;
+				}
+				const mode = readLiveMode(attrs?.['data-live-mode']);
+				if (live) live.update(clip, mode);
+				else live = new LivePhoto(wrapper, img, clip, { mode, onModeChange: setLiveMode });
+			};
 
 			const applyAttrs = (attrs: Record<string, any>) => {
 				const merged = mergeAttributes(this.options.HTMLAttributes, attrs);
@@ -316,8 +355,9 @@ export const ImageExtension = Node.create<ImageOptions>({
 				const render = (state: UploadState | undefined) => {
 					const failed = !state || state.status === 'error';
 					wrapper.classList.toggle('upload-failed', failed);
-					wrapper.classList.toggle('upload-indeterminate', state?.status === 'queued' || state?.status === 'finishing' || (state?.status === 'uploading' && state.progress >= 100));
+					wrapper.classList.toggle('upload-indeterminate', state?.status === 'queued' || state?.status === 'preparing' || state?.status === 'finishing' || (state?.status === 'uploading' && state.progress >= 100));
 					label.textContent = statusLabel(state);
+					if (state?.previewUrl && img.getAttribute('src') !== state.previewUrl) img.src = state.previewUrl;
 					label.title = state?.fileName ?? '';
 					const progress = state?.status === 'uploading' ? state.progress : state?.status === 'finishing' ? 100 : 0;
 					bar.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - progress / 100));
@@ -361,8 +401,11 @@ export const ImageExtension = Node.create<ImageOptions>({
 						wrapper.classList.add('is-pending');
 						buildOverlay(pendingId);
 					}
-					if (img.getAttribute('src') !== next.attrs.src) img.src = next.attrs.src;
+					// A HEIC preview is swapped for its JPEG once converted.
+					const preview = this.options.getUploadQueue()?.get(pendingId)?.previewUrl || next.attrs.src;
+					if (img.getAttribute('src') !== preview) img.src = preview;
 					shownOriginal = null;
+					syncLive(null);
 					return;
 				}
 
@@ -370,6 +413,7 @@ export const ImageExtension = Node.create<ImageOptions>({
 				if (next.attrs.src && shownOriginal !== next.attrs.src) {
 					showImage(next.attrs.src, wasPending);
 				}
+				syncLive(next.attrs);
 			};
 
 			render(node, null);
@@ -387,7 +431,7 @@ export const ImageExtension = Node.create<ImageOptions>({
 				// Clicks and typing in our controls belong to them, not to ProseMirror.
 				stopEvent: (event) => {
 					const target = event.target as HTMLElement | null;
-					return !!target?.closest('button, .image-url-editor');
+					return !!target?.closest('button, .image-url-editor, .live-controls');
 				},
 				// Our own class/overlay changes must not make ProseMirror redraw the node.
 				ignoreMutation: (mutation) => mutation.type !== 'selection',
@@ -397,6 +441,8 @@ export const ImageExtension = Node.create<ImageOptions>({
 					urlEditor?.remove();
 					unsubscribe?.();
 					unsubscribe = null;
+					live?.destroy();
+					live = null;
 				},
 			};
 		};
@@ -421,14 +467,14 @@ export const ImageExtension = Node.create<ImageOptions>({
 				({ commands }) => {
 					return commands.insertContent({
 						type: this.name,
-						attrs: options,
+						attrs: insertAttrs(options),
 					});
 				},
 
 			insertImages:
 				(images) =>
 				({ commands }) => {
-					return commands.insertContent(images.map((attrs) => ({ type: this.name, attrs })));
+					return commands.insertContent(images.map((image) => ({ type: this.name, attrs: insertAttrs(image) })));
 				},
 
 			insertUploadPlaceholders:
@@ -471,6 +517,7 @@ export const ImageExtension = Node.create<ImageOptions>({
 							...found.node.attrs,
 							src: options.src,
 							alt: options.alt || null,
+							'data-live-video': options.live || null,
 							'data-uploading': null,
 							'data-placeholder-id': null,
 						});

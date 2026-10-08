@@ -376,5 +376,27 @@ export const zh = {
 		tabOnThisDay: '那年今日',
 		notToday: '不能超过今天',
 		clear: '清除'
+	},
+	live: {
+		badge: '实况',
+		menuLabel: '实况照片播放方式',
+		followDefault: '跟随默认 · {mode}',
+		loop: '循环播放',
+		once: '播放一次',
+		off: '不播放',
+		playNow: '立即播放',
+		modeTitle: '实况照片：{mode}，点击切换',
+		unsupported: '当前浏览器无法播放这张实况照片的动态部分',
+		settingsTitle: '实况照片',
+		settingsDesc: '日记中的实况照片（iPhone 实况、HarmonyOS / 安卓动态照片）默认如何播放。每张照片仍可通过左上角的「实况」标记单独设置。',
+		settingsAria: '实况照片默认播放方式',
+		loopDesc: '照片在屏幕上时反复播放。',
+		onceDesc: '照片进入视野时播放一次，然后显示静态图。',
+		offDesc: '只显示静态图，悬停或点按「实况」标记时播放。',
+		uploadNote: '支持：HarmonyOS、华为、荣耀、小米、OPPO、vivo、三星、Pixel 的动态照片（单个 JPG/HEIC 文件），以及 iPhone 实况照片（同时选择照片和同名 .MOV，例如分享时打开「所有照片数据」后存储到文件）。动态部分保存在内置图库（本地或 S3）中；Chevereto 只保留静态图。',
+		strayVideo: '{name}：视频只能作为实况照片的动态部分上传，请与对应照片一起选择。',
+		droppedChevereto: 'Chevereto 只保存实况照片的静态图。',
+		videoTooLarge: '{name}：实况视频超过 50MB，已按静态图上传。',
+		videoInvalid: '{name}：实况视频不是 MP4/MOV 格式，已按静态图上传。'
 	}
 } as const;

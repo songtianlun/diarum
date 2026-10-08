@@ -46,6 +46,7 @@ Try Diarum without installation:
 
 - 📝 **Markdown Support** - Write your daily thoughts with full Markdown formatting
 - 🖼️ **Media Upload** - Attach images and files to your diary entries, with Chevereto image hosting support for flexible switching between built-in media manager and external image hosting
+- 🎞️ **Live Photos** - Keeps the motion of iPhone Live Photos (photo + .MOV) and HarmonyOS / Android motion photos (Huawei, Honor, Xiaomi, OPPO, vivo, Samsung, Pixel); HEIC is converted to JPEG. Each photo can loop, play once or stay still, with a default in Settings
 - 📱 **Progressive Web App** - Install on any device with offline support and app-like experience
 - 📤 **One-Click Share** - Share your diary entries instantly with a single tap
 - 🔄 **Offline & Auto Sync** - Work offline seamlessly with automatic cache synchronization and real-time sync status monitoring
@@ -259,6 +260,7 @@ The system audit log is written asynchronously as one JSON-lines file per day un
 
 - 📝 **Markdown 支持** - 使用完整的 Markdown 格式记录每日想法
 - 🖼️ **媒体上传** - 为日记条目添加图片和文件，支持 Chevereto 图床，灵活切换内置媒体管理器或外部图床
+- 🎞️ **实况照片** - 保留 iPhone 实况照片（照片 + .MOV）以及 HarmonyOS / 安卓动态照片（华为、荣耀、小米、OPPO、vivo、三星、Pixel）的动态部分，HEIC 自动转为 JPEG；每张可单独设置循环播放、播放一次或不播放，默认方式可在设置中修改
 - 📱 **渐进式 Web 应用** - 支持安装到任意设备，离线可用，原生应用般的体验
 - 📤 **一键分享** - 轻点即可分享日记内容
 - 🔄 **离线与自动同步** - 完整离线支持，自动缓存同步，实时查看数据同步状态
