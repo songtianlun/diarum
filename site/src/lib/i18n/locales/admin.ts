@@ -5,7 +5,7 @@
 export const adminEn = {
 	pageTitle: 'Admin Console',
 	title: 'Admin Console',
-	tabs: { overview: 'Overview', users: 'Users', audit: 'Audit log', archive: 'Archive & retention' },
+	tabs: { overview: 'Overview', users: 'Users', audit: 'Audit log', archive: 'Archive & retention', visits: 'Visitor statistics' },
 	refresh: 'Refresh',
 	retry: 'Retry',
 	prev: 'Previous',
@@ -206,7 +206,10 @@ export const adminEn = {
 			auth_forbidden: 'Forbidden',
 			admin_role_change: 'Changed role',
 			admin_audit_settings: 'Changed audit settings',
-			admin_audit_pull: 'Pulled archive'
+			admin_audit_pull: 'Pulled archive',
+			admin_visits_settings: 'Changed visitor statistics settings',
+			admin_visits_pull: 'Pulled visit archives',
+			admin_visits_unload: 'Unloaded pulled visits'
 		}
 	},
 	archive: {
@@ -280,7 +283,7 @@ export const adminEn = {
 export const adminZh: typeof adminEn = {
 	pageTitle: '系统后台',
 	title: '系统后台',
-	tabs: { overview: '概览', users: '用户', audit: '审计日志', archive: '归档与保留' },
+	tabs: { overview: '概览', users: '用户', audit: '审计日志', archive: '归档与保留', visits: '访客统计' },
 	refresh: '刷新',
 	retry: '重试',
 	prev: '上一页',
@@ -481,7 +484,10 @@ export const adminZh: typeof adminEn = {
 			auth_forbidden: '禁止访问',
 			admin_role_change: '修改身份',
 			admin_audit_settings: '修改审计设置',
-			admin_audit_pull: '拉取归档'
+			admin_audit_pull: '拉取归档',
+			admin_visits_settings: '修改访客统计设置',
+			admin_visits_pull: '拉取访客归档',
+			admin_visits_unload: '卸载访客记录'
 		}
 	},
 	archive: {

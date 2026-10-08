@@ -1,4 +1,5 @@
 import { pb, type Diary } from './client';
+import { deviceHeaders } from '$lib/utils/device';
 
 export type DiaryByDateResult =
 	| { status: 'found'; diary: Diary }
@@ -27,7 +28,8 @@ export async function getDiaryById(id: string): Promise<Diary | null> {
 	try {
 		const response = await fetch(`/api/v1/diaries/${encodeURIComponent(id)}`, {
 			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`
+				'Authorization': `Bearer ${pb.authStore.token}`,
+				...deviceHeaders()
 			}
 		});
 
@@ -52,7 +54,8 @@ export async function getDiariesByIds(ids: string[]): Promise<Diary[]> {
 			method: 'POST',
 			headers: {
 				'Authorization': `Bearer ${pb.authStore.token}`,
-				'Content-Type': 'application/json'
+				'Content-Type': 'application/json',
+				...deviceHeaders()
 			},
 			body: JSON.stringify({ ids })
 		});
@@ -76,7 +79,8 @@ export async function getDiaryByDateResult(date: string): Promise<DiaryByDateRes
 	try {
 		const response = await fetch(`/api/v1/diaries/by-date/${date}`, {
 			headers: {
-				'Authorization': `Bearer ${pb.authStore.token}`
+				'Authorization': `Bearer ${pb.authStore.token}`,
+				...deviceHeaders()
 			}
 		});
 
@@ -390,6 +394,7 @@ async function historyRequest<T>(path: string, init: RequestInit = {}): Promise<
 		...init,
 		headers: {
 			'Authorization': `Bearer ${pb.authStore.token}`,
+			...deviceHeaders(),
 			...(init.headers || {})
 		}
 	});

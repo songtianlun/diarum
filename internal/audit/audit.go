@@ -54,6 +54,9 @@ const (
 	ActionAdminRole      = "admin.role_change"
 	ActionAdminAudit     = "admin.audit_settings"
 	ActionAdminPull      = "admin.audit_pull"
+	ActionAdminVisits    = "admin.visits_settings"
+	ActionAdminVisitPull = "admin.visits_pull"
+	ActionAdminVisitDrop = "admin.visits_unload"
 )
 
 // Sources describe which entry point performed an action.

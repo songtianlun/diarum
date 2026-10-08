@@ -142,6 +142,9 @@ func RegisterMCPRoutes(e *echo.Echo, s *store.Store, version string) {
 		for _, req := range body.requests {
 			resp := dispatchMCPAudited(s, userId, version, req, func(action, target string, detail map[string]any) {
 				recordAuditFor(c, userId, "", audit.SourceMCP, action, target, detail)
+				if action == audit.ActionDiaryView {
+					trackMCPVisits(c, userId, target, detail)
+				}
 			})
 			if resp != nil {
 				responses = append(responses, resp)
