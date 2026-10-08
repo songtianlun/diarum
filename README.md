@@ -56,6 +56,7 @@ Try Diarum without installation:
 - 💾 **Native SQLite Backend** - Built-in user system, local media storage, and automatic legacy data migration
 - 🔧 **Configurable** - Flexible data directory configuration via environment variables or CLI flags
 - 🛡️ **Admin Console & Audit Log** - System statistics, user management and an audit log of every API call, with S3 archiving
+- 👀 **Visitor Statistics** - Every read of a diary entry (web, API, MCP), including refused and signed-out attempts, recorded per entry so owners can audit who read what and when; switched on by an administrator, with retention, flood protection and S3 archiving
 
 ### Quick Start
 
@@ -206,6 +207,8 @@ Diarum stores application data in `diarum.db` under the configured data director
 
 The system audit log is written asynchronously as one JSON-lines file per day under `logs/system-audit/` in the data directory. By default 3 days are kept locally; finished days can be archived to S3 (kept 30 days by default) and pulled back from the admin console for analysis. Pulled days live in `logs/system-audit/pulled/` until the next daily cleanup.
 
+Diary visits (when an administrator turns visitor statistics on) are kept in their own SQLite file, `visits/visits.db`, so they never grow the main database. Repeated reads by the same visitor on the same device within a minute count once, refused and signed-out attempts are rate limited, and a record cap trims the oldest records. Records are kept 3 years by default; finished days can be archived to S3 (kept 10 years by default) and pulled back in one click from the admin console.
+
 ### Unit Tests
 
 [![codecov](https://codecov.io/gh/songtianlun/diarum/graph/badge.svg?token=S6DXR0YJH2)](https://codecov.io/gh/songtianlun/diarum)
@@ -270,6 +273,7 @@ The system audit log is written asynchronously as one JSON-lines file per day un
 - 💾 **原生 SQLite 后端** - 内置用户体系、本地媒体存储与旧数据自动迁移
 - 🔧 **可配置** - 通过环境变量或命令行参数灵活配置数据目录
 - 🛡️ **系统后台与审计日志** - 系统统计、用户管理，以及记录每次 API 调用的审计日志，支持归档到 S3
+- 👀 **访客统计** - 记录每篇日记的每一次读取（网页、API、MCP），包括被拒绝和未登录的尝试，用户可审计谁在什么时候看过哪篇日记；由管理员开启，支持保留期限、防刷保护和 S3 归档
 
 ### 快速开始
 
@@ -403,6 +407,8 @@ make dev-backend
 Diarum 会在配置的数据目录下使用 `diarum.db` 保存应用数据。启动时如果检测到旧版 `data.db` 且尚不存在 `diarum.db`，会自动创建新数据库并迁移用户、日记、媒体元数据、设置和 AI 对话数据，同时保留旧数据库不变。
 
 系统审计日志异步写入数据目录下的 `logs/system-audit/`，每天一个 JSON Lines 文件。默认本地保留 3 天；已结束的日期可以归档到 S3（默认保留 30 天），并可在系统后台一键拉取回来分析。拉取的日志存放在 `logs/system-audit/pulled/`，下一次每日清理时删除。
+
+开启访客统计后，日记访问记录保存在独立的 SQLite 文件 `visits/visits.db` 中，不会撑大主数据库。同一访客同一设备 1 分钟内重复查看只计一次，被拒绝和未登录的尝试有频率限制，超过记录上限会删除最旧的记录。访客日志默认保留 3 年；已结束的日期可归档到 S3（默认保留 10 年），并可在系统后台一键拉取回来查看。
 
 ### 单元测试
 

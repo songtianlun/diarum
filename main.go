@@ -29,6 +29,7 @@ import (
 	"github.com/songtianlun/diarum/internal/medialib"
 	"github.com/songtianlun/diarum/internal/static"
 	"github.com/songtianlun/diarum/internal/store"
+	"github.com/songtianlun/diarum/internal/visits"
 )
 
 var startServer = func(e *echo.Echo, addr string) error {
@@ -159,15 +160,30 @@ func run(args []string, stdout io.Writer) error {
 	} else {
 		defer auditLog.Close()
 		auditLog.StartScheduler()
-		stopSignals := flushAuditOnSignal(auditLog)
-		defer stopSignals()
 		log.Printf("Audit logs: %s", audit.Dir(appStore.DataDir))
 	}
 
+	// Diary visit tracking keeps its own database; like the audit trail it
+	// is best effort and the app runs without it.
+	visitOpts := visits.Options{Settings: appStore}
+	if auditLog != nil {
+		visitOpts.SharedS3 = func() backup.S3Config { return auditLog.Settings().Archive.S3 }
+	}
+	visitTracker, err := visits.New(appStore.DataDir, visitOpts)
+	if err != nil {
+		logger.Error("[Visits] visit tracking unavailable: %v", err)
+	} else {
+		defer visitTracker.Close()
+		visitTracker.StartScheduler()
+	}
+	stopSignals := flushAuditOnSignal(auditLog, visitTracker.Close)
+	defer stopSignals()
+
 	e := echo.New()
 	// The audit middleware sits outside Recover so panics are recorded as
-	// the 500s they turn into.
+	// the 500s they turn into; visit tracking likewise.
 	e.Use(api.AuditMiddleware(auditLog))
+	e.Use(api.VisitMiddleware(visitTracker, appStore))
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
 
@@ -212,6 +228,8 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterPublicRoutes(e, appStore)
 	api.RegisterMCPRoutes(e, appStore, Version)
 	api.RegisterAdminRoutes(e, appStore, authMiddleware, auditLog, Version)
+	api.RegisterVisitRoutes(e, appStore, authMiddleware, visitTracker)
+	api.RegisterAdminVisitRoutes(e, appStore, authMiddleware, visitTracker)
 	api.RegisterVersionRoutes(e, Version, Name)
 	if logger.GetLevel() <= logger.LevelDebug {
 		api.RegisterOpenAPIRoutes(e, Version, Name)
@@ -234,14 +252,14 @@ func run(args []string, stdout io.Writer) error {
 	return nil
 }
 
-// flushAuditOnSignal writes out merged audit entries when the process is
-// asked to stop, then lets the signal take its usual effect.
-func flushAuditOnSignal(auditLog *audit.Logger) func() {
+// flushAuditOnSignal writes out merged audit entries (and runs closers, such
+// as the visit tracker's) when the process is asked to stop, then lets the signal take its usual effect.
+func flushAuditOnSignal(auditLog *audit.Logger, closers ...func()) func() {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	done := make(chan struct{})
 	go func() {
-		if sig := awaitStopSignal(signals, done, auditLog); sig != nil {
+		if sig := awaitStopSignal(signals, done, auditLog, closers...); sig != nil {
 			signal.Stop(signals)
 			resendSignal(sig)
 		}
@@ -252,11 +270,14 @@ func flushAuditOnSignal(auditLog *audit.Logger) func() {
 	}
 }
 
-// awaitStopSignal blocks until a signal arrives (flushing the audit log and
-// returning it) or done is closed (returning nil).
-func awaitStopSignal(signals <-chan os.Signal, done <-chan struct{}, auditLog *audit.Logger) os.Signal {
+// awaitStopSignal blocks until a signal arrives (running closers, flushing
+// the audit log and returning it) or done is closed (returning nil).
+func awaitStopSignal(signals <-chan os.Signal, done <-chan struct{}, auditLog *audit.Logger, closers ...func()) os.Signal {
 	select {
 	case sig := <-signals:
+		for _, closer := range closers {
+			closer()
+		}
 		auditLog.Close()
 		return sig
 	case <-done:

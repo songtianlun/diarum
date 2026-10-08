@@ -46,6 +46,8 @@
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import BackupSettings from '$lib/components/settings/BackupSettings.svelte';
 	import MediaLibrarySettings from '$lib/components/settings/MediaLibrarySettings.svelte';
+	import VisitStats from '$lib/components/visits/VisitStats.svelte';
+	import { getVisitStatus, type VisitStatus } from '$lib/api/visits';
 	import { t, locale, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
 	import { formatHumanNumber } from '$lib/utils/number';
 	import {
@@ -298,6 +300,17 @@
 	// stays instant for people who never look at their stats.
 	$: if (activeTab === 'statistics' && !statsRequested && !loading) {
 		void loadWordStats();
+		void loadVisitStatus();
+	}
+
+	// Visitor statistics only exist while an administrator has them on.
+	let visitStatus: VisitStatus | null = null;
+	async function loadVisitStatus() {
+		try {
+			visitStatus = await getVisitStatus();
+		} catch {
+			visitStatus = null;
+		}
 	}
 
 	function formatNumber(value: number): string {
@@ -1538,6 +1551,13 @@
 						{/if}
 					{/if}
 				</div>
+
+				{#if visitStatus?.enabled}
+					<!-- Visitor statistics -->
+					<div id="visitor-statistics" class="bg-card rounded-xl shadow-sm border border-border/50 p-4 sm:p-6 animate-fade-in scroll-mt-16">
+						<VisitStats scope={{ kind: 'self' }} retentionDays={visitStatus.retention_days} dedupeSeconds={visitStatus.dedupe_seconds} />
+					</div>
+				{/if}
 				{/if}
 
 				{#if activeTab === 'api-access'}

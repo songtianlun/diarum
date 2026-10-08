@@ -361,4 +361,7 @@ var actionLabels = map[string][]string{
 	ActionAdminRole:      {"role", "admin", "身份", "角色", "管理员"},
 	ActionAdminAudit:     {"audit settings", "审计设置"},
 	ActionAdminPull:      {"pull archive", "拉取归档", "拉取"},
+	ActionAdminVisits:    {"visitor statistics settings", "访客统计设置"},
+	ActionAdminVisitPull: {"pull visit archive", "拉取访客归档", "拉取"},
+	ActionAdminVisitDrop: {"unload pulled visits", "卸载访客记录"},
 }

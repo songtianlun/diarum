@@ -11,6 +11,7 @@ import (
 	"github.com/songtianlun/diarum/internal/audit"
 	"github.com/songtianlun/diarum/internal/auth"
 	"github.com/songtianlun/diarum/internal/store"
+	"github.com/songtianlun/diarum/internal/visits"
 )
 
 // RegisterDiaryRoutes registers custom API endpoints for diary operations.
@@ -59,6 +60,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return c.JSON(http.StatusOK, map[string]any{"date": dateStr, "content": "", "exists": false, "images": []store.DiaryImage{}})
 		}
 		recordAudit(c, audit.ActionDiaryView, dateStr, diaryAuditDetail(diary))
+		trackWebVisit(c, diary, visits.KindView)
 		return c.JSON(http.StatusOK, diaryResponseWithImages(s, diary, dateStr))
 	})
 
@@ -208,7 +210,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		user := auth.CurrentUser(c)
 
 		end := parseDateParam(c.QueryParam("end"), time.Now().UTC())
-		start := parseDateParam(c.QueryParam("start"), end.AddDate(0, 0, -(defaultDailySeriesDays - 1)))
+		start := parseDateParam(c.QueryParam("start"), end.AddDate(0, 0, -(defaultDailySeriesDays-1)))
 		if start.After(end) {
 			start, end = end, start
 		}
@@ -273,6 +275,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			}
 			result = append(result, diaryResponse(diary, store.DateOnly(diary.Date), true))
 			recordAudit(c, audit.ActionDiaryView, store.DateOnly(diary.Date), diaryAuditDetail(diary))
+			trackWebVisit(c, diary, visits.KindView)
 		}
 		return c.JSON(http.StatusOK, map[string]any{"diaries": result})
 	})
@@ -402,6 +405,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return notFound("Revision not found")
 		}
 		recordAudit(c, audit.ActionDiaryView, revision.Date, map[string]any{"revision": revision.ID, "saved": revision.Saved, "words": CountWords(revision.Content)})
+		trackVisitDate(c, user.ID, "", revision.Date, visits.KindRevision, visits.SourceWeb, user.ID, user.Username)
 		return c.JSON(http.StatusOK, revision)
 	})
 
@@ -433,6 +437,7 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			return forbidden("Access denied")
 		}
 		recordAudit(c, audit.ActionDiaryView, store.DateOnly(diary.Date), diaryAuditDetail(diary))
+		trackWebVisit(c, diary, visits.KindView)
 		return c.JSON(http.StatusOK, diaryResponseWithImages(s, diary, store.DateOnly(diary.Date)))
 	})
 
