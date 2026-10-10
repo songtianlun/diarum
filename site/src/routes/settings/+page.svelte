@@ -47,6 +47,7 @@
 	import BackupSettings from '$lib/components/settings/BackupSettings.svelte';
 	import MediaLibrarySettings from '$lib/components/settings/MediaLibrarySettings.svelte';
 	import VisitStats from '$lib/components/visits/VisitStats.svelte';
+	import { docsUrl } from '$lib/utils/docs';
 	import { getVisitStatus, type VisitStatus } from '$lib/api/visits';
 	import { t, locale, getIntlLocale, setLocalePreference, type LocalePreference } from '$lib/i18n';
 	import { formatHumanNumber } from '$lib/utils/number';
@@ -1183,6 +1184,7 @@
 							<div class="text-xs text-muted-foreground truncate">{$currentUser?.email ?? ''}</div>
 						</div>
 						<div class="flex w-full sm:w-auto items-center justify-end gap-2">
+							<a href={docsUrl($locale)} target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 text-sm rounded-lg border border-border/60 text-foreground hover:bg-muted/50 transition-colors">{$t('settings.account.docs')}</a>
 							{#if $currentUser?.role === 'admin'}
 								<a href="/admin" class="px-3 py-1.5 text-sm rounded-lg border border-border/60 text-foreground hover:bg-muted/50 transition-colors">{$t('settings.account.adminConsole')}</a>
 							{/if}
@@ -1566,6 +1568,8 @@
 					<h2 class="text-lg font-semibold text-foreground mb-4">API Access</h2>
 					<p class="text-sm text-muted-foreground mb-6">
 						Enable API access to retrieve your diary entries programmatically. Use your API token to authenticate requests.
+						See the <a href={docsUrl($locale, '/features/api/')} target="_blank" rel="noopener noreferrer" class="text-primary underline underline-offset-2">API guide</a>
+						and the <a href={docsUrl($locale, '/features/mcp/')} target="_blank" rel="noopener noreferrer" class="text-primary underline underline-offset-2">MCP guide</a>.
 					</p>
 
 					<!-- Enable/Disable Toggle -->

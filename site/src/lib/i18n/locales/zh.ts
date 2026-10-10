@@ -30,11 +30,13 @@ export const zh = {
 	footer: {
 		personalDiary: '你的私人日记',
 		poweredByAi: '你的私人日记，由 AI 驱动',
-		searchMemories: '在回忆中搜索'
+		searchMemories: '在回忆中搜索',
+		docs: '文档'
 	},
 	landing: {
 		title: 'Diarum',
 		login: '登录',
+		docs: '文档',
 		heroTitlePrefix: '属于你的',
 		heroTitleHighlight: '每日回顾空间',
 		heroSubtitle:
@@ -245,6 +247,7 @@ export const zh = {
 		account: {
 			admin: '管理员',
 			adminConsole: '系统后台',
+			docs: '使用文档',
 			signOut: '退出登录'
 		},
 		statistics: {
@@ -347,6 +350,7 @@ export const zh = {
 		viewSearch: '搜索日记...',
 		viewSettings: '设置...',
 		helpAbout: '关于 Diarum...',
+		helpDocs: 'Diarum 文档...',
 		aboutTitle: '关于 Diarum',
 		aboutProduct: 'Diarum 日记本',
 		aboutVersion: '视觉风格：Windows 95 复古版',
