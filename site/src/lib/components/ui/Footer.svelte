@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import ThemeToggle from './ThemeToggle.svelte';
+	import { t, locale } from '$lib/i18n';
+	import { docsUrl } from '$lib/utils/docs';
 
 	let {
 		maxWidth = '6xl',
@@ -53,6 +55,7 @@
 					<span class="whitespace-nowrap">{tagline}</span>
 				{/if}
 				<span class="whitespace-nowrap">© {new Date().getFullYear()} Diarum</span>
+				<a href={docsUrl($locale)} target="_blank" rel="noopener noreferrer" class="whitespace-nowrap hover:text-foreground transition-colors">{$t('footer.docs')}</a>
 				{#if version}
 					<a href="https://github.com/songtianlun/diarum" target="_blank" rel="noopener noreferrer" class="font-mono text-[10px] text-muted-foreground/70 whitespace-nowrap hover:text-foreground transition-colors">{version}</a>
 				{/if}

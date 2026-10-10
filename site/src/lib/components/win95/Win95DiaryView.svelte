@@ -64,7 +64,8 @@
 		initDiaryCache
 	} from '$lib/stores/diaryCache';
 	import { onlineState } from '$lib/stores/onlineStatus';
-	import { t } from '$lib/i18n';
+	import { t, getCurrentLocale } from '$lib/i18n';
+	import { docsUrl } from '$lib/utils/docs';
 
 	// ---------------------------------------------------------------- state
 
@@ -335,6 +336,10 @@
 		handleWeatherSelect(selectedWeather);
 	}
 
+	function openDocs() {
+		window.open(docsUrl(getCurrentLocale()), '_blank', 'noopener');
+	}
+
 	function openAbout() {
 		showAbout = true;
 	}
@@ -408,7 +413,11 @@
 		{
 			label: $t('win95.menuHelp'),
 			mnemonic: mn($t('win95.menuHelp')),
-			items: [{ label: $t('win95.helpAbout'), action: openAbout }]
+			items: [
+				{ label: $t('win95.helpDocs'), action: openDocs },
+				{ sep: true },
+				{ label: $t('win95.helpAbout'), action: openAbout }
+			]
 		}
 	];
 
@@ -423,6 +432,7 @@
 		{ label: $t('win95.viewMedia'), icon: 'media', action: () => navigate('/media') },
 		{ sep: true },
 		{ label: $t('win95.viewSettings'), icon: 'settings', action: () => navigate('/settings') },
+		{ label: $t('win95.helpDocs'), icon: 'book', action: openDocs },
 		{ label: $t('win95.helpAbout'), icon: 'info', action: openAbout },
 		{ sep: true },
 		{ label: $t('win95.startHome'), icon: 'home', action: () => navigate('/') }

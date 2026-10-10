@@ -22,6 +22,10 @@
 
 **Diarum** (Chinese: 吾身) - One entry a day. Open, write, done. A simple, elegant, and self-hosted diary application built with Go, SQLite, and modern web technologies. One diary per day — no more, no less — so you can write freely without anxiety.
 
+### Documentation
+
+📖 **Website & docs**: https://docs.diarum.app/en/ — features, deployment guide, releases and blog.
+
 ### Online Demo
 
 Try Diarum without installation:
@@ -232,6 +236,10 @@ Diary visits (when an administrator turns visitor statistics on) are kept in the
  - 等等
 
 基于 Go、SQLite 和现代 Web 技术构建，简洁、优雅、可自托管。
+
+### 文档
+
+📖 **官网与文档**：https://docs.diarum.app/zh/ —— 功能详解、部署文档、版本发布与博客。
 
 ### 在线演示
 

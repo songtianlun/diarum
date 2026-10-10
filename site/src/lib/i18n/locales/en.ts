@@ -31,11 +31,13 @@ export const en = {
 	footer: {
 		personalDiary: 'Your personal diary',
 		poweredByAi: 'Your personal diary, powered by AI',
-		searchMemories: 'Search through your memories'
+		searchMemories: 'Search through your memories',
+		docs: 'Docs'
 	},
 	landing: {
 		title: 'Diarum',
 		login: 'Login',
+		docs: 'Docs',
 		heroTitlePrefix: 'Your Personal Space for',
 		heroTitleHighlight: 'Daily Reflection',
 		heroSubtitle:
@@ -255,6 +257,7 @@ export const en = {
 		account: {
 			admin: 'Admin',
 			adminConsole: 'Admin console',
+			docs: 'Docs',
 			signOut: 'Sign out'
 		},
 		statistics: {
@@ -357,6 +360,7 @@ export const en = {
 		viewSearch: 'Search Diaries...',
 		viewSettings: 'Settings...',
 		helpAbout: 'About Diarum...',
+		helpDocs: 'Diarum Docs...',
 		aboutTitle: 'About Diarum',
 		aboutProduct: 'Diarum Journal',
 		aboutVersion: 'Visual style: Windows 95 Retro',
