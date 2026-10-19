@@ -118,6 +118,8 @@ export const zh = {
 		onThisDayHintPlural: '往年的今天你写过 {n} 篇日记',
 		onThisDayExpand: '展开那年今日',
 		onThisDayCollapse: '收起那年今日',
+		onThisDayPrev: '上一篇',
+		onThisDayNext: '下一篇',
 		onThisDayEmptyWin95: '(往年的今天没有记录)',
 		yearsAgoSingular: '{n} 年前',
 		yearsAgoPlural: '{n} 年前',

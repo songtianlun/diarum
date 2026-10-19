@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import Calendar from '$lib/components/calendar/Calendar.svelte';
 	import OnThisDay from '$lib/components/memory/OnThisDay.svelte';
+	import HomeDays from '$lib/components/days/HomeDays.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import { getDatesWithDiaries, getRecentDiaries, getDiaryStats, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
@@ -90,6 +91,12 @@
 				</a>
 
 				<div class="flex items-center gap-2">
+					<a href="/days" class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200" title={$t('days.nav')}>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+								d="M6 3h12M6 21h12M7 3v3a5 5 0 0010 0V3M7 21v-3a5 5 0 0110 0v3" />
+						</svg>
+					</a>
 					<a href="/media" class="p-1.5 hover:bg-muted/50 rounded-lg transition-all duration-200" title={$t('nav.mediaLibrary')}>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -132,10 +139,12 @@
 	</header>
 
 	<!-- Calendar -->
-	<main class="max-w-5xl mx-auto px-4 py-6">
-		<div class="flex flex-col lg:flex-row gap-6 lg:h-[540px]">
+	<!-- On phones the row dissolves (display: contents) so the days strip can sit
+	     right under the calendar instead of below every recent entry. -->
+	<main class="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-6 lg:block">
+		<div class="contents lg:flex lg:flex-row lg:gap-6 lg:h-[540px]">
 			<!-- Left: Calendar -->
-			<div class="lg:flex-1 lg:min-w-0">
+			<div class="order-1 lg:flex-1 lg:min-w-0">
 				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-5 h-full relative overflow-hidden">
 					{#if loading}
 						<div class="absolute inset-0 flex flex-col items-center justify-center gap-3">
@@ -154,7 +163,7 @@
 			</div>
 
 			<!-- Right: Stats and Recent Entries -->
-			<div class="lg:w-[340px] xl:w-[380px] flex flex-col gap-4 flex-shrink-0">
+			<div class="order-3 lg:w-[340px] xl:w-[380px] flex flex-col gap-4 flex-shrink-0">
 				<!-- Stats -->
 				<div class="grid grid-cols-3 gap-4">
 					<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4">
@@ -194,7 +203,7 @@
 				</div>
 
 				<!-- On This Day -->
-				<OnThisDay />
+				<OnThisDay limit={10} />
 
 				<!-- Recent Entries -->
 				<div class="bg-card rounded-xl shadow-sm border border-border/50 p-4 flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -233,6 +242,8 @@
 				</div>
 			</div>
 		</div>
+
+		<HomeDays class="order-2 lg:mt-6" />
 	</main>
 
 	<!-- Footer -->

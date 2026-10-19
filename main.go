@@ -209,6 +209,7 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterAuthRoutes(e, appStore, authService)
 	api.RegisterDiaryRoutes(e, appStore, authMiddleware, onDiaryChanged)
 	api.RegisterMediaRoutes(e, appStore, authMiddleware)
+	api.RegisterDayRoutes(e, appStore, authMiddleware)
 	mediaLibrary := medialib.New(appStore, auditLog)
 	appStore.MediaEvent = mediaLibrary.OnStoreEvent
 	api.RegisterMediaLibraryRoutes(e, appStore, authMiddleware, mediaLibrary)

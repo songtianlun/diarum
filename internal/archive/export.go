@@ -23,6 +23,9 @@ type Options struct {
 	IncludeDiaries       bool
 	IncludeMedia         bool
 	IncludeConversations bool
+	// IncludeDays exports every day with its milestones. Days are not tied
+	// to the date range: a countdown belongs to no particular period.
+	IncludeDays bool
 	// TempDir holds media downloaded from remote storage while it is copied
 	// into the archive. Empty means the system temp directory.
 	TempDir string
@@ -38,6 +41,7 @@ func AllTime(now time.Time) Options {
 		IncludeDiaries:       true,
 		IncludeMedia:         true,
 		IncludeConversations: true,
+		IncludeDays:          true,
 	}
 }
 
@@ -168,11 +172,79 @@ func (e *exporter) writeManifest(conversations []*store.Conversation) ([]Media, 
 	}
 	e.stats.Conversations.ActualExported = e.stats.Conversations.ShouldExport
 
+	out.raw(`],"day_tags":[`)
+	tagNames, err := e.writeDayTags(out)
+	if err != nil {
+		return nil, err
+	}
+	out.raw(`],"days":[`)
+	if err := e.writeDays(out, tagNames); err != nil {
+		return nil, err
+	}
+
 	out.raw(`]}`)
 	if err := out.flush(); err != nil {
 		return nil, fmt.Errorf("write %s: %w", ManifestName, err)
 	}
 	return media, nil
+}
+
+// writeDayTags writes the tags (when days are exported) and returns their
+// names by ID.
+func (e *exporter) writeDayTags(out *jsonStream) (map[string]string, error) {
+	names := make(map[string]string)
+	if !e.opts.IncludeDays {
+		return names, nil
+	}
+	tags, err := e.s.ListDayTags(e.userID)
+	if err != nil {
+		e.fail("day_tags", "", err)
+		return names, nil
+	}
+	for _, tag := range tags {
+		names[tag.ID] = tag.Name
+		if err := out.elem(DayTag{Name: tag.Name, Color: tag.Color}); err != nil {
+			return nil, err
+		}
+	}
+	return names, nil
+}
+
+func (e *exporter) writeDays(out *jsonStream, tagNames map[string]string) error {
+	// Like other per-item problems, unreadable days are reported, not fatal.
+	days, err := e.s.ListDays(e.userID)
+	if err != nil {
+		if e.opts.IncludeDays {
+			e.fail("days", "", err)
+		}
+		return nil
+	}
+	e.stats.Days.TotalInSystem = len(days)
+	if !e.opts.IncludeDays {
+		return nil
+	}
+	for _, d := range days {
+		e.stats.Days.ShouldExport++
+		milestones, err := e.s.ListDayMilestones(e.userID, d.ID)
+		if err != nil {
+			e.fail("day", d.ID, err)
+			continue
+		}
+		item := Day{ID: d.ID, Name: d.Name, Date: d.Date, Emoji: d.Emoji, Note: d.Note, Repeat: d.Repeat, IncludeStart: d.IncludeStart, ShowOnHome: d.ShowOnHome}
+		for _, m := range milestones {
+			item.Milestones = append(item.Milestones, Milestone{Name: m.Name, Date: m.Date, Note: m.Note, End: m.End})
+		}
+		for _, id := range d.Tags {
+			if name := tagNames[id]; name != "" {
+				item.Tags = append(item.Tags, name)
+			}
+		}
+		if err := out.elem(item); err != nil {
+			return err
+		}
+		e.stats.Days.ActualExported++
+	}
+	return nil
 }
 
 // eachDiary visits the user's in-range diaries in date order.

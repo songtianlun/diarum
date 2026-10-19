@@ -31,6 +31,7 @@ type ExportRequest struct {
 	IncludeDiaries       bool   `json:"include_diaries"`
 	IncludeMedia         bool   `json:"include_media"`
 	IncludeConversations bool   `json:"include_conversations"`
+	IncludeDays          bool   `json:"include_days"`
 }
 
 type (
@@ -52,7 +53,7 @@ func handleExport(c echo.Context, s *store.Store) error {
 	userID := auth.CurrentUser(c).ID
 	var req ExportRequest
 	if err := c.Bind(&req); err != nil {
-		req = ExportRequest{DateRange: "3m", IncludeDiaries: true, IncludeMedia: true, IncludeConversations: true}
+		req = ExportRequest{DateRange: "3m", IncludeDiaries: true, IncludeMedia: true, IncludeConversations: true, IncludeDays: true}
 	}
 	if req.DateRange == "" {
 		req.DateRange = "3m"
@@ -78,6 +79,7 @@ func handleExport(c echo.Context, s *store.Store) error {
 		IncludeDiaries:       req.IncludeDiaries,
 		IncludeMedia:         req.IncludeMedia,
 		IncludeConversations: req.IncludeConversations,
+		IncludeDays:          req.IncludeDays,
 	}, tmp)
 	if err != nil {
 		return serverError("Failed to create ZIP", err)
@@ -89,6 +91,7 @@ func handleExport(c echo.Context, s *store.Store) error {
 		"diaries":       req.IncludeDiaries,
 		"media":         req.IncludeMedia,
 		"conversations": req.IncludeConversations,
+		"days":          req.IncludeDays,
 		"stats":         stats,
 	})
 	size, err := tmp.Seek(0, io.SeekCurrent)

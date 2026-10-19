@@ -1,6 +1,6 @@
 // Package archive reads and writes Diarum export archives: a ZIP holding a
-// diarum_export.json manifest, a Markdown copy of every diary and the media
-// files. The manual export/import endpoints and the automatic backups share
+// diarum_export.json manifest (diaries, media, conversations and days), a
+// Markdown copy of every diary and the media files. The manual export/import endpoints and the automatic backups share
 // it.
 //
 // Both directions stream. Exports read the database in short keyset batches
@@ -42,6 +42,17 @@ type Data struct {
 	Diaries       []Diary        `json:"diaries"`
 	Media         []Media        `json:"media"`
 	Conversations []Conversation `json:"conversations"`
+	// Days (countdowns and anniversaries) were added later; older archives
+	// have none.
+	// DayTags come before the days that name them.
+	DayTags []DayTag `json:"day_tags,omitempty"`
+	Days    []Day    `json:"days,omitempty"`
+}
+
+// DayTag is written before the days that refer to it by name.
+type DayTag struct {
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
 }
 
 type Diary struct {
@@ -80,6 +91,28 @@ type Message struct {
 	ReferencedDiaries []string `json:"referenced_diaries,omitempty"`
 }
 
+type Day struct {
+	ID           string      `json:"id"`
+	Name         string      `json:"name"`
+	Date         string      `json:"date"`
+	Emoji        string      `json:"emoji,omitempty"`
+	Note         string      `json:"note,omitempty"`
+	Repeat       string      `json:"repeat,omitempty"`
+	IncludeStart bool        `json:"include_start,omitempty"`
+	ShowOnHome   bool        `json:"show_on_home,omitempty"`
+	Milestones   []Milestone `json:"milestones,omitempty"`
+	// Tags are tag names.
+	Tags []string `json:"tags,omitempty"`
+}
+
+type Milestone struct {
+	Name string `json:"name"`
+	Date string `json:"date"`
+	Note string `json:"note,omitempty"`
+	// End marks the day's end milestone.
+	End bool `json:"end,omitempty"`
+}
+
 type ExportStats struct {
 	DateRangeType string       `json:"date_range_type"`
 	StartDate     string       `json:"start_date"`
@@ -87,6 +120,7 @@ type ExportStats struct {
 	Diaries       CountDetail  `json:"diaries"`
 	Media         CountDetail  `json:"media"`
 	Conversations CountDetail  `json:"conversations"`
+	Days          CountDetail  `json:"days"`
 	Messages      int          `json:"messages"`
 	FailedItems   []FailedItem `json:"failed_items,omitempty"`
 }
@@ -107,6 +141,7 @@ type ImportStats struct {
 	Diaries       ImportCounters `json:"diaries"`
 	Media         ImportCounters `json:"media"`
 	Conversations ImportCounters `json:"conversations"`
+	Days          ImportCounters `json:"days"`
 }
 
 type ImportCounters struct {

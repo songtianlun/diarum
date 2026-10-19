@@ -403,7 +403,10 @@ func createSchema(db *sql.DB) error {
 	if err := migrateAdminSchema(db); err != nil {
 		return err
 	}
-	return migrateMediaSchema(db)
+	if err := migrateMediaSchema(db); err != nil {
+		return err
+	}
+	return migrateDaysSchema(db)
 }
 
 func migrateLegacyData(db *sql.DB, oldPath string) error {

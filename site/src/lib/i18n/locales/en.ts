@@ -128,6 +128,8 @@ export const en = {
 		onThisDayHintPlural: 'You wrote {n} entries on this day in earlier years',
 		onThisDayExpand: 'Show entries from earlier years',
 		onThisDayCollapse: 'Hide entries from earlier years',
+		onThisDayPrev: 'Previous memory',
+		onThisDayNext: 'Next memory',
 		onThisDayEmptyWin95: '(Nothing from this day in earlier years)',
 		yearsAgoSingular: '{n} year ago',
 		yearsAgoPlural: '{n} years ago',
