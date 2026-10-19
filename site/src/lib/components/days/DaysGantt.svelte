@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Day, Milestone } from '$lib/api/days';
-	import { countDay, diffDays, timeDomain, axisTicks, type DayCount } from '$lib/utils/days';
+	import { countDay, diffDays, timeDomain, axisTicks, weekday, type DayCount } from '$lib/utils/days';
+	import GanttTip, { type TipContent } from './GanttTip.svelte';
 	import { t, locale } from '$lib/i18n';
 
 	/**
@@ -24,6 +25,8 @@
 		origin: string | null;
 		marks: Milestone[];
 	}
+
+	let endByDay = $derived(new Map(milestones.filter((m) => m.end).map((m) => [m.day, m])));
 
 	let byDay = $derived(
 		milestones.reduce((map, m) => {
@@ -62,6 +65,66 @@
 		return Math.min(100, Math.max(0, (diffDays(domain.start, date) / domain.total) * 100));
 	}
 
+	// The marker whose details are showing; pinned by a click or tap.
+	let tip = $state<{ key: string; anchor: DOMRect; content: TipContent; pinned: boolean } | null>(null);
+
+	function relative(date: string): string {
+		const n = diffDays(today, date);
+		if (n === 0) return $t('days.todayShort');
+		return n > 0 ? $t('days.inDays', { n: n.toLocaleString(intl) }) : $t('days.agoDays', { n: (-n).toLocaleString(intl) });
+	}
+
+	function offset(day: Day, date: string): string {
+		const n = diffDays(day.date, date);
+		if (n === 0) return $t('days.milestones.offsetSame');
+		return n > 0 ? $t('days.milestones.offsetAfter', { n: n.toLocaleString(intl) }) : $t('days.milestones.offsetBefore', { n: (-n).toLocaleString(intl) });
+	}
+
+	type Marker = 'start' | 'target' | 'milestone' | 'end';
+
+	function describe(row: Row, kind: Marker, m?: Milestone): TipContent {
+		const date = kind === 'start' ? row.day.date : kind === 'target' ? row.to : (m?.date ?? row.day.end);
+		const dateRow: [string, string] = [$t('days.gantt.tip.date'), `${date} ${weekday(date, intl)}`];
+		const base = { href: `/days/${row.day.id}`, linkLabel: $t('days.gantt.tip.open') };
+		if (kind === 'start' || kind === 'target') {
+			return {
+				...base,
+				title: row.day.name,
+				kind: kind === 'start' ? $t('days.startDate') : $t('days.targetDate'),
+				kindClass: kind === 'start' ? 'bg-primary/10 text-primary' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+				rows: [dateRow, [$t('days.gantt.tip.fromToday'), relative(date)], [$t('days.gantt.tip.count'), countLabel(row.count)]],
+				note: row.day.note
+			};
+		}
+		return {
+			...base,
+			title: m?.name ?? $t('days.gantt.legendEnd'),
+			kind: kind === 'end' ? $t('days.gantt.legendEnd') : $t('days.gantt.legendMilestone'),
+			kindClass: kind === 'end' ? 'bg-foreground/10 text-foreground/80' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+			rows: [
+				dateRow,
+				[$t('days.gantt.tip.fromDay'), offset(row.day, date)],
+				[$t('days.gantt.tip.fromToday'), relative(date)],
+				[$t('days.gantt.tip.day'), `${row.day.emoji || ''} ${row.day.name}`.trim()]
+			],
+			note: m?.note
+		};
+	}
+
+	function show(e: Event, key: string, content: () => TipContent, pin: boolean) {
+		if (!pin && tip?.pinned) return;
+		if (pin && tip?.key === key && tip.pinned) {
+			tip = null;
+			return;
+		}
+		const anchor = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		tip = { key, anchor, content: content(), pinned: pin };
+	}
+
+	function hide(key: string) {
+		if (tip?.key === key && !tip.pinned) tip = null;
+	}
+
 	function countLabel(count: DayCount): string {
 		const n = count.days.toLocaleString(intl);
 		const text =
@@ -73,6 +136,28 @@
 		return count.ended ? `${$t('days.endedShort')} · ${text}` : text;
 	}
 </script>
+
+{#snippet marker(row: Row, kind: Marker, key: string, at: number, shape: string, m?: Milestone)}
+	<button
+		type="button"
+		data-gantt-marker
+		class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 z-10 flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+		style="left: {at}%"
+		aria-label={m?.name ?? row.day.name}
+		aria-expanded={tip?.key === key}
+		onmouseenter={(e) => show(e, key, () => describe(row, kind, m), false)}
+		onmouseleave={() => hide(key)}
+		onfocus={(e) => show(e, key, () => describe(row, kind, m), false)}
+		onblur={() => hide(key)}
+		onclick={(e) => show(e, key, () => describe(row, kind, m), true)}
+	>
+		<span class="ring-2 ring-card transition-transform {tip?.key === key ? 'scale-125' : ''} {shape}"></span>
+	</button>
+{/snippet}
+
+{#if tip}
+	<GanttTip anchor={tip.anchor} content={tip.content} pinned={tip.pinned} onclose={() => (tip = null)} />
+{/if}
 
 {#if rows.length === 0}
 	<div class="py-14 text-center text-sm text-muted-foreground">{$t('days.gantt.empty')}</div>
@@ -123,44 +208,30 @@
 					{#each rows as row (row.day.id)}
 						{@const left = pos(row.from)}
 						{@const width = Math.max(pos(row.to) - left, 0.6)}
-						<a href="/days/{row.day.id}" class="group relative block h-14 border-b border-border/40 hover:bg-muted/30 transition-colors" title="{row.day.name} · {countLabel(row.count)}">
+						<div class="group relative h-14 border-b border-border/40 hover:bg-muted/30 transition-colors">
+							<a href="/days/{row.day.id}" class="absolute inset-0" aria-label="{row.day.name} · {countLabel(row.count)}"></a>
 							{#if row.kind === 'up'}
 								<span
-									class="absolute top-1/2 -translate-y-1/2 h-3 rounded-full {row.count.ended ? 'bg-muted-foreground/30' : 'bg-primary/55 group-hover:bg-primary/70'} transition-colors"
+									class="absolute top-1/2 -translate-y-1/2 h-3 rounded-full pointer-events-none {row.count.ended ? 'bg-muted-foreground/30' : 'bg-primary/55 group-hover:bg-primary/70'} transition-colors"
 									style="left: {left}%; width: {width}%"
 								></span>
 							{:else}
 								<span
-									class="absolute top-1/2 -translate-y-1/2 h-3 rounded-full border border-dashed {row.count.ended ? 'border-muted-foreground/40 bg-muted-foreground/10' : 'border-amber-500/70 bg-amber-500/15 group-hover:bg-amber-500/25'} transition-colors"
+									class="absolute top-1/2 -translate-y-1/2 h-3 rounded-full pointer-events-none border border-dashed {row.count.ended ? 'border-muted-foreground/40 bg-muted-foreground/10' : 'border-amber-500/70 bg-amber-500/15 group-hover:bg-amber-500/25'} transition-colors"
 									style="left: {left}%; width: {width}%"
 								></span>
-								<!-- Target -->
-								<span
-									class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full ring-2 ring-card {row.count.ended ? 'bg-muted-foreground/50' : 'bg-amber-500'}"
-									style="left: {pos(row.to)}%"
-								></span>
+								{@render marker(row, 'target', `${row.day.id}:target`, pos(row.to), `w-3 h-3 rounded-full ${row.count.ended ? 'bg-muted-foreground/50' : 'bg-amber-500'}`)}
 							{/if}
 							{#if row.origin}
-								<span
-									class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rotate-45 rounded-[2px] ring-2 ring-card {row.count.ended ? 'bg-muted-foreground/60' : 'bg-primary'}"
-									style="left: {pos(row.origin)}%"
-								></span>
+								{@render marker(row, 'start', `${row.day.id}:start`, pos(row.origin), `w-3 h-3 rotate-45 rounded-[2px] ${row.count.ended ? 'bg-muted-foreground/60' : 'bg-primary'}`)}
 							{/if}
 							{#each row.marks as m (m.id)}
-								<span
-									class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45 rounded-[2px] ring-2 ring-card {diffDays(m.date, today) >= 0 ? 'bg-amber-600' : 'bg-card border-2 border-amber-600'}"
-									style="left: {pos(m.date)}%"
-									title="{m.name} · {m.date}"
-								></span>
+								{@render marker(row, 'milestone', m.id, pos(m.date), `w-2.5 h-2.5 rotate-45 rounded-[2px] ${diffDays(m.date, today) >= 0 ? 'bg-amber-600' : 'bg-card border-2 border-amber-600'}`, m)}
 							{/each}
 							{#if row.day.end}
-								<span
-									class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-[3px] ring-2 ring-card {row.count.ended ? 'bg-foreground/70' : 'bg-card border-2 border-foreground/60'}"
-									style="left: {pos(row.day.end)}%"
-									title="{$t('days.gantt.legendEnd')} · {row.day.end}"
-								></span>
+								{@render marker(row, 'end', `${row.day.id}:end`, pos(row.day.end), `w-3.5 h-3.5 rounded-[3px] ${row.count.ended ? 'bg-foreground/70' : 'bg-card border-2 border-foreground/60'}`, endByDay.get(row.day.id))}
 							{/if}
-						</a>
+						</div>
 					{/each}
 				</div>
 			</div>
