@@ -2,8 +2,9 @@
 	import type { Day, Milestone } from '$lib/api/days';
 	import { countDay, diffDays, timeDomain, axisTicks, weekday, type DayCount } from '$lib/utils/days';
 	import GanttTip, { type TipContent } from './GanttTip.svelte';
-	import GanttViewport from './GanttViewport.svelte';
+	import GanttViewport, { type OverviewRow } from './GanttViewport.svelte';
 	import { goto } from '$app/navigation';
+	import { untrack } from 'svelte';
 	import { t, locale } from '$lib/i18n';
 
 	/**
@@ -61,12 +62,24 @@
 			...rows.flatMap((row) => [row.from, row.to, ...(row.origin ? [row.origin] : []), ...row.marks.map((m) => m.date), ...(row.day.end ? [row.day.end] : [])])
 		])
 	);
-	// Days visible at once; narrower when a range is picked.
-	let span = $state(0);
-	let ticks = $derived(axisTicks(domain, intl, span || domain.total));
+	// The visible window, in days from the domain start; the slider moves it.
+	let from = $state(0);
+	let to = $state(0);
+	let span = $derived(to - from || domain.total);
+	let ticks = $derived(axisTicks(domain, intl, span).filter((tick) => pos(tick.date) >= 0 && pos(tick.date) <= 100));
 
+	let overview: OverviewRow[] = $derived(
+		rows.map((row) => ({
+			from: diffDays(domain.start, row.from),
+			to: diffDays(domain.start, row.to),
+			tone: row.count.ended ? 'muted' : row.kind,
+			marks: row.marks.map((m) => diffDays(domain.start, m.date))
+		}))
+	);
+
+	/** Where a date falls across the visible window, in percent; outside it runs past 0 or 100. */
 	function pos(date: string): number {
-		return Math.min(100, Math.max(0, (diffDays(domain.start, date) / domain.total) * 100));
+		return ((diffDays(domain.start, date) - from) / span) * 100;
 	}
 
 	// The marker whose details are showing; pinned by a click or tap.
@@ -125,6 +138,13 @@
 		const anchor = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		tip = { key, anchor, content: content(), pinned: pin };
 	}
+
+	// A card left behind would point at a marker that has moved.
+	$effect(() => {
+		void from;
+		void to;
+		untrack(() => (tip = null));
+	});
 
 	// How the last press happened: a mouse (or keyboard) click goes straight
 	// to the marker's page, since hovering already showed the card; on touch
@@ -186,21 +206,23 @@
 	<div class="py-14 text-center text-sm text-muted-foreground">{$t('days.gantt.empty')}</div>
 {:else}
 	<GanttViewport
+		start={domain.start}
 		total={domain.total}
-		focus={pos(today)}
+		today={diffDays(domain.start, today)}
+		{overview}
 		storageKey="diarum_days_gantt_range"
-		minWidth={640}
 		gutter={16}
 		labelClass="[--gantt-label:8rem] sm:[--gantt-label:13rem]"
-		bind:span
+		bind:from
+		bind:to
 	>
 		<!-- Axis -->
 		<div class="flex">
 			<div class="w-[var(--gantt-label)] flex-shrink-0 sticky left-0 z-20 bg-card"></div>
-			<div class="relative flex-1 h-11 mr-4">
-				<span class="absolute top-0 {pos(today) > 92 ? '-translate-x-full' : pos(today) < 8 ? '' : '-translate-x-1/2'} px-1.5 py-px rounded bg-amber-600 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm z-10" style="left: {pos(today)}%">{$t('days.milestones.today')}</span>
+			<div class="relative flex-1 h-11 mr-4 overflow-hidden">
+				{#if pos(today) >= 0 && pos(today) <= 100}<span class="absolute top-0 {pos(today) > 92 ? '-translate-x-full' : pos(today) < 8 ? '' : '-translate-x-1/2'} px-1.5 py-px rounded bg-amber-600 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm z-10" style="left: {pos(today)}%">{$t('days.milestones.today')}</span>{/if}
 				{#each ticks as tick (tick.date)}
-					<span class="absolute bottom-1.5 -translate-x-1/2 text-[10px] text-muted-foreground tabular-nums whitespace-nowrap" style="left: {pos(tick.date)}%">{tick.label}</span>
+					<span class="absolute bottom-1.5 {pos(tick.date) < 4 ? '' : pos(tick.date) > 96 ? '-translate-x-full' : '-translate-x-1/2'} text-[10px] text-muted-foreground tabular-nums whitespace-nowrap" style="left: {pos(tick.date)}%">{tick.label}</span>
 				{/each}
 			</div>
 		</div>
@@ -229,7 +251,7 @@
 			</div>
 
 			<!-- Chart -->
-			<div data-gantt-track class="relative flex-1 mr-4">
+			<div data-gantt-track class="relative flex-1 mr-4 overflow-hidden">
 				{#each ticks as tick (tick.date)}
 					<span class="absolute inset-y-0 w-px bg-border/50" style="left: {pos(tick.date)}%" aria-hidden="true"></span>
 				{/each}

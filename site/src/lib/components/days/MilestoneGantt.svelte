@@ -13,8 +13,9 @@
 <script lang="ts">
 	import { countDay, diffDays, timeDomain, axisTicks, weekday } from '$lib/utils/days';
 	import GanttTip, { type TipContent } from './GanttTip.svelte';
-	import GanttViewport from './GanttViewport.svelte';
+	import GanttViewport, { type OverviewRow } from './GanttViewport.svelte';
 	import { locale, t } from '$lib/i18n';
+	import { untrack } from 'svelte';
 
 	/**
 	 * The day and its milestones, one row each in date order. Every bar runs
@@ -46,13 +47,25 @@
 	});
 
 	let domain = $derived(timeDomain([...items.map((item) => item.date), today]));
-	// Days visible at once; narrower when a range is picked.
-	let span = $state(0);
-	let ticks = $derived(axisTicks(domain, intl, span || domain.total));
+	// The visible window, in days from the domain start; the slider moves it.
+	let from = $state(0);
+	let to = $state(0);
+	let span = $derived(to - from || domain.total);
+	let ticks = $derived(axisTicks(domain, intl, span).filter((tick) => pos(tick.date) >= 0 && pos(tick.date) <= 100));
 	let todayPos = $derived(pos(today));
 
+	let overview: OverviewRow[] = $derived(
+		rows.map((row) => ({
+			from: diffDays(domain.start, row.prev?.date ?? row.item.date),
+			to: diffDays(domain.start, row.item.date),
+			tone: row.passed ? 'up' : 'down',
+			marks: [diffDays(domain.start, row.item.date)]
+		}))
+	);
+
+	/** Where a date falls across the visible window, in percent; outside it runs past 0 or 100. */
 	function pos(date: string): number {
-		return Math.min(100, Math.max(0, (diffDays(domain.start, date) / domain.total) * 100));
+		return ((diffDays(domain.start, date) - from) / span) * 100;
 	}
 
 	function later(a: string, b: string): string {
@@ -119,6 +132,13 @@
 		tip = { key: row.item.id, anchor, content: describe(row), pinned: pin };
 	}
 
+	// A card left behind would point at a marker that has moved.
+	$effect(() => {
+		void from;
+		void to;
+		untrack(() => (tip = null));
+	});
+
 	function hide(key: string) {
 		if (tip?.key === key && !tip.pinned) tip = null;
 	}
@@ -141,24 +161,26 @@
 {/if}
 
 <GanttViewport
+	start={domain.start}
 	total={domain.total}
-	focus={todayPos}
+	today={diffDays(domain.start, today)}
+	{overview}
 	storageKey="diarum_milestone_gantt_range"
-	minWidth={620}
 	gutter={12}
-	labelClass="[--gantt-label:9rem] sm:[--gantt-label:12rem] pb-1"
-	bind:span
+	labelClass="[--gantt-label:8rem] sm:[--gantt-label:12rem]"
+	bind:from
+	bind:to
 >
 	<!-- Axis -->
 	<div class="flex">
 		<div class="w-[var(--gantt-label)] flex-shrink-0 sticky left-0 z-20 bg-card"></div>
-		<div class="relative flex-1 h-10 mr-3">
-			<span
+		<div class="relative flex-1 h-10 mr-3 overflow-hidden">
+			{#if todayPos >= 0 && todayPos <= 100}<span
 				class="absolute top-0 {todayPos > 92 ? '-translate-x-full' : todayPos < 8 ? '' : '-translate-x-1/2'} px-1.5 py-px rounded bg-amber-600 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm z-10"
 				style="left: {todayPos}%"
-			>{$t('days.milestones.today')}</span>
+			>{$t('days.milestones.today')}</span>{/if}
 			{#each ticks as tick (tick.date)}
-				<span class="absolute bottom-1.5 {pos(tick.date) < 4 ? '' : '-translate-x-1/2'} text-[10px] text-muted-foreground tabular-nums whitespace-nowrap" style="left: {pos(tick.date)}%">{tick.label}</span>
+				<span class="absolute bottom-1.5 {pos(tick.date) < 4 ? '' : pos(tick.date) > 96 ? '-translate-x-full' : '-translate-x-1/2'} text-[10px] text-muted-foreground tabular-nums whitespace-nowrap" style="left: {pos(tick.date)}%">{tick.label}</span>
 			{/each}
 		</div>
 	</div>
@@ -185,7 +207,7 @@
 		</div>
 
 		<!-- Chart -->
-		<div data-gantt-track class="relative flex-1 mr-3">
+		<div data-gantt-track class="relative flex-1 mr-3 overflow-hidden">
 			{#each ticks as tick (tick.date)}
 				<span class="absolute inset-y-0 w-px bg-border/50" style="left: {pos(tick.date)}%" aria-hidden="true"></span>
 			{/each}
