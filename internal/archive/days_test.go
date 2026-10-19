@@ -1,8 +1,11 @@
 package archive
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -116,8 +119,41 @@ func TestImportDaysValidation(t *testing.T) {
 	if err == nil && (len(exported.FailedItems) == 0 || exported.FailedItems[len(exported.FailedItems)-1].Type != "days") {
 		t.Fatalf("export on closed store: %+v", exported.FailedItems)
 	}
-	failed, err := Import(context.Background(), s, user.ID, buildZip(t, map[string][]byte{ManifestName: manifestJSON(t, Data{Version: FormatVersion, Days: []Day{{Name: "X", Date: "2020-01-01"}}})}))
+	failed, err := Import(context.Background(), s, user.ID, buildZip(t, map[string][]byte{ManifestName: manifestJSON(t, Data{Version: FormatVersion, DayTags: []DayTag{{Name: "T"}}, Days: []Day{{Name: "X", Date: "2020-01-01", Tags: []string{"T"}}}})}))
 	if err != nil || failed.Days.Failed != 1 {
 		t.Fatalf("closed store: %+v %v", failed, err)
+	}
+}
+
+func TestExportDayWritersErrors(t *testing.T) {
+	s := newStore(t)
+	user := newUser(t, s)
+	tag, _ := s.SaveDayTag(&store.DayTag{Owner: user.ID, Name: "T"})
+	if _, err := s.SaveDay(&store.Day{Owner: user.ID, Name: "D", Date: "2020-01-01", Tags: []string{tag.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	e := &exporter{ctx: context.Background(), s: s, userID: user.ID, opts: AllTime(time.Now()), stats: &ExportStats{}}
+
+	// A broken output stream stops both writers.
+	boom := errors.New("boom")
+	broken := &jsonStream{w: bufio.NewWriter(io.Discard), err: boom}
+	if _, err := e.writeDayTags(broken); !errors.Is(err, boom) {
+		t.Fatalf("writeDayTags err = %v", err)
+	}
+	if err := e.writeDays(broken, map[string]string{tag.ID: "T"}); !errors.Is(err, boom) {
+		t.Fatalf("writeDays err = %v", err)
+	}
+
+	// Unreadable tags and days are reported, not fatal.
+	_ = s.Close()
+	ok := &jsonStream{w: bufio.NewWriter(io.Discard)}
+	if names, err := e.writeDayTags(ok); err != nil || len(names) != 0 {
+		t.Fatalf("writeDayTags on closed store: %v %v", names, err)
+	}
+	if err := e.writeDays(ok, nil); err != nil {
+		t.Fatalf("writeDays on closed store: %v", err)
+	}
+	if n := len(e.stats.FailedItems); n != 2 || e.stats.FailedItems[0].Type != "day_tags" || e.stats.FailedItems[1].Type != "days" {
+		t.Fatalf("failed items: %+v", e.stats.FailedItems)
 	}
 }

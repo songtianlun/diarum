@@ -69,6 +69,17 @@ func TestDaysAndMilestones(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// An insert that violates the owner key fails; other errors pass through.
+	if _, err := s.SaveDay(&Day{Owner: "nobody", Name: "x", Date: "2026-01-01"}); err == nil {
+		t.Fatal("SaveDay for a missing owner")
+	}
+	if err := milestoneError(errors.New("boom")); errors.Is(err, ErrDayEndExists) {
+		t.Fatal("milestoneError mapped a non-unique error")
+	}
+	if err := s.fillDayTags(user.ID); err != nil {
+		t.Fatalf("fillDayTags with no days: %v", err)
+	}
+
 	_ = s.Close()
 	if _, err := s.ListDays(user.ID); err == nil {
 		t.Fatal("ListDays on closed store")

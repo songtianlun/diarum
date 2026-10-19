@@ -233,10 +233,7 @@ const milestoneColumns = `id, day, owner, name, date, note, is_end, created, upd
 
 func scanMilestone(row rowScanner) (*DayMilestone, error) {
 	m := &DayMilestone{}
-	if err := row.Scan(&m.ID, &m.Day, &m.Owner, &m.Name, &m.Date, &m.Note, &m.End, &m.Created, &m.Updated); err != nil {
-		return nil, err
-	}
-	return m, nil
+	return m, row.Scan(&m.ID, &m.Day, &m.Owner, &m.Name, &m.Date, &m.Note, &m.End, &m.Created, &m.Updated)
 }
 
 // ListDayMilestones returns a day's milestones by date.
