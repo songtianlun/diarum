@@ -26,9 +26,12 @@ type Day struct {
 	IncludeStart bool   `json:"include_start"`
 	ShowOnHome   bool   `json:"show_on_home"`
 	// Milestones is how many milestones the day has; filled by ListDays.
-	Milestones int    `json:"milestones"`
-	Created    string `json:"created"`
-	Updated    string `json:"updated"`
+	Milestones int `json:"milestones"`
+	// Tags are the IDs of the day's tags. On save, nil leaves them as they
+	// are and an empty slice removes them all.
+	Tags    []string `json:"tags"`
+	Created string   `json:"created"`
+	Updated string   `json:"updated"`
 }
 
 type DayMilestone struct {
@@ -72,6 +75,24 @@ func migrateDaysSchema(db *sql.DB) error {
 			FOREIGN KEY(day) REFERENCES days(id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_day_milestones_day_date ON day_milestones(day, date)`,
+		`CREATE TABLE IF NOT EXISTS day_tags (
+			color TEXT DEFAULT '' NOT NULL,
+			created TEXT NOT NULL,
+			id TEXT PRIMARY KEY NOT NULL,
+			name TEXT NOT NULL,
+			owner TEXT NOT NULL,
+			updated TEXT NOT NULL,
+			FOREIGN KEY(owner) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_day_tags_owner_name ON day_tags(owner, name)`,
+		`CREATE TABLE IF NOT EXISTS day_tag_links (
+			day TEXT NOT NULL,
+			tag TEXT NOT NULL,
+			PRIMARY KEY(day, tag),
+			FOREIGN KEY(day) REFERENCES days(id) ON DELETE CASCADE,
+			FOREIGN KEY(tag) REFERENCES day_tags(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_day_tag_links_tag ON day_tag_links(tag)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement); err != nil {
@@ -114,7 +135,10 @@ func (s *Store) ListDays(owner string) ([]*Day, error) {
 		day.Milestones = count
 		days = append(days, day)
 	}
-	return days, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return days, s.fillDayTags(owner, days...)
 }
 
 // GetDay returns one of owner's days, or ErrNotFound.
@@ -124,7 +148,7 @@ func (s *Store) GetDay(owner, id string) (*Day, error) {
 	if err != nil {
 		return nil, err
 	}
-	return day, nil
+	return day, s.fillDayTags(owner, day)
 }
 
 // SaveDay creates day when its ID is empty and updates it otherwise; the
@@ -141,6 +165,9 @@ func (s *Store) SaveDay(day *Day) (*Day, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := s.setDayTags(day.Owner, id, day.Tags); err != nil {
+			return nil, err
+		}
 		return s.GetDay(day.Owner, id)
 	}
 	result, err := s.DB.Exec(`UPDATE days SET name = ?, date = ?, emoji = ?, note = ?, repeat = ?, include_start = ?, show_on_home = ?, updated = ?
@@ -151,6 +178,9 @@ func (s *Store) SaveDay(day *Day) (*Day, error) {
 	}
 	if n, _ := result.RowsAffected(); n == 0 {
 		return nil, ErrNotFound
+	}
+	if err := s.setDayTags(day.Owner, day.ID, day.Tags); err != nil {
+		return nil, err
 	}
 	return s.GetDay(day.Owner, day.ID)
 }

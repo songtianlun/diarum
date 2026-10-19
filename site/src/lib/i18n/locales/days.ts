@@ -58,6 +58,22 @@ export const daysEn = {
 		saving: 'Saving…',
 		required: 'Name and date are required.'
 	},
+	tags: {
+		manage: 'Tags',
+		title: 'Manage tags',
+		all: 'All',
+		empty: 'No tags yet. Create one to group your days.',
+		newPlaceholder: 'New tag name',
+		add: 'Add',
+		color: 'Colour',
+		dayCount: '{n} days',
+		deleteConfirm: 'Delete the tag “{name}”? Days keep everything else.',
+		exists: 'A tag with this name already exists.',
+		field: 'Tags',
+		create: 'New tag',
+		noneMatch: 'No days with this tag.',
+		done: 'Done'
+	},
 	milestones: {
 		title: 'Milestones',
 		open: 'Milestones',
@@ -134,6 +150,22 @@ export const daysZh: typeof daysEn = {
 		cancel: '取消',
 		saving: '保存中…',
 		required: '名称和日期不能为空。'
+	},
+	tags: {
+		manage: '标签',
+		title: '标签管理',
+		all: '全部',
+		empty: '还没有标签，新建一个来给日子分组吧。',
+		newPlaceholder: '新标签名称',
+		add: '添加',
+		color: '颜色',
+		dayCount: '{n} 个日子',
+		deleteConfirm: '删除标签「{name}」？日子本身不受影响。',
+		exists: '已有同名标签。',
+		field: '标签',
+		create: '新标签',
+		noneMatch: '这个标签下还没有日子。',
+		done: '完成'
 	},
 	milestones: {
 		title: '里程碑',

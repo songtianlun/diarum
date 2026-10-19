@@ -44,7 +44,15 @@ type Data struct {
 	Conversations []Conversation `json:"conversations"`
 	// Days (countdowns and anniversaries) were added later; older archives
 	// have none.
-	Days []Day `json:"days,omitempty"`
+	// DayTags come before the days that name them.
+	DayTags []DayTag `json:"day_tags,omitempty"`
+	Days    []Day    `json:"days,omitempty"`
+}
+
+// DayTag is written before the days that refer to it by name.
+type DayTag struct {
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
 }
 
 type Diary struct {
@@ -93,6 +101,8 @@ type Day struct {
 	IncludeStart bool        `json:"include_start,omitempty"`
 	ShowOnHome   bool        `json:"show_on_home,omitempty"`
 	Milestones   []Milestone `json:"milestones,omitempty"`
+	// Tags are tag names.
+	Tags []string `json:"tags,omitempty"`
 }
 
 type Milestone struct {

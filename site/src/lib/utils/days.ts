@@ -127,3 +127,11 @@ export function weekday(date: string, locale: string): string {
 export function formatCount(n: number, locale: string): string {
 	return n.toLocaleString(locale);
 }
+
+/** Muted tag colours that sit well on the app's warm palette. */
+export const TAG_COLORS = ['#b07a4f', '#c9a227', '#7f9a65', '#5f8f8b', '#8a7fa8', '#c47a7a', '#9c8f80', '#6b5d52'];
+
+/** The colour a new tag gets: the first one not in use yet, cycling after that. */
+export function nextTagColor(used: string[]): string {
+	return TAG_COLORS.find((c) => !used.includes(c)) ?? TAG_COLORS[used.length % TAG_COLORS.length];
+}

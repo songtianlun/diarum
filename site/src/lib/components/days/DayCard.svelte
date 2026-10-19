@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { Day } from '$lib/api/days';
+	import type { Day, DayTag } from '$lib/api/days';
+	import TagChip from './TagChip.svelte';
 	import { countDay, spanBetween, weekday, formatCount } from '$lib/utils/days';
 	import { getToday } from '$lib/utils/date';
 	import { t, locale } from '$lib/i18n';
@@ -9,7 +10,7 @@
 	 * is also the element exported as an image, so it carries its own
 	 * background and draws everything it shows.
 	 */
-	let { day, element = $bindable() }: { day: Day; element?: HTMLDivElement } = $props();
+	let { day, tags = [], element = $bindable() }: { day: Day; tags?: DayTag[]; element?: HTMLDivElement } = $props();
 
 	let intl = $derived($locale === 'zh' ? 'zh-CN' : 'en-US');
 	let today = getToday();
@@ -60,6 +61,11 @@
 			<span class="ml-1">{weekday(count.target, intl)}</span>
 			{#if day.repeat}<span class="ml-2 px-1.5 py-0.5 rounded bg-muted">↻ {$t(`days.repeats.${day.repeat}`)}</span>{/if}
 		</div>
+		{#if tags.length}
+			<div class="mt-3 flex flex-wrap justify-center gap-1.5">
+				{#each tags as tag (tag.id)}<TagChip {tag} />{/each}
+			</div>
+		{/if}
 		{#if day.note}
 			<p class="mt-3 text-sm text-muted-foreground leading-relaxed whitespace-pre-line break-words">{day.note}</p>
 		{/if}

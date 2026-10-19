@@ -49,6 +49,7 @@ func Import(ctx context.Context, s *store.Store, userID string, zr *zip.Reader) 
 		media:        func(Media) error { return ctx.Err() },
 		conversation: func(Conversation) error { return ctx.Err() },
 		day:          func(Day) error { return ctx.Err() },
+		dayTag:       func(DayTag) error { return ctx.Err() },
 	}); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -57,7 +58,7 @@ func Import(ctx context.Context, s *store.Store, userID string, zr *zip.Reader) 
 	}
 
 	im := &importer{ctx: ctx, s: s, userID: userID, files: files, stats: &ImportStats{}, diaryIDs: make(map[string]string)}
-	if err := readManifest(manifest, manifestHandlers{diary: im.diary, media: im.media, conversation: im.conversation, day: im.day}); err != nil {
+	if err := readManifest(manifest, manifestHandlers{diary: im.diary, media: im.media, conversation: im.conversation, day: im.day, dayTag: im.dayTag}); err != nil {
 		return im.stats, err
 	}
 	return im.stats, nil
@@ -68,6 +69,7 @@ type manifestHandlers struct {
 	media        func(Media) error
 	conversation func(Conversation) error
 	day          func(Day) error
+	dayTag       func(DayTag) error
 }
 
 // readManifest decodes the manifest one element at a time. Arrays are handled
@@ -115,6 +117,14 @@ func readManifest(f *zip.File, h manifestHandlers) error {
 					return err
 				}
 				return h.conversation(c)
+			})
+		case "day_tags":
+			err = eachElement(dec, func() error {
+				var t DayTag
+				if err := dec.Decode(&t); err != nil {
+					return err
+				}
+				return h.dayTag(t)
 			})
 		case "days":
 			err = eachElement(dec, func() error {
@@ -167,6 +177,8 @@ type importer struct {
 	// existingDays holds name+date of the account's days, loaded on the
 	// first day in the archive.
 	existingDays map[string]bool
+	// tagIDs maps tag names to IDs in this account, loaded on first use.
+	tagIDs map[string]string
 }
 
 func (im *importer) diary(d Diary) error {
@@ -314,7 +326,13 @@ func (im *importer) day(d Day) error {
 		im.stats.Days.Failed++
 		return im.ctx.Err()
 	}
-	saved, err := im.s.SaveDay(&store.Day{Owner: im.userID, Name: d.Name, Date: d.Date, Emoji: d.Emoji, Note: d.Note, Repeat: validRepeat(d.Repeat), IncludeStart: d.IncludeStart, ShowOnHome: d.ShowOnHome})
+	tags := make([]string, 0, len(d.Tags))
+	for _, name := range d.Tags {
+		if id := im.tagID(name, ""); id != "" {
+			tags = append(tags, id)
+		}
+	}
+	saved, err := im.s.SaveDay(&store.Day{Owner: im.userID, Name: d.Name, Date: d.Date, Emoji: d.Emoji, Note: d.Note, Repeat: validRepeat(d.Repeat), IncludeStart: d.IncludeStart, ShowOnHome: d.ShowOnHome, Tags: tags})
 	if err != nil {
 		im.stats.Days.Failed++
 		return im.ctx.Err()
@@ -343,4 +361,38 @@ func validRepeat(repeat string) string {
 		return repeat
 	}
 	return store.DayRepeatNone
+}
+
+// dayTag adds a tag the account does not have yet; existing ones keep their
+// colour.
+func (im *importer) dayTag(t DayTag) error {
+	im.tagID(t.Name, t.Color)
+	return im.ctx.Err()
+}
+
+// tagID returns the ID of the account's tag called name, creating it with
+// color when missing; "" when it cannot.
+func (im *importer) tagID(name, color string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if im.tagIDs == nil {
+		im.tagIDs = make(map[string]string)
+		if tags, err := im.s.ListDayTags(im.userID); err == nil {
+			for _, tag := range tags {
+				im.tagIDs[tag.Name] = tag.ID
+			}
+		}
+	}
+	if id, ok := im.tagIDs[name]; ok {
+		return id
+	}
+	tag, err := im.s.SaveDayTag(&store.DayTag{Owner: im.userID, Name: name, Color: color})
+	if err != nil {
+		logger.Warn("[Import] day tag %q failed: %v", name, err)
+		return ""
+	}
+	im.tagIDs[name] = tag.ID
+	return tag.ID
 }

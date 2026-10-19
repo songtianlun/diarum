@@ -7,7 +7,7 @@
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import DayCard from '$lib/components/days/DayCard.svelte';
 	import DayFormModal from '$lib/components/days/DayFormModal.svelte';
-	import { getDay, deleteDay, type Day } from '$lib/api/days';
+	import { getDay, deleteDay, listDayTags, type Day, type DayTag } from '$lib/api/days';
 	import { isAuthenticated } from '$lib/api/client';
 	import { downloadImage, copyImageToClipboard, shareImage, canShare } from '$lib/utils/imageExport';
 	import { t } from '$lib/i18n';
@@ -17,6 +17,8 @@
 	let loading = $state(true);
 	let missing = $state(false);
 	let editing = $state(false);
+	let tags: DayTag[] = $state([]);
+	let dayTags = $derived(day ? tags.filter((tag) => day!.tags?.includes(tag.id)) : []);
 	let board: HTMLDivElement | undefined = $state();
 	let busy: '' | 'share' | 'export' = $state('');
 	let notice = $state('');
@@ -26,7 +28,9 @@
 		loading = true;
 		missing = false;
 		try {
-			day = (await getDay(id)).day;
+			const [data, allTags] = await Promise.all([getDay(id), listDayTags().catch(() => [] as DayTag[])]);
+			day = data.day;
+			tags = allTags;
 		} catch {
 			missing = true;
 		} finally {
@@ -108,7 +112,7 @@
 			<div class="py-16 text-center text-sm text-muted-foreground">{$t('days.notFound')}</div>
 		{:else}
 			<div class="animate-fade-in-only">
-				<DayCard {day} bind:element={board} />
+				<DayCard {day} tags={dayTags} bind:element={board} />
 
 				<div class="mt-5 grid grid-cols-2 gap-2">
 					<a
@@ -158,6 +162,7 @@
 {#if editing && day}
 	<DayFormModal
 		{day}
+		bind:tags
 		onclose={() => (editing = false)}
 		onsaved={(saved) => {
 			editing = false;

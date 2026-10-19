@@ -1,15 +1,17 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import Sheet from './Sheet.svelte';
-	import { createDay, updateDay, type Day, type DayInput, type DayRepeat } from '$lib/api/days';
+	import { createDay, updateDay, createDayTag, type Day, type DayInput, type DayRepeat, type DayTag } from '$lib/api/days';
+	import { TAG_COLORS, nextTagColor } from '$lib/utils/days';
 	import { getToday } from '$lib/utils/date';
 	import { t } from '$lib/i18n';
 
 	let {
 		day = null,
+		tags = $bindable([]),
 		onclose,
 		onsaved
-	}: { day?: Day | null; onclose: () => void; onsaved: (day: Day) => void } = $props();
+	}: { day?: Day | null; tags?: DayTag[]; onclose: () => void; onsaved: (day: Day) => void } = $props();
 
 	const emojis = ['📅', '🎂', '❤️', '💍', '🎓', '✈️', '🏠', '👶', '💼', '🎉', '🌱', '⭐'];
 	const repeats: DayRepeat[] = ['', 'week', 'month', 'year'];
@@ -23,8 +25,35 @@
 		note: seed?.note ?? '',
 		repeat: seed?.repeat ?? '',
 		include_start: seed?.include_start ?? false,
-		show_on_home: seed?.show_on_home ?? true
+		show_on_home: seed?.show_on_home ?? true,
+		tags: [...(seed?.tags ?? [])]
 	});
+	// Inline "new tag" field; a tag made here is picked right away.
+	let newTag = $state('');
+	let addingTag = $state(false);
+
+	function toggleTag(id: string) {
+		form.tags = form.tags.includes(id) ? form.tags.filter((x) => x !== id) : [...form.tags, id];
+	}
+
+	async function addTag() {
+		const name = newTag.trim();
+		addingTag = false;
+		newTag = '';
+		if (!name) return;
+		const existing = tags.find((x) => x.name === name);
+		if (existing) {
+			if (!form.tags.includes(existing.id)) toggleTag(existing.id);
+			return;
+		}
+		try {
+			const tag = await createDayTag({ name, color: nextTagColor(tags.map((x) => x.color)) });
+			tags = [...tags, tag];
+			toggleTag(tag.id);
+		} catch (e) {
+			error = (e as Error).message;
+		}
+	}
 	let saving = $state(false);
 	let error = $state('');
 
@@ -105,6 +134,52 @@
 						class="py-1.5 rounded-md text-xs transition-colors {form.repeat === repeat ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
 					>{$t(`days.repeats.${repeat || 'none'}`)}</button>
 				{/each}
+			</div>
+		</div>
+
+		<div>
+			<span class="block text-xs font-medium text-muted-foreground mb-1.5">{$t('days.tags.field')}</span>
+			<div class="flex flex-wrap gap-1.5">
+				{#each tags as tag (tag.id)}
+					{@const on = form.tags.includes(tag.id)}
+					<button
+						type="button"
+						onclick={() => toggleTag(tag.id)}
+						aria-pressed={on}
+						class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-colors {on ? 'bg-primary/10 border-primary/40 text-foreground' : 'border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted/50'}"
+					>
+						<span class="w-1.5 h-1.5 rounded-full" style="background: {tag.color || TAG_COLORS[6]}"></span>
+						{tag.name}
+						{#if on}<svg class="w-3 h-3 -mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>{/if}
+					</button>
+				{/each}
+				{#if addingTag}
+					<!-- svelte-ignore a11y_autofocus -->
+					<input
+						class="w-28 px-2.5 py-1 rounded-full text-xs bg-background border border-ring focus:outline-none"
+						bind:value={newTag}
+						maxlength="30"
+						placeholder={$t('days.tags.newPlaceholder')}
+						autofocus
+						onblur={addTag}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') {
+								e.preventDefault();
+								e.currentTarget.blur();
+							} else if (e.key === 'Escape') {
+								e.stopPropagation();
+								newTag = '';
+								e.currentTarget.blur();
+							}
+						}}
+					/>
+				{:else}
+					<button
+						type="button"
+						onclick={() => (addingTag = true)}
+						class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-ring/50"
+					>+ {$t('days.tags.create')}</button>
+				{/if}
 			</div>
 		</div>
 

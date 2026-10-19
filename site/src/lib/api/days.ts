@@ -15,11 +15,26 @@ export interface Day {
 	show_on_home: boolean;
 	/** Number of milestones the day has. */
 	milestones: number;
+	/** IDs of the day's tags. */
+	tags: string[];
 	created: string;
 	updated: string;
 }
 
-export type DayInput = Pick<Day, 'name' | 'date' | 'emoji' | 'note' | 'repeat' | 'include_start' | 'show_on_home'>;
+export type DayInput = Pick<Day, 'name' | 'date' | 'emoji' | 'note' | 'repeat' | 'include_start' | 'show_on_home' | 'tags'>;
+
+export interface DayTag {
+	id: string;
+	name: string;
+	/** A colour from TAG_COLORS (any CSS colour works). */
+	color: string;
+	/** How many days carry the tag. */
+	days: number;
+	created: string;
+	updated: string;
+}
+
+export type DayTagInput = Pick<DayTag, 'name' | 'color'>;
 
 export interface Milestone {
 	id: string;
@@ -84,4 +99,23 @@ export function updateMilestone(dayId: string, id: string, input: MilestoneInput
 
 export function deleteMilestone(dayId: string, id: string): Promise<void> {
 	return request(`${dayUrl(dayId)}/milestones/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+const tagsUrl = `${base}/tags`;
+
+export async function listDayTags(): Promise<DayTag[]> {
+	const data = await request<{ tags: DayTag[] }>(tagsUrl);
+	return data.tags ?? [];
+}
+
+export function createDayTag(input: DayTagInput): Promise<DayTag> {
+	return request(tagsUrl, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateDayTag(id: string, input: DayTagInput): Promise<DayTag> {
+	return request(`${tagsUrl}/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) });
+}
+
+export function deleteDayTag(id: string): Promise<void> {
+	return request(`${tagsUrl}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

@@ -17,6 +17,8 @@ const (
 	dayNameMaxRunes  = 100
 	dayNoteMaxRunes  = 2000
 	dayEmojiMaxBytes = 32
+	dayTagMaxRunes   = 30
+	dayTagColorMax   = 32
 )
 
 type dayRequest struct {
@@ -27,6 +29,13 @@ type dayRequest struct {
 	Repeat       string `json:"repeat"`
 	IncludeStart bool   `json:"include_start"`
 	ShowOnHome   bool   `json:"show_on_home"`
+	// Tags are tag IDs; omitted (null) keeps the day's current tags.
+	Tags []string `json:"tags"`
+}
+
+type dayTagRequest struct {
+	Name  string `json:"name"`
+	Color string `json:"color"`
 }
 
 type milestoneRequest struct {
@@ -58,6 +67,30 @@ func RegisterDayRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlew
 			return serverError("Failed to save day", err)
 		}
 		return c.JSON(http.StatusOK, saved)
+	})
+
+	// Tags. These static routes take precedence over /:id.
+	group.GET("/tags", func(c echo.Context) error {
+		tags, err := s.ListDayTags(auth.CurrentUser(c).ID)
+		if err != nil {
+			return serverError("Failed to list tags", err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"tags": tags})
+	})
+	group.POST("/tags", func(c echo.Context) error {
+		return saveDayTag(c, s, "")
+	})
+	group.PUT("/tags/:tid", func(c echo.Context) error {
+		return saveDayTag(c, s, c.PathParam("tid"))
+	})
+	group.DELETE("/tags/:tid", func(c echo.Context) error {
+		if err := s.DeleteDayTag(auth.CurrentUser(c).ID, c.PathParam("tid")); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return notFound("Tag not found")
+			}
+			return serverError("Failed to delete tag", err)
+		}
+		return c.NoContent(http.StatusNoContent)
 	})
 
 	group.GET("/:id", func(c echo.Context) error {
@@ -136,7 +169,36 @@ func bindDay(c echo.Context) (*store.Day, error) {
 		Repeat:       body.Repeat,
 		IncludeStart: body.IncludeStart,
 		ShowOnHome:   body.ShowOnHome,
+		Tags:         body.Tags,
 	}, nil
+}
+
+func saveDayTag(c echo.Context, s *store.Store, id string) error {
+	var body dayTagRequest
+	if err := c.Bind(&body); err != nil {
+		return badRequest("Invalid request body", err)
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		return badRequest("name is required", nil)
+	}
+	if utf8.RuneCountInString(name) > dayTagMaxRunes {
+		return badRequest("name is too long", nil)
+	}
+	color := strings.TrimSpace(body.Color)
+	if len(color) > dayTagColorMax {
+		return badRequest("color is too long", nil)
+	}
+	saved, err := s.SaveDayTag(&store.DayTag{ID: id, Owner: auth.CurrentUser(c).ID, Name: name, Color: color})
+	switch {
+	case errors.Is(err, store.ErrDayTagExists):
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
+	case errors.Is(err, store.ErrNotFound):
+		return notFound("Tag not found")
+	case err != nil:
+		return serverError("Failed to save tag", err)
+	}
+	return c.JSON(http.StatusOK, saved)
 }
 
 func saveMilestone(c echo.Context, s *store.Store, id string) error {

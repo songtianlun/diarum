@@ -125,6 +125,41 @@ func TestDayRoutes(t *testing.T) {
 		t.Fatalf("deleted detail: %d", code)
 	}
 
+	// Tags.
+	for _, body := range []string{`{`, `{"name":" "}`, `{"name":"` + strings.Repeat("t", 31) + `"}`, `{"name":"a","color":"` + strings.Repeat("c", 33) + `"}`} {
+		if code, _ := do(e, http.MethodPost, "/api/v1/days/tags", body); code != http.StatusBadRequest {
+			t.Fatalf("POST tag %s: %d", body, code)
+		}
+	}
+	code, tag := do(e, http.MethodPost, "/api/v1/days/tags", `{"name":" Love ","color":"#c08"}`)
+	if code != http.StatusOK || tag["name"] != "Love" {
+		t.Fatalf("create tag: %d %v", code, tag)
+	}
+	tagID := tag["id"].(string)
+	if code, _ := do(e, http.MethodPost, "/api/v1/days/tags", `{"name":"Love"}`); code != http.StatusConflict {
+		t.Fatalf("duplicate tag: %d", code)
+	}
+	if code, _ := do(otherEcho, http.MethodPut, "/api/v1/days/tags/"+tagID, `{"name":"x"}`); code != http.StatusNotFound {
+		t.Fatalf("foreign tag rename: %d", code)
+	}
+	if code, renamed := do(e, http.MethodPut, "/api/v1/days/tags/"+tagID, `{"name":"Loved"}`); code != http.StatusOK || renamed["name"] != "Loved" {
+		t.Fatalf("rename tag: %d %v", code, renamed)
+	}
+	code, tagged := do(e, http.MethodPost, "/api/v1/days", `{"name":"Tagged","date":"2026-02-14","tags":["`+tagID+`"]}`)
+	if code != http.StatusOK || len(tagged["tags"].([]any)) != 1 {
+		t.Fatalf("tagged day: %d %v", code, tagged)
+	}
+	code, tagList := do(e, http.MethodGet, "/api/v1/days/tags", "")
+	if tags := tagList["tags"].([]any); code != http.StatusOK || len(tags) != 1 || tags[0].(map[string]any)["days"] != float64(1) {
+		t.Fatalf("list tags: %d %v", code, tagList)
+	}
+	if code, _ := do(otherEcho, http.MethodDelete, "/api/v1/days/tags/"+tagID, ""); code != http.StatusNotFound {
+		t.Fatalf("foreign tag delete: %d", code)
+	}
+	if code, _ := do(e, http.MethodDelete, "/api/v1/days/tags/"+tagID, ""); code != http.StatusNoContent {
+		t.Fatalf("tag delete: %d", code)
+	}
+
 	// Database failures surface as 500s.
 	_ = s.Close()
 	for _, req := range [][3]string{
@@ -135,6 +170,9 @@ func TestDayRoutes(t *testing.T) {
 		{http.MethodDelete, "/api/v1/days/x", ""},
 		{http.MethodPost, "/api/v1/days/x/milestones", `{"name":"A","date":"2026-01-01"}`},
 		{http.MethodDelete, "/api/v1/days/x/milestones/y", ""},
+		{http.MethodGet, "/api/v1/days/tags", ""},
+		{http.MethodPost, "/api/v1/days/tags", `{"name":"A"}`},
+		{http.MethodDelete, "/api/v1/days/tags/x", ""},
 	} {
 		if code, _ := do(e, req[0], req[1], req[2]); code != http.StatusInternalServerError {
 			t.Fatalf("%s %s on closed store: %d", req[0], req[1], code)
