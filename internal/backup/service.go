@@ -103,6 +103,7 @@ type Entry struct {
 	Diaries       int    `json:"diaries"`
 	Media         int    `json:"media"`
 	Conversations int    `json:"conversations"`
+	Days          int    `json:"days"`
 }
 
 // Job is the state of a user's current or latest backup or restore.
@@ -396,7 +397,7 @@ func (s *Service) backup(ctx context.Context, r *run, settings Settings, dest Ob
 	}()
 
 	r.stage("exporting")
-	r.info("Exporting diaries, media and AI conversations")
+	r.info("Exporting diaries, media, AI conversations and days")
 	opts := archive.AllTime(s.now())
 	opts.TempDir = s.tempDir
 	opts.Now = s.now
@@ -407,8 +408,8 @@ func (s *Service) backup(ctx context.Context, r *run, settings Settings, dest Ob
 	}
 	stats.DateRangeType = "all"
 	r.log.Stats = stats
-	r.info("Exported %d diaries, %d of %d media files, %d conversations (%d messages)",
-		stats.Diaries.ActualExported, stats.Media.ActualExported, stats.Media.ShouldExport, stats.Conversations.ActualExported, stats.Messages)
+	r.info("Exported %d diaries, %d of %d media files, %d conversations (%d messages), %d days",
+		stats.Diaries.ActualExported, stats.Media.ActualExported, stats.Media.ShouldExport, stats.Conversations.ActualExported, stats.Messages, stats.Days.ActualExported)
 	for i, item := range stats.FailedItems {
 		if i == maxFailedLines {
 			r.warn("... and %d more items could not be exported", len(stats.FailedItems)-maxFailedLines)
@@ -590,6 +591,7 @@ func (s *Service) List(ctx context.Context, userID string) ([]Entry, error) {
 				entry.Diaries = log.Stats.Diaries.ActualExported
 				entry.Media = log.Stats.Media.ActualExported
 				entry.Conversations = log.Stats.Conversations.ActualExported
+				entry.Days = log.Stats.Days.ActualExported
 			}
 			if log.Status == StatusSuccess && !entry.HasArchive {
 				entry.Status = StatusMissing

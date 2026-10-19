@@ -8,6 +8,7 @@ export interface ExportOptions {
 	include_diaries: boolean;
 	include_media: boolean;
 	include_conversations: boolean;
+	include_days: boolean;
 }
 
 // Export count detail for each data type
@@ -31,6 +32,8 @@ export interface ExportStats {
 	diaries: ExportCountDetail;
 	media: ExportCountDetail;
 	conversations: ExportCountDetail;
+	/** Countdowns and anniversaries; absent from servers that predate them. */
+	days?: ExportCountDetail;
 	messages: number;
 	failed_items?: ExportFailedItem[];
 }
@@ -46,6 +49,7 @@ export interface ImportStats {
 	diaries: ImportCounters;
 	media: ImportCounters;
 	conversations: ImportCounters;
+	days?: ImportCounters;
 }
 
 /**
@@ -58,7 +62,8 @@ export async function exportDiaries(options?: ExportOptions): Promise<ExportStat
 		date_range: '3m',
 		include_diaries: true,
 		include_media: true,
-		include_conversations: true
+		include_conversations: true,
+		include_days: true
 	};
 
 	const response = await fetch('/api/v1/export', {

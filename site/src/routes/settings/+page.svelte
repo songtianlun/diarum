@@ -221,7 +221,8 @@
 		date_range: '3m',
 		include_diaries: true,
 		include_media: true,
-		include_conversations: true
+		include_conversations: true,
+		include_days: true
 	};
 	let customStartDate = '';
 	let customEndDate = '';
@@ -2756,6 +2757,10 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 											<input type="checkbox" bind:checked={exportOptions.include_conversations} class="rounded" />
 											<span class="text-sm text-foreground">AI conversations</span>
 										</label>
+										<label class="flex items-center gap-2 cursor-pointer">
+											<input type="checkbox" bind:checked={exportOptions.include_days} class="rounded" />
+											<span class="text-sm text-foreground">Days &amp; milestones <span class="text-xs text-muted-foreground">(always all, regardless of date range)</span></span>
+										</label>
 									</div>
 								</div>
 							</div>
@@ -2815,6 +2820,15 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 											<span class="text-xs">({exportStats.messages} messages)</span>
 										</span>
 									</div>
+									{#if exportStats.days}
+										<div class="flex justify-between">
+											<span>Days:</span>
+											<span>
+												<span class="text-foreground font-medium">{exportStats.days.actual_exported}</span>
+												<span class="text-xs">/ {exportStats.days.should_export} selected / {exportStats.days.total_in_system} total</span>
+											</span>
+										</div>
+									{/if}
 								</div>
 								{#if exportStats.failed_items && exportStats.failed_items.length > 0}
 									<div class="mt-3 pt-2 border-t border-border/50">
@@ -2910,6 +2924,19 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 										{/if}
 										<span class="text-muted-foreground">({importStats.conversations.total} total)</span>
 									</div>
+									{#if importStats.days && importStats.days.total > 0}
+										<div>
+											Days:
+											<span class="text-green-600 font-medium">{importStats.days.imported} imported</span>
+											{#if importStats.days.skipped > 0}
+												, <span class="text-orange-500 font-medium">{importStats.days.skipped} already there</span>
+											{/if}
+											{#if importStats.days.failed > 0}
+												, <span class="text-destructive font-medium">{importStats.days.failed} failed</span>
+											{/if}
+											<span class="text-muted-foreground">({importStats.days.total} total)</span>
+										</div>
+									{/if}
 								</div>
 							</div>
 						{/if}

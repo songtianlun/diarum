@@ -541,6 +541,7 @@
 										diaries: job.import_stats.diaries.imported,
 										media: job.import_stats.media.imported,
 										conversations: job.import_stats.conversations.imported,
+										days: job.import_stats.days?.imported ?? 0,
 										skipped: job.import_stats.diaries.skipped
 									})}
 								{:else}
@@ -586,7 +587,7 @@
 											<div class="text-xs text-muted-foreground mt-1 tabular-nums">
 												{#if entry.has_archive}
 													{formatBytes(entry.size)} ·
-													{$t('backup.summary', { diaries: entry.diaries, media: entry.media, conversations: entry.conversations })}
+													{$t('backup.summary', { diaries: entry.diaries, media: entry.media, conversations: entry.conversations, days: entry.days ?? 0 })}
 												{/if}
 												{#if entry.duration_ms}
 													{entry.has_archive ? '·' : ''} {$t('backup.duration', { duration: formatDuration(entry.duration_ms) })}

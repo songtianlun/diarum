@@ -40,6 +40,8 @@ export interface BackupEntry {
 	diaries: number;
 	media: number;
 	conversations: number;
+	/** Countdowns; 0 for backups made before they were included. */
+	days?: number;
 }
 
 export interface BackupLogEntry {

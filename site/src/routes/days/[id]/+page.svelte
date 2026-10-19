@@ -96,24 +96,24 @@
 <div class="min-h-screen bg-background flex flex-col">
 	<PageHeader title={day?.name ?? $t('days.title')} />
 
-	<main class="flex-1 w-full max-w-2xl mx-auto px-4 py-5 sm:py-8">
+	<main class="flex-1 w-full max-w-[400px] mx-auto px-4 py-5 sm:py-8">
 		<a href="/days" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4">
 			<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
 			{$t('days.back')}
 		</a>
 
 		{#if loading}
-			<div class="h-[360px] rounded-2xl bg-muted/40 animate-pulse"></div>
+			<div class="aspect-[4/5] rounded-3xl bg-muted/40 animate-pulse"></div>
 		{:else if missing || !day}
 			<div class="py-16 text-center text-sm text-muted-foreground">{$t('days.notFound')}</div>
 		{:else}
 			<div class="animate-fade-in-only">
 				<Blackboard {day} bind:element={board} />
 
-				<div class="mt-6 grid grid-cols-2 sm:grid-cols-[1.4fr_1fr_1fr] gap-2">
+				<div class="mt-5 grid grid-cols-2 gap-2">
 					<a
 						href="/days/{day.id}/milestones"
-						class="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm hover:opacity-90 transition-opacity"
+						class="col-span-2 inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm hover:opacity-90 transition-opacity"
 					>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 21V4m0 0h11l-1.5 4L15 12H4" /></svg>
 						{$t('days.milestones.open')}

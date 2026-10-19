@@ -5,9 +5,10 @@
 	import { t, locale } from '$lib/i18n';
 
 	/**
-	 * A day written in chalk on a plain board with a thin wood rim. The rim
-	 * is the element that gets exported as an image, so everything it shows
-	 * lives inside it and uses fixed colours rather than theme tokens.
+	 * A day as a portrait chalkboard card: name on top, the count in the
+	 * middle, dates along the bottom. The card is the element exported as an
+	 * image, so everything it shows lives inside it and uses fixed colours
+	 * rather than theme tokens.
 	 */
 	let { day, element = $bindable() }: { day: Day; element?: HTMLDivElement } = $props();
 
@@ -15,13 +16,6 @@
 	let today = getToday();
 	let count = $derived(countDay(day, today));
 	let span = $derived(spanBetween(today, count.target));
-	let headline = $derived(
-		count.direction === 'future'
-			? $t('days.until', { name: day.name })
-			: count.direction === 'past'
-				? $t('days.since', { name: day.name })
-				: $t('days.isToday', { name: day.name })
-	);
 	let spanText = $derived(
 		span.years > 0
 			? $t('days.span', { y: span.years, m: span.months, d: span.days })
@@ -30,121 +24,134 @@
 				: ''
 	);
 	let digits = $derived(formatCount(count.days, intl));
-	let numberSize = $derived(digits.length > 6 ? 'text-[4.25rem] sm:text-[5.5rem]' : digits.length > 4 ? 'text-[5rem] sm:text-[6.5rem]' : 'text-[5.75rem] sm:text-[7.5rem]');
+	let numberSize = $derived(digits.length > 6 ? 'text-[3.5rem]' : digits.length > 4 ? 'text-[4.25rem]' : 'text-[5.25rem]');
+	let label = $derived(
+		count.direction === 'future' ? $t('days.prefixFuture') : count.direction === 'past' ? $t('days.prefixPast') : ''
+	);
 </script>
 
-<div bind:this={element} class="frame" data-direction={count.direction}>
-	<div class="slate">
-		<div class="relative flex flex-col items-center text-center px-6 sm:px-10 pt-8 pb-7 sm:pt-10 sm:pb-9">
-			<div class="chalk headline text-lg sm:text-xl leading-snug max-w-full break-words">
-				{#if day.emoji}<span class="mr-1.5 not-chalk">{day.emoji}</span>{/if}{headline}
-			</div>
-
-			<div class="flex items-end justify-center gap-2 mt-3 sm:mt-4">
-				{#if count.direction === 'today'}
-					<span class="chalk number text-[4.5rem] sm:text-[6rem] leading-none">{$t('days.todayBig')}</span>
-				{:else}
-					<span class="chalk number {numberSize} leading-none tabular-nums">{digits}</span>
-					<span class="chalk unit text-xl sm:text-2xl mb-2 sm:mb-3">{count.days === 1 ? $t('days.unitOne') : $t('days.unit')}</span>
-				{/if}
-			</div>
-			<span class="rule" aria-hidden="true"></span>
-
-			<div class="chalk meta mt-4 text-sm sm:text-base">
-				<span class="opacity-70">{count.direction === 'past' ? $t('days.startDate') : $t('days.targetDate')}</span>
-				<span class="ml-1.5 tabular-nums">{count.target}</span>
-				<span class="ml-1.5">{weekday(count.target, intl)}</span>
-			</div>
-			{#if spanText}
-				<div class="chalk meta-soft mt-1 text-xs sm:text-sm">≈ {spanText}</div>
-			{/if}
+<div bind:this={element} class="card" data-direction={count.direction}>
+	<div class="board">
+		<header class="flex items-center gap-2.5">
+			<span class="icon">{day.emoji || '📅'}</span>
+			<span class="chalk name min-w-0 flex-1 truncate">{day.name}</span>
 			{#if day.repeat}
-				<div class="chalk tag mt-3 text-xs">↻ {$t(`days.repeats.${day.repeat}`)}</div>
+				<span class="chalk chip">↻ {$t(`days.repeats.${day.repeat}`)}</span>
 			{/if}
-			{#if day.note}
-				<div class="chalk note mt-5 text-sm sm:text-[0.95rem] leading-relaxed max-w-md whitespace-pre-line break-words">{day.note}</div>
+		</header>
+
+		<div class="flex-1 flex flex-col items-center justify-center py-8">
+			{#if count.direction === 'today'}
+				<span class="chalk number text-[4rem] leading-none">{$t('days.todayBig')}</span>
+			{:else}
+				<span class="chalk eyebrow">{label}</span>
+				<span class="flex items-baseline gap-1.5 mt-1">
+					<span class="chalk number {numberSize} leading-none tabular-nums">{digits}</span>
+					<span class="chalk unit">{count.days === 1 ? $t('days.unitOne') : $t('days.unit')}</span>
+				</span>
+				{#if spanText}
+					<span class="chalk soft mt-3 text-xs">≈ {spanText}</span>
+				{/if}
 			{/if}
 		</div>
-		<div class="brand">Diarum</div>
+
+		{#if day.note}
+			<p class="chalk note">{day.note}</p>
+		{/if}
+
+		<footer class="chalk footer">
+			<span class="soft">{count.direction === 'past' ? $t('days.startDate') : $t('days.targetDate')}</span>
+			<span class="tabular-nums">{count.target} · {weekday(count.target, intl)}</span>
+		</footer>
 	</div>
 </div>
 
 <style>
-	.frame {
-		padding: 8px;
-		border-radius: 18px;
-		background: linear-gradient(160deg, #a87545 0%, #8a5a30 55%, #774b26 100%);
+	.card {
+		padding: 6px;
+		border-radius: 24px;
+		background: linear-gradient(160deg, #a87545 0%, #8a5a30 60%, #774b26 100%);
 		box-shadow:
 			inset 0 1px 0 rgba(255, 228, 190, 0.35),
-			0 18px 40px -20px rgba(60, 32, 10, 0.45),
-			0 2px 6px rgba(60, 32, 10, 0.12);
+			0 24px 48px -24px rgba(60, 32, 10, 0.5),
+			0 2px 6px rgba(60, 32, 10, 0.1);
 	}
-	.slate {
-		position: relative;
-		overflow: hidden;
-		border-radius: 11px;
-		min-height: 280px;
-		background: radial-gradient(130% 100% at 50% 0%, #34463a 0%, #2a392f 60%, #24312a 100%);
-		box-shadow: inset 0 1px 8px rgba(0, 0, 0, 0.35);
+	.board {
+		display: flex;
+		flex-direction: column;
+		/* Portrait 4:5; min-height auto lets a long note make it taller. */
+		aspect-ratio: 4 / 5;
+		padding: 22px 22px 18px;
+		border-radius: 18px;
+		background: radial-gradient(120% 80% at 50% 0%, #364a3d 0%, #2b3b31 60%, #25332b 100%);
+		box-shadow: inset 0 1px 6px rgba(0, 0, 0, 0.3);
 	}
 
 	.chalk {
 		color: rgba(246, 244, 236, 0.92);
-		text-shadow: 0 0 1px rgba(255, 255, 255, 0.35);
 		font-family: 'Chalkboard SE', 'Chalkduster', 'Segoe Print', 'Bradley Hand', 'Kaiti SC', 'STKaiti', 'KaiTi', 'Comic Sans MS', cursive;
 		letter-spacing: 0.02em;
 	}
-	.not-chalk {
-		text-shadow: none;
+	.icon {
+		width: 34px;
+		height: 34px;
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 10px;
+		font-size: 18px;
+		background: rgba(255, 255, 255, 0.08);
 	}
-	.headline {
+	.name {
+		font-size: 16px;
+	}
+	.chip {
+		flex-shrink: 0;
+		padding: 2px 9px;
+		font-size: 11px;
+		border-radius: 999px;
+		background: rgba(255, 255, 255, 0.08);
+		color: rgba(246, 244, 236, 0.75);
+	}
+	.eyebrow {
+		font-size: 13px;
+		letter-spacing: 0.2em;
 		color: #f5e3a8;
 	}
-	[data-direction='past'] .headline {
+	[data-direction='past'] .eyebrow {
 		color: #f1d2ab;
 	}
 	.number {
-		font-family: 'Chalkduster', 'Chalkboard SE', 'Bradley Hand', Georgia, 'Times New Roman', serif;
-		font-weight: 400;
+		font-family: 'Chalkboard SE', 'Chalkduster', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, 'Segoe UI', sans-serif;
+		font-weight: 300;
+		letter-spacing: -0.01em;
 		color: #fbfaf4;
-		text-shadow: 0 0 1px rgba(255, 255, 255, 0.5), 0 0 18px rgba(255, 255, 255, 0.08);
+		text-shadow: 0 0 20px rgba(255, 255, 255, 0.08);
 	}
 	.unit {
-		opacity: 0.8;
+		font-size: 18px;
+		color: rgba(246, 244, 236, 0.7);
 	}
-	.rule {
-		display: block;
-		width: 56px;
-		height: 2px;
-		margin-top: 14px;
-		border-radius: 2px;
-		background: rgba(245, 227, 168, 0.55);
-	}
-	[data-direction='past'] .rule {
-		background: rgba(241, 210, 171, 0.55);
-	}
-	.meta {
-		opacity: 0.85;
-	}
-	.meta-soft {
-		opacity: 0.55;
-	}
-	.tag {
-		padding: 2px 10px;
-		border: 1px solid rgba(246, 244, 236, 0.3);
-		border-radius: 999px;
-		opacity: 0.75;
+	.soft {
+		color: rgba(246, 244, 236, 0.5);
 	}
 	.note {
-		opacity: 0.75;
+		margin-bottom: 14px;
+		font-size: 13px;
+		line-height: 1.65;
+		text-align: center;
+		white-space: pre-line;
+		overflow-wrap: anywhere;
+		color: rgba(246, 244, 236, 0.7);
 	}
-	.brand {
-		position: absolute;
-		right: 14px;
-		bottom: 10px;
-		font-size: 10px;
-		letter-spacing: 0.18em;
-		text-transform: uppercase;
-		color: rgba(246, 244, 236, 0.25);
+	.footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		padding-top: 12px;
+		font-size: 12px;
+		border-top: 1px solid rgba(246, 244, 236, 0.12);
 	}
 </style>
