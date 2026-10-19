@@ -1,0 +1,74 @@
+package store
+
+import (
+	"database/sql"
+	"errors"
+	"testing"
+)
+
+func TestDaysAndMilestones(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	other := newTestUser(t, s)
+
+	day, err := s.SaveDay(&Day{Owner: user.ID, Name: "Trip", Date: "2026-11-01", Repeat: DayRepeatYear, ShowOnHome: true})
+	if err != nil || day.ID == "" || !day.ShowOnHome || day.Repeat != DayRepeatYear {
+		t.Fatalf("create day: %+v %v", day, err)
+	}
+	if _, err := s.SaveDay(&Day{ID: day.ID, Owner: other.ID, Name: "x", Date: "2026-01-01"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign update: %v", err)
+	}
+	if _, err := s.SaveDayMilestone(&DayMilestone{Day: day.ID, Owner: other.ID, Name: "x", Date: "2026-01-01"}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("foreign milestone: %v", err)
+	}
+	m, err := s.SaveDayMilestone(&DayMilestone{Day: day.ID, Owner: user.ID, Name: "Book", Date: "2026-10-01"})
+	if err != nil || m.ID == "" {
+		t.Fatalf("milestone: %+v %v", m, err)
+	}
+	if _, err := s.SaveDayMilestone(&DayMilestone{ID: "missing", Day: day.ID, Owner: user.ID, Name: "x", Date: "2026-01-01"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing milestone: %v", err)
+	}
+	list, err := s.ListDayMilestones(user.ID, day.ID)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list milestones: %v %v", list, err)
+	}
+	days, err := s.ListDays(user.ID)
+	if err != nil || len(days) != 1 || days[0].Milestones != 1 {
+		t.Fatalf("list days: %v %v", days, err)
+	}
+	if err := s.DeleteDayMilestone(user.ID, day.ID, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteDayMilestone(user.ID, day.ID, m.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second milestone delete: %v", err)
+	}
+	if err := s.DeleteDay(other.ID, day.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign delete: %v", err)
+	}
+	if err := s.DeleteDay(user.ID, day.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = s.Close()
+	if _, err := s.ListDays(user.ID); err == nil {
+		t.Fatal("ListDays on closed store")
+	}
+	if _, err := s.ListDayMilestones(user.ID, day.ID); err == nil {
+		t.Fatal("ListDayMilestones on closed store")
+	}
+	if _, err := s.SaveDay(&Day{Owner: user.ID, Name: "x", Date: "2026-01-01"}); err == nil {
+		t.Fatal("SaveDay create on closed store")
+	}
+	if _, err := s.SaveDay(&Day{ID: "x", Owner: user.ID, Name: "x", Date: "2026-01-01"}); err == nil {
+		t.Fatal("SaveDay update on closed store")
+	}
+	if err := s.DeleteDay(user.ID, "x"); err == nil {
+		t.Fatal("DeleteDay on closed store")
+	}
+	if err := s.DeleteDayMilestone(user.ID, "x", "y"); err == nil {
+		t.Fatal("DeleteDayMilestone on closed store")
+	}
+	if err := migrateDaysSchema(s.DB); err == nil {
+		t.Fatal("migrateDaysSchema on closed store")
+	}
+}
