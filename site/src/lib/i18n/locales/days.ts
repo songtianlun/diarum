@@ -69,7 +69,7 @@ export const daysEn = {
 		legendStopped: 'Stopped',
 		legendMilestone: 'Milestone',
 		legendEnd: 'End',
-		tip: { date: 'Date', fromDay: 'From the day', fromToday: 'From today', count: 'Count', day: 'Day', open: 'Open this day →' }
+		tip: { date: 'Date', fromDay: 'From the day', fromToday: 'From today', count: 'Count', day: 'Day', open: 'Open this day →', openMilestone: 'Open in milestones →' }
 	},
 	tags: {
 		manage: 'Tags',
@@ -180,7 +180,7 @@ export const daysZh: typeof daysEn = {
 		legendStopped: '已终止',
 		legendMilestone: '里程碑',
 		legendEnd: '终止',
-		tip: { date: '日期', fromDay: '距本日', fromToday: '距今', count: '计数', day: '所属', open: '查看这个日子 →' }
+		tip: { date: '日期', fromDay: '距本日', fromToday: '距今', count: '计数', day: '所属', open: '查看这个日子 →', openMilestone: '查看这个里程碑 →' }
 	},
 	tags: {
 		manage: '标签',

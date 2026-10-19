@@ -2,6 +2,7 @@
 	import type { Day, Milestone } from '$lib/api/days';
 	import { countDay, diffDays, timeDomain, axisTicks, weekday, type DayCount } from '$lib/utils/days';
 	import GanttTip, { type TipContent } from './GanttTip.svelte';
+	import { goto } from '$app/navigation';
 	import { t, locale } from '$lib/i18n';
 
 	/**
@@ -85,7 +86,7 @@
 	function describe(row: Row, kind: Marker, m?: Milestone): TipContent {
 		const date = kind === 'start' ? row.day.date : kind === 'target' ? row.to : (m?.date ?? row.day.end);
 		const dateRow: [string, string] = [$t('days.gantt.tip.date'), `${date} ${weekday(date, intl)}`];
-		const base = { href: `/days/${row.day.id}`, linkLabel: $t('days.gantt.tip.open') };
+		const base = { href: markerHref(row, kind, m), linkLabel: kind === 'milestone' ? $t('days.gantt.tip.openMilestone') : $t('days.gantt.tip.open') };
 		if (kind === 'start' || kind === 'target') {
 			return {
 				...base,
@@ -111,14 +112,31 @@
 		};
 	}
 
+	/** The day's ends (start, target, end) open the day; milestones open their spot on the milestone page. */
+	function markerHref(row: Row, kind: Marker, m?: Milestone): string {
+		return kind === 'milestone' && m ? `/days/${row.day.id}/milestones#m-${m.id}` : `/days/${row.day.id}`;
+	}
+
 	function show(e: Event, key: string, content: () => TipContent, pin: boolean) {
 		if (!pin && tip?.pinned) return;
-		if (pin && tip?.key === key && tip.pinned) {
-			tip = null;
-			return;
-		}
 		const anchor = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		tip = { key, anchor, content: content(), pinned: pin };
+	}
+
+	// How the last press happened: a mouse (or keyboard) click goes straight
+	// to the marker's page, since hovering already showed the card; on touch
+	// the first tap pins the card and a second tap on the marker goes there.
+	let pointerType = 'mouse';
+
+	function activate(e: MouseEvent, row: Row, kind: Marker, key: string, m?: Milestone) {
+		const href = markerHref(row, kind, m);
+		if (pointerType !== 'touch' && pointerType !== 'pen') {
+			goto(href);
+		} else if (tip?.key === key && tip.pinned) {
+			goto(href);
+		} else {
+			show(e, key, () => describe(row, kind, m), true);
+		}
 	}
 
 	function hide(key: string) {
@@ -149,7 +167,9 @@
 		onmouseleave={() => hide(key)}
 		onfocus={(e) => show(e, key, () => describe(row, kind, m), false)}
 		onblur={() => hide(key)}
-		onclick={(e) => show(e, key, () => describe(row, kind, m), true)}
+		onpointerdown={(e) => (pointerType = e.pointerType)}
+		onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && (pointerType = 'keyboard')}
+		onclick={(e) => activate(e, row, kind, key, m)}
 	>
 		<span class="ring-2 ring-card transition-transform {tip?.key === key ? 'scale-125' : ''} {shape}"></span>
 	</button>

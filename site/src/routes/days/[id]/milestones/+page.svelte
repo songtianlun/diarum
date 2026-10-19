@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
@@ -78,6 +78,10 @@
 		}
 	}
 
+	// A milestone linked from elsewhere (#m-<id>) is shown in the list and
+	// briefly highlighted.
+	let highlight = $state('');
+
 	onMount(() => {
 		if (!$isAuthenticated) {
 			goto('/login');
@@ -89,7 +93,15 @@
 		} catch {
 			// ignore
 		}
-		load();
+		const target = location.hash.startsWith('#m-') ? location.hash.slice(3) : '';
+		if (target) view = 'list';
+		load().then(async () => {
+			if (!target) return;
+			await tick();
+			document.getElementById(`m-${target}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			highlight = target;
+			setTimeout(() => (highlight = ''), 2400);
+		});
 	});
 
 	function onsaved(saved: Milestone) {
@@ -196,7 +208,7 @@
 								</li>
 							{/if}
 							{@const passed = diffDays(row.date, today) >= 0}
-							<li class="group relative flex gap-3">
+							<li id="m-{row.id}" class="group relative flex gap-3 -mx-2 px-2 rounded-xl transition-colors duration-700 {highlight === row.id ? 'bg-amber-500/10' : ''}">
 								<!-- rail -->
 								<span class="relative w-7 flex-shrink-0 flex justify-center">
 									{#if index < rows.length - 1 || todayIndex === rows.length}
