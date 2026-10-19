@@ -66,7 +66,11 @@
 	let from = $state(0);
 	let to = $state(0);
 	let span = $derived(to - from || domain.total);
-	let ticks = $derived(axisTicks(domain, intl, span).filter((tick) => pos(tick.date) >= 0 && pos(tick.date) <= 100));
+	let plotWidth = $state(0);
+	// Labels are spaced for a plot about 400px wide; a narrower one gets fewer.
+	let ticks = $derived(
+		axisTicks(domain, intl, span * Math.max(1, 400 / (plotWidth || 400))).filter((tick) => pos(tick.date) >= 0 && pos(tick.date) <= 100)
+	);
 
 	let overview: OverviewRow[] = $derived(
 		rows.map((row) => ({
@@ -210,10 +214,12 @@
 		total={domain.total}
 		today={diffDays(domain.start, today)}
 		{overview}
+		title={$t('days.title')}
 		storageKey="diarum_days_gantt_range"
 		gutter={16}
 		labelClass="[--gantt-label:8rem] sm:[--gantt-label:13rem]"
 		bind:from
+		bind:plotWidth
 		bind:to
 	>
 		<!-- Axis -->
@@ -235,7 +241,7 @@
 						href="/days/{row.day.id}"
 						class="h-14 pl-1 pr-2 sm:pr-3 flex items-center gap-2.5 border-b border-border/40 hover:bg-muted/40 transition-colors"
 					>
-						<span class="hidden sm:flex w-8 h-8 flex-shrink-0 rounded-lg bg-accent/60 items-center justify-center text-base">{row.day.emoji || '📅'}</span>
+						<span class="hidden sm:flex group-[.gantt-export]/export:flex w-8 h-8 flex-shrink-0 rounded-lg bg-accent/60 items-center justify-center text-base">{row.day.emoji || '📅'}</span>
 						<span class="min-w-0">
 							<span class="block text-sm text-foreground truncate">{row.day.name}</span>
 							<span
@@ -287,14 +293,15 @@
 				{/each}
 			</div>
 		</div>
-	</GanttViewport>
 
-	<!-- Legend -->
-	<div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
-		<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-primary/55"></span>{$t('days.gantt.legendRunning')}</span>
-		<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full border border-dashed border-amber-500/70 bg-amber-500/15"></span>{$t('days.gantt.legendUpcoming')}</span>
-		<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-muted-foreground/30"></span>{$t('days.gantt.legendStopped')}</span>
-		<span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rotate-45 rounded-[1px] bg-amber-600"></span>{$t('days.gantt.legendMilestone')}</span>
-		<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-[2px] bg-foreground/70"></span>{$t('days.gantt.legendEnd')}</span>
-	</div>
+		{#snippet legend()}
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
+				<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-primary/55"></span>{$t('days.gantt.legendRunning')}</span>
+				<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full border border-dashed border-amber-500/70 bg-amber-500/15"></span>{$t('days.gantt.legendUpcoming')}</span>
+				<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-muted-foreground/30"></span>{$t('days.gantt.legendStopped')}</span>
+				<span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rotate-45 rounded-[1px] bg-amber-600"></span>{$t('days.gantt.legendMilestone')}</span>
+				<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-[2px] bg-foreground/70"></span>{$t('days.gantt.legendEnd')}</span>
+			</div>
+		{/snippet}
+	</GanttViewport>
 {/if}

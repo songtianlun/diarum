@@ -9,7 +9,9 @@
 </script>
 
 <script lang="ts">
-	import { untrack, type Snippet } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
+	import { toPng } from 'html-to-image';
+	import ImageShareSheet from './ImageShareSheet.svelte';
 	import { addDays } from '$lib/utils/days';
 	import { t, locale } from '$lib/i18n';
 
@@ -25,18 +27,26 @@
 	 * label column with `--gantt-label` (set through `labelClass`), so the
 	 * slider lines up under the plot. `from` and `to` are the visible window
 	 * in days from the domain start.
+	 *
+	 * Under the slider sit the legend and, at the right, a button that turns
+	 * the visible window into an image to copy or save: the chart is laid out
+	 * again off screen at a fixed width, with a heading, the legend and a
+	 * signature.
 	 */
 	let {
 		start,
 		total,
 		today,
 		overview,
+		title,
 		storageKey,
 		gutter,
 		labelClass,
 		from = $bindable(0),
 		to = $bindable(total),
-		children
+		plotWidth = $bindable(0),
+		children,
+		legend
 	}: {
 		/** First date of the domain. */
 		start: string;
@@ -45,13 +55,18 @@
 		/** Today, in days from the domain start. */
 		today: number;
 		overview: OverviewRow[];
+		/** Heading of the exported image, and its file name. */
+		title: string;
 		storageKey: string;
 		/** Space in px kept to the right of the plotting area. */
 		gutter: number;
 		labelClass: string;
 		from?: number;
 		to?: number;
+		/** Width in px of the plotting area on the page, for spacing axis labels. */
+		plotWidth?: number;
 		children: Snippet;
+		legend: Snippet;
 	} = $props();
 
 	let intl = $derived($locale === 'zh' ? 'zh-CN' : 'en-US');
@@ -260,6 +275,14 @@
 		e.stopPropagation();
 	}
 
+	$effect(() => {
+		const track = chart?.querySelector<HTMLElement>('[data-gantt-track]');
+		if (!track) return;
+		const observer = new ResizeObserver(() => (plotWidth = track.clientWidth));
+		observer.observe(track);
+		return () => observer.disconnect();
+	});
+
 	// Wheel needs a non-passive listener to keep the page from scrolling.
 	$effect(() => {
 		const el = chart;
@@ -284,6 +307,33 @@
 
 	function pct(day: number) {
 		return (day / total) * 100;
+	}
+
+	// --- Image ----------------------------------------------------------------
+
+	// The off-screen copy of the chart; only mounted while an image is made.
+	let frame: HTMLDivElement | undefined = $state();
+	let rendering = $state(false);
+	let sharing = $state<{ image: Promise<Blob>; filename: string } | null>(null);
+
+	async function render(): Promise<Blob> {
+		rendering = true;
+		try {
+			await tick();
+			if (!frame) throw new Error('chart frame missing');
+			// Wait for web fonts so the image matches the page.
+			await document.fonts?.ready;
+			const url = await toPng(frame, { pixelRatio: 2, cacheBust: false });
+			return await (await fetch(url)).blob();
+		} finally {
+			rendering = false;
+		}
+	}
+
+	function share() {
+		const day = (n: number) => addDays(start, Math.round(n));
+		const filename = `${title} ${day(from)}~${day(to)}.png`.replace(/[\\/:*?"<>|]/g, '-');
+		sharing = { image: render(), filename };
 	}
 
 	let rowHeight = $derived(Math.max(1.5, Math.min(4, 26 / Math.max(overview.length, 1))));
@@ -402,4 +452,45 @@
 			</div>
 		</div>
 	{/if}
+
+	<!-- Legend, with the image buttons in the corner -->
+	<div class="mt-4 flex items-start justify-between gap-3">
+		<div class="min-w-0 pt-1.5">{@render legend()}</div>
+		<button
+			type="button"
+			onclick={share}
+			disabled={rendering}
+			class="flex-shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border/60 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-60 transition-colors"
+		>
+			<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7M16 6l-4-4m0 0L8 6m4-4v13" /></svg>
+			{$t('days.share')}
+		</button>
+	</div>
 </div>
+
+{#if rendering}
+	<!-- Off screen: the visible window laid out for the image, not the page -->
+	<div class="fixed top-0 left-[-10000px] pointer-events-none" aria-hidden="true" inert>
+		<div bind:this={frame} class="group/export gantt-export w-[960px] bg-card text-foreground px-8 pt-7 pb-5" style="--gantt-label: 13rem">
+			<div class="mb-5">
+				<div class="text-xl font-semibold tracking-tight truncate">{title}</div>
+				<div class="mt-1 text-xs text-muted-foreground tabular-nums">
+					{label(from)} – {label(to)} · {$t('days.gantt.image.days', { n: Math.round(span).toLocaleString(intl) })}
+				</div>
+			</div>
+			{@render children()}
+			<div class="mt-4">{@render legend()}</div>
+			<div class="mt-5 pt-3 border-t border-border/60 flex items-center justify-between text-[10px] text-muted-foreground">
+				<span class="inline-flex items-center gap-1.5">
+					<img src="/logo-64.png" alt="" class="w-4 h-4 rounded" />
+					<span class="font-medium tracking-wide">Diarum</span>
+				</span>
+				<span class="tabular-nums">{addDays(start, Math.round(today))}</span>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if sharing}
+	<ImageShareSheet title={title} image={sharing.image} filename={sharing.filename} onclose={() => (sharing = null)} />
+{/if}

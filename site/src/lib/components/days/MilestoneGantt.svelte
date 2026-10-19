@@ -28,8 +28,16 @@
 		items,
 		today,
 		includeStart = false,
+		title,
 		onselect
-	}: { items: GanttItem[]; today: string; includeStart?: boolean; onselect?: (item: GanttItem) => void } = $props();
+	}: {
+		items: GanttItem[];
+		today: string;
+		includeStart?: boolean;
+		/** Heading of the exported image. */
+		title: string;
+		onselect?: (item: GanttItem) => void;
+	} = $props();
 
 	let intl = $derived($locale === 'zh' ? 'zh-CN' : 'en-US');
 	let origin = $derived(items.find((item) => item.origin) ?? items[0]);
@@ -51,7 +59,11 @@
 	let from = $state(0);
 	let to = $state(0);
 	let span = $derived(to - from || domain.total);
-	let ticks = $derived(axisTicks(domain, intl, span).filter((tick) => pos(tick.date) >= 0 && pos(tick.date) <= 100));
+	let plotWidth = $state(0);
+	// Labels are spaced for a plot about 400px wide; a narrower one gets fewer.
+	let ticks = $derived(
+		axisTicks(domain, intl, span * Math.max(1, 400 / (plotWidth || 400))).filter((tick) => pos(tick.date) >= 0 && pos(tick.date) <= 100)
+	);
 	let todayPos = $derived(pos(today));
 
 	let overview: OverviewRow[] = $derived(
@@ -165,10 +177,12 @@
 	total={domain.total}
 	today={diffDays(domain.start, today)}
 	{overview}
+	{title}
 	storageKey="diarum_milestone_gantt_range"
 	gutter={12}
 	labelClass="[--gantt-label:8rem] sm:[--gantt-label:12rem]"
 	bind:from
+	bind:plotWidth
 	bind:to
 >
 	<!-- Axis -->
@@ -278,13 +292,14 @@
 			{/each}
 		</div>
 	</div>
-</GanttViewport>
 
-<!-- Legend -->
-<div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
-	<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rotate-45 rounded-[2px] bg-amber-500"></span>{$t('days.milestones.origin')}</span>
-	<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-primary/50"></span>{$t('days.milestones.passed')}</span>
-	<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full border border-dashed border-amber-500/70 bg-amber-500/15"></span>{$t('days.milestones.upcoming')}</span>
-	<span class="inline-flex items-center gap-1.5"><span class="px-1 rounded border border-primary/20 text-primary text-[10px]">+n</span>{$t('days.gantt.tip.fromPrev')}</span>
-	<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-[2px] bg-foreground/70"></span>{$t('days.milestones.endLabel')}</span>
-</div>
+	{#snippet legend()}
+		<div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
+			<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rotate-45 rounded-[2px] bg-amber-500"></span>{$t('days.milestones.origin')}</span>
+			<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-primary/50"></span>{$t('days.milestones.passed')}</span>
+			<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full border border-dashed border-amber-500/70 bg-amber-500/15"></span>{$t('days.milestones.upcoming')}</span>
+			<span class="inline-flex items-center gap-1.5"><span class="px-1 rounded border border-primary/20 text-primary text-[10px]">+n</span>{$t('days.gantt.tip.fromPrev')}</span>
+			<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-[2px] bg-foreground/70"></span>{$t('days.milestones.endLabel')}</span>
+		</div>
+	{/snippet}
+</GanttViewport>
