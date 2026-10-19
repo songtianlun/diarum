@@ -20,7 +20,7 @@ func TestDaysRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range []store.DayMilestone{{Name: "Trip", Date: "2021-01-01", Note: "beach"}, {Name: "House", Date: "2022-02-02"}} {
+	for _, m := range []store.DayMilestone{{Name: "Trip", Date: "2021-01-01", Note: "beach"}, {Name: "House", Date: "2022-02-02", End: true}} {
 		m.Day, m.Owner = day.ID, user.ID
 		if _, err := src.SaveDayMilestone(&m); err != nil {
 			t.Fatal(err)
@@ -55,6 +55,9 @@ func TestDaysRoundTrip(t *testing.T) {
 		t.Fatalf("imported days: %+v", days)
 	}
 
+	if days[0].End != "2022-02-02" {
+		t.Fatalf("imported end: %q", days[0].End)
+	}
 	tags, _ := dst.ListDayTags(other.ID)
 	if len(tags) != 1 || tags[0].Color != "#111" || len(days[0].Tags) != 1 || days[0].Tags[0] != tags[0].ID {
 		t.Fatalf("imported tags: %+v %v", tags, days[0].Tags)

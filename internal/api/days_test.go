@@ -79,6 +79,19 @@ func TestDayRoutes(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("milestone 2: %d", code)
 	}
+	code, endMilestone := do(e, http.MethodPost, "/api/v1/days/"+id+"/milestones", `{"name":"Stop","date":"2027-03-01","end":true}`)
+	if code != http.StatusOK || endMilestone["end"] != true {
+		t.Fatalf("end milestone: %d %v", code, endMilestone)
+	}
+	if code, _ := do(e, http.MethodPost, "/api/v1/days/"+id+"/milestones", `{"name":"Stop2","date":"2027-04-01","end":true}`); code != http.StatusConflict {
+		t.Fatalf("second end milestone: %d", code)
+	}
+	if code, all := do(e, http.MethodGet, "/api/v1/days/milestones", ""); code != http.StatusOK || len(all["milestones"].([]any)) != 3 {
+		t.Fatalf("all milestones: %d %v", code, all)
+	}
+	if code, _ := do(e, http.MethodDelete, "/api/v1/days/"+id+"/milestones/"+endMilestone["id"].(string), ""); code != http.StatusNoContent {
+		t.Fatalf("delete end milestone: %d", code)
+	}
 	code, edited := do(e, http.MethodPut, "/api/v1/days/"+id+"/milestones/"+late["id"].(string), `{"name":"Big party","date":"2027-01-06"}`)
 	if code != http.StatusOK || edited["name"] != "Big party" || edited["note"] != "" {
 		t.Fatalf("edit milestone: %d %v", code, edited)
@@ -171,6 +184,7 @@ func TestDayRoutes(t *testing.T) {
 		{http.MethodPost, "/api/v1/days/x/milestones", `{"name":"A","date":"2026-01-01"}`},
 		{http.MethodDelete, "/api/v1/days/x/milestones/y", ""},
 		{http.MethodGet, "/api/v1/days/tags", ""},
+		{http.MethodGet, "/api/v1/days/milestones", ""},
 		{http.MethodPost, "/api/v1/days/tags", `{"name":"A"}`},
 		{http.MethodDelete, "/api/v1/days/tags/x", ""},
 	} {

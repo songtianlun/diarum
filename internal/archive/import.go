@@ -342,7 +342,7 @@ func (im *importer) day(d Day) error {
 		if m.Name == "" || !validDate(m.Date) {
 			continue
 		}
-		if _, err := im.s.SaveDayMilestone(&store.DayMilestone{Day: saved.ID, Owner: im.userID, Name: m.Name, Date: m.Date, Note: m.Note}); err != nil {
+		if _, err := im.s.SaveDayMilestone(&store.DayMilestone{Day: saved.ID, Owner: im.userID, Name: m.Name, Date: m.Date, Note: m.Note, End: m.End}); err != nil {
 			logger.Warn("[Import] milestone %q of day %s failed: %v", m.Name, d.ID, err)
 		}
 	}

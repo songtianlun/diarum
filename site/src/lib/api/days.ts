@@ -17,6 +17,8 @@ export interface Day {
 	milestones: number;
 	/** IDs of the day's tags. */
 	tags: string[];
+	/** Date of the end milestone ("" for none): the count stops there. */
+	end: string;
 	created: string;
 	updated: string;
 }
@@ -42,11 +44,13 @@ export interface Milestone {
 	name: string;
 	date: string;
 	note: string;
+	/** The day stops counting on this milestone's date; at most one per day. */
+	end: boolean;
 	created: string;
 	updated: string;
 }
 
-export type MilestoneInput = Pick<Milestone, 'name' | 'date' | 'note'>;
+export type MilestoneInput = Pick<Milestone, 'name' | 'date' | 'note' | 'end'>;
 
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
 	const response = await fetch(url, {
@@ -118,4 +122,10 @@ export function updateDayTag(id: string, input: DayTagInput): Promise<DayTag> {
 
 export function deleteDayTag(id: string): Promise<void> {
 	return request(`${tagsUrl}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** Every milestone of every day (for the overview Gantt chart). */
+export async function listAllMilestones(): Promise<Milestone[]> {
+	const data = await request<{ milestones: Milestone[] }>(`${base}/milestones`);
+	return data.milestones ?? [];
 }

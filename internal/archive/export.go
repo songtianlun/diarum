@@ -232,7 +232,7 @@ func (e *exporter) writeDays(out *jsonStream, tagNames map[string]string) error 
 		}
 		item := Day{ID: d.ID, Name: d.Name, Date: d.Date, Emoji: d.Emoji, Note: d.Note, Repeat: d.Repeat, IncludeStart: d.IncludeStart, ShowOnHome: d.ShowOnHome}
 		for _, m := range milestones {
-			item.Milestones = append(item.Milestones, Milestone{Name: m.Name, Date: m.Date, Note: m.Note})
+			item.Milestones = append(item.Milestones, Milestone{Name: m.Name, Date: m.Date, Note: m.Note, End: m.End})
 		}
 		for _, id := range d.Tags {
 			if name := tagNames[id]; name != "" {

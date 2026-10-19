@@ -15,7 +15,7 @@
 	let intl = $derived($locale === 'zh' ? 'zh-CN' : 'en-US');
 	let today = getToday();
 	let count = $derived(countDay(day, today));
-	let span = $derived(spanBetween(today, count.target));
+	let span = $derived(spanBetween(count.ref, count.target));
 	let title = $derived(
 		count.direction === 'future'
 			? $t('days.until', { name: day.name })
@@ -61,6 +61,12 @@
 			<span class="ml-1">{weekday(count.target, intl)}</span>
 			{#if day.repeat}<span class="ml-2 px-1.5 py-0.5 rounded bg-muted">↻ {$t(`days.repeats.${day.repeat}`)}</span>{/if}
 		</div>
+		{#if day.end}
+			<div class="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs {count.ended ? 'bg-foreground/5 text-foreground/80' : 'bg-muted/60 text-muted-foreground'}">
+				<span class="w-2 h-2 rounded-[2px] {count.ended ? 'bg-foreground/60' : 'border border-muted-foreground/60'}"></span>
+				{count.ended ? $t('days.endedOn', { date: day.end }) : $t('days.endsOn', { date: day.end })}
+			</div>
+		{/if}
 		{#if tags.length}
 			<div class="mt-3 flex flex-wrap justify-center gap-1.5">
 				{#each tags as tag (tag.id)}<TagChip {tag} />{/each}

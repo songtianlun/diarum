@@ -7,7 +7,8 @@
 	import DayCount from '$lib/components/days/DayCount.svelte';
 	import TagChip from '$lib/components/days/TagChip.svelte';
 	import TagManagerModal from '$lib/components/days/TagManagerModal.svelte';
-	import { listDays, listDayTags, type Day, type DayTag } from '$lib/api/days';
+	import DaysGantt from '$lib/components/days/DaysGantt.svelte';
+	import { listDays, listDayTags, listAllMilestones, type Day, type DayTag, type Milestone } from '$lib/api/days';
 	import { isAuthenticated } from '$lib/api/client';
 	import { countDay, sortDays } from '$lib/utils/days';
 	import { getToday } from '$lib/utils/date';
@@ -21,6 +22,29 @@
 	let managingTags = $state(false);
 	// The tag the list is filtered by; null shows every day.
 	let filter = $state<string | null>(null);
+	type View = 'list' | 'gantt';
+	const VIEW_KEY = 'diarum_days_view';
+	let view = $state<View>('list');
+	// Loaded the first time the Gantt view is shown.
+	let milestones = $state<Milestone[] | null>(null);
+
+	function setView(next: View) {
+		view = next;
+		try {
+			localStorage.setItem(VIEW_KEY, next);
+		} catch {
+			// per-device preference only
+		}
+	}
+
+	$effect(() => {
+		if (view === 'gantt' && milestones === null) {
+			milestones = [];
+			listAllMilestones()
+				.then((list) => (milestones = list))
+				.catch(() => (milestones = []));
+		}
+	});
 	const today = getToday();
 
 	let tagById = $derived(new Map(tags.map((tag) => [tag.id, tag])));
@@ -49,6 +73,11 @@
 		if (!$isAuthenticated) {
 			goto('/login');
 			return;
+		}
+		try {
+			if (localStorage.getItem(VIEW_KEY) === 'gantt') view = 'gantt';
+		} catch {
+			// ignore
 		}
 		load();
 	});
@@ -87,8 +116,10 @@
 			</div>
 		</div>
 
-		{#if !loading && tags.length > 0 && days.length > 0}
-			<div class="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1 mb-4 [scrollbar-width:none]" role="toolbar" aria-label={$t('days.tags.field')}>
+		{#if !loading && days.length > 0}
+		<div class="flex items-center gap-3 mb-4">
+			<div class="flex-1 min-w-0 flex gap-1.5 overflow-x-auto -ml-4 pl-4 pb-1 pt-0.5 [scrollbar-width:none]" role="toolbar" aria-label={$t('days.tags.field')}>
+				{#if tags.length > 0}
 				<button
 					type="button"
 					onclick={() => (filter = null)}
@@ -107,7 +138,19 @@
 						<span class="opacity-70 tabular-nums">{tagCounts.get(tag.id) ?? 0}</span>
 					</button>
 				{/each}
+				{/if}
 			</div>
+			<div class="flex-shrink-0 inline-grid grid-cols-2 p-0.5 rounded-lg bg-muted/60 text-xs">
+				{#each [['list', 'days.view.list'], ['gantt', 'days.view.gantt']] as [key, label]}
+					<button
+						type="button"
+						onclick={() => setView(key as View)}
+						aria-pressed={view === key}
+						class="px-3 py-1.5 rounded-md transition-colors {view === key ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
+					>{$t(label)}</button>
+				{/each}
+			</div>
+		</div>
 		{/if}
 
 		{#if loading}
@@ -131,6 +174,10 @@
 				<span class="text-sm max-w-xs">{$t('days.empty')}</span>
 				<span class="text-sm font-medium text-primary">+ {$t('days.new')}</span>
 			</button>
+		{:else if view === 'gantt'}
+			<div class="bg-card rounded-2xl border border-border/50 shadow-sm p-4 sm:p-5 animate-fade-in-only">
+				<DaysGantt days={visible} milestones={milestones ?? []} {today} />
+			</div>
 		{:else}
 			<ul class="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-in-only">
 				{#each sorted as { day, count } (day.id)}
@@ -147,6 +194,7 @@
 									{#if day.repeat}<span class="px-1.5 rounded bg-muted/70">↻ {$t(`days.repeats.${day.repeat}`)}</span>{/if}
 									{#if day.show_on_home}<span class="px-1.5 rounded bg-muted/70">{$t('days.onHome')}</span>{/if}
 									{#if day.milestones > 0}<span class="px-1.5 rounded bg-muted/70">◆ {day.milestones}</span>{/if}
+									{#if count.ended}<span class="px-1.5 rounded bg-foreground/5 text-foreground/70">■ {$t('days.endedShort')}</span>{/if}
 								</span>
 								{#if day.tags?.length}
 									<span class="flex flex-wrap gap-1 mt-1.5">

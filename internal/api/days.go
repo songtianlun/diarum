@@ -42,6 +42,8 @@ type milestoneRequest struct {
 	Name string `json:"name"`
 	Date string `json:"date"`
 	Note string `json:"note"`
+	// End makes this the day's end milestone; a day can have one.
+	End bool `json:"end"`
 }
 
 // RegisterDayRoutes serves countdowns and anniversaries ("days") and their
@@ -67,6 +69,16 @@ func RegisterDayRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlew
 			return serverError("Failed to save day", err)
 		}
 		return c.JSON(http.StatusOK, saved)
+	})
+
+	// Every milestone of every day, for the overview Gantt chart. Like the
+	// tag routes below, this static path takes precedence over /:id.
+	group.GET("/milestones", func(c echo.Context) error {
+		milestones, err := s.ListAllDayMilestones(auth.CurrentUser(c).ID)
+		if err != nil {
+			return serverError("Failed to list milestones", err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"milestones": milestones})
 	})
 
 	// Tags. These static routes take precedence over /:id.
@@ -217,7 +229,11 @@ func saveMilestone(c echo.Context, s *store.Store, id string) error {
 		Name:  name,
 		Date:  date,
 		Note:  note,
+		End:   body.End,
 	})
+	if errors.Is(err, store.ErrDayEndExists) {
+		return echo.NewHTTPError(http.StatusConflict, err.Error())
+	}
 	if err != nil {
 		return dayError(err, "Failed to save milestone")
 	}

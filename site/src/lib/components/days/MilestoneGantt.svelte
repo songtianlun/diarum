@@ -4,11 +4,13 @@
 		name: string;
 		date: string;
 		origin?: boolean;
+		/** The day's end milestone. */
+		end?: boolean;
 	}
 </script>
 
 <script lang="ts">
-	import { diffDays, addDays } from '$lib/utils/days';
+	import { diffDays, timeDomain, axisTicks } from '$lib/utils/days';
 	import { locale, t } from '$lib/i18n';
 
 	/**
@@ -25,60 +27,14 @@
 	let intl = $derived($locale === 'zh' ? 'zh-CN' : 'en-US');
 	let origin = $derived(items.find((item) => item.origin) ?? items[0]);
 
-	let domain = $derived.by(() => {
-		const dates = [...items.map((item) => item.date), today].sort();
-		const first = dates[0];
-		const last = dates[dates.length - 1];
-		const span = Math.max(diffDays(first, last), 1);
-		const pad = Math.max(2, Math.round(span * 0.05));
-		const start = addDays(first, -pad);
-		const end = addDays(last, pad);
-		return { start, end, total: diffDays(start, end) };
-	});
+	let domain = $derived(timeDomain([...items.map((item) => item.date), today]));
+	let ticks = $derived(axisTicks(domain, intl));
+	// Time after the end milestone, when the day no longer counts.
+	let endItem = $derived(items.find((item) => item.end));
 
 	function pos(date: string): number {
 		return (diffDays(domain.start, date) / domain.total) * 100;
 	}
-
-	interface Tick {
-		date: string;
-		label: string;
-	}
-
-	let ticks = $derived.by((): Tick[] => {
-		const { start, end, total } = domain;
-		const result: Tick[] = [];
-		if (total <= 90) {
-			const step = [1, 2, 7, 14, 28].find((s) => total / s <= 8) ?? 28;
-			for (let d = 0; d <= total; d += step) {
-				const date = addDays(start, d);
-				const [, m, day] = date.split('-').map(Number);
-				result.push({ date, label: `${m}/${day}` });
-			}
-			return result;
-		}
-		const months = total / 30.44;
-		const step = [1, 2, 3, 6, 12, 24, 60, 120].find((s) => months / s <= 7) ?? 120;
-		let [y, m] = start.split('-').map(Number);
-		// First month boundary after the start that falls on the step.
-		m += 1;
-		if (m > 12) { m = 1; y += 1; }
-		while (((y * 12 + m - 1) % step) !== 0) {
-			m += 1;
-			if (m > 12) { m = 1; y += 1; }
-		}
-		for (;;) {
-			const date = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-01`;
-			if (diffDays(date, end) < 0) break;
-			const label = step >= 12 || m === 1
-				? String(y)
-				: new Date(y, m - 1, 1).toLocaleDateString(intl, { month: 'short' });
-			result.push({ date, label });
-			m += step;
-			while (m > 12) { m -= 12; y += 1; }
-		}
-		return result;
-	});
 
 	function offsetLabel(date: string): string {
 		const n = diffDays(origin.date, date);
@@ -111,6 +67,7 @@
 						<span class="flex items-center gap-1.5 text-sm text-foreground truncate {item.origin ? 'font-semibold' : ''}">
 							{#if item.origin}<span class="text-amber-500 text-xs">◆</span>{/if}
 							<span class="truncate">{item.name}</span>
+							{#if item.end}<span class="flex-shrink-0 px-1 rounded text-[10px] bg-foreground/10 text-foreground/80">■ {$t('days.milestones.endLabel')}</span>{/if}
 						</span>
 						<span class="text-[11px] text-muted-foreground tabular-nums truncate">{item.date}{#if !item.origin}<span class="ml-1">· {offsetLabel(item.date)}</span>{/if}</span>
 					</button>
@@ -122,9 +79,12 @@
 				{#each ticks as tick (tick.date)}
 					<span class="absolute inset-y-0 w-px bg-border/50" style="left: {pos(tick.date)}%" aria-hidden="true"></span>
 				{/each}
+				{#if endItem}
+					<span class="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(135deg,transparent_0_6px,hsl(var(--foreground)_/_0.06)_6px_8px)]" style="left: {pos(endItem.date)}%" aria-hidden="true"></span>
+				{/if}
 				<!-- Today -->
 				<span class="absolute inset-y-0 border-l-2 border-dashed border-amber-500/70 z-10" style="left: {pos(today)}%" aria-hidden="true">
-					<span class="absolute -top-0.5 left-1 px-1.5 py-px rounded bg-amber-600 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm">{$t('days.milestones.today')}</span>
+					<span class="absolute -top-0.5 {pos(today) > 88 ? 'right-1' : 'left-1'} px-1.5 py-px rounded bg-amber-600 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm">{$t('days.milestones.today')}</span>
 				</span>
 
 				{#each items as item (item.id)}
@@ -139,7 +99,9 @@
 							></span>
 						{/if}
 						<span
-							class="absolute top-1/2 w-3.5 h-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[3px] shadow-sm ring-2 ring-card {item.origin ? 'bg-amber-500 w-4 h-4' : passed ? 'bg-primary' : 'bg-card border-2 border-primary'}"
+							class="absolute top-1/2 w-3.5 h-3.5 -translate-x-1/2 -translate-y-1/2 rounded-[3px] shadow-sm ring-2 ring-card {item.end
+								? passed ? 'bg-foreground/70' : 'bg-card border-2 border-foreground/60'
+								: `rotate-45 ${item.origin ? 'bg-amber-500 w-4 h-4' : passed ? 'bg-primary' : 'bg-card border-2 border-primary'}`}"
 							style="left: {at}%"
 							title="{item.name} · {item.date}"
 						></span>

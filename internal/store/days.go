@@ -1,6 +1,10 @@
 package store
 
-import "database/sql"
+import (
+	"database/sql"
+	"errors"
+	"strings"
+)
 
 // Days are the user's countdowns and anniversaries ("倒数日"): a named date
 // the app counts towards or from. Each day can carry milestones, further
@@ -29,21 +33,30 @@ type Day struct {
 	Milestones int `json:"milestones"`
 	// Tags are the IDs of the day's tags. On save, nil leaves them as they
 	// are and an empty slice removes them all.
-	Tags    []string `json:"tags"`
-	Created string   `json:"created"`
-	Updated string   `json:"updated"`
-}
-
-type DayMilestone struct {
-	ID      string `json:"id"`
-	Day     string `json:"day"`
-	Owner   string `json:"owner"`
-	Name    string `json:"name"`
-	Date    string `json:"date"`
-	Note    string `json:"note"`
+	Tags []string `json:"tags"`
+	// End is the date of the day's end milestone, "" when it has none:
+	// from that date on, the count stops.
+	End     string `json:"end"`
 	Created string `json:"created"`
 	Updated string `json:"updated"`
 }
+
+type DayMilestone struct {
+	ID    string `json:"id"`
+	Day   string `json:"day"`
+	Owner string `json:"owner"`
+	Name  string `json:"name"`
+	Date  string `json:"date"`
+	Note  string `json:"note"`
+	// End marks the milestone where the day stops counting; a day has at
+	// most one.
+	End     bool   `json:"end"`
+	Created string `json:"created"`
+	Updated string `json:"updated"`
+}
+
+// ErrDayEndExists reports a second end milestone for the same day.
+var ErrDayEndExists = errors.New("this day already has an end milestone")
 
 func migrateDaysSchema(db *sql.DB) error {
 	statements := []string{
@@ -99,10 +112,25 @@ func migrateDaysSchema(db *sql.DB) error {
 			return err
 		}
 	}
-	return nil
+	exists, err := columnExists(db, "day_milestones", "is_end")
+	if err != nil {
+		return err
+	}
+	if !exists {
+		if _, err := db.Exec(`ALTER TABLE day_milestones ADD COLUMN is_end BOOLEAN DEFAULT FALSE NOT NULL`); err != nil {
+			return err
+		}
+	}
+	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_day_milestones_end ON day_milestones(day) WHERE is_end`)
+	return err
 }
 
 const dayColumns = `id, owner, name, date, emoji, note, repeat, include_start, show_on_home, created, updated`
+
+// dayExtras are the derived columns ListDays and GetDay read after
+// dayColumns: the milestone count and the end date.
+const dayExtras = `(SELECT COUNT(*) FROM day_milestones m WHERE m.day = days.id),
+	COALESCE((SELECT m.date FROM day_milestones m WHERE m.day = days.id AND m.is_end), '')`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -119,7 +147,7 @@ func scanDay(row rowScanner, extra ...any) (*Day, error) {
 
 // ListDays returns owner's days by date, each with its milestone count.
 func (s *Store) ListDays(owner string) ([]*Day, error) {
-	rows, err := s.DB.Query(`SELECT `+dayColumns+`, (SELECT COUNT(*) FROM day_milestones m WHERE m.day = days.id)
+	rows, err := s.DB.Query(`SELECT `+dayColumns+`, `+dayExtras+`
 		FROM days WHERE owner = ? ORDER BY date, created`, owner)
 	if err != nil {
 		return nil, err
@@ -128,11 +156,12 @@ func (s *Store) ListDays(owner string) ([]*Day, error) {
 	days := make([]*Day, 0)
 	for rows.Next() {
 		var count int
-		day, err := scanDay(rows, &count)
+		var end string
+		day, err := scanDay(rows, &count, &end)
 		if err != nil {
 			return nil, err
 		}
-		day.Milestones = count
+		day.Milestones, day.End = count, end
 		days = append(days, day)
 	}
 	if err := rows.Err(); err != nil {
@@ -143,11 +172,14 @@ func (s *Store) ListDays(owner string) ([]*Day, error) {
 
 // GetDay returns one of owner's days, or ErrNotFound.
 func (s *Store) GetDay(owner, id string) (*Day, error) {
-	day, err := scanDay(s.DB.QueryRow(`SELECT `+dayColumns+`, (SELECT COUNT(*) FROM day_milestones m WHERE m.day = days.id)
-		FROM days WHERE owner = ? AND id = ?`, owner, id), new(int))
+	var count int
+	var end string
+	day, err := scanDay(s.DB.QueryRow(`SELECT `+dayColumns+`, `+dayExtras+`
+		FROM days WHERE owner = ? AND id = ?`, owner, id), &count, &end)
 	if err != nil {
 		return nil, err
 	}
+	day.Milestones, day.End = count, end
 	return day, s.fillDayTags(owner, day)
 }
 
@@ -197,11 +229,11 @@ func (s *Store) DeleteDay(owner, id string) error {
 	return nil
 }
 
-const milestoneColumns = `id, day, owner, name, date, note, created, updated`
+const milestoneColumns = `id, day, owner, name, date, note, is_end, created, updated`
 
 func scanMilestone(row rowScanner) (*DayMilestone, error) {
 	m := &DayMilestone{}
-	if err := row.Scan(&m.ID, &m.Day, &m.Owner, &m.Name, &m.Date, &m.Note, &m.Created, &m.Updated); err != nil {
+	if err := row.Scan(&m.ID, &m.Day, &m.Owner, &m.Name, &m.Date, &m.Note, &m.End, &m.Created, &m.Updated); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -209,7 +241,16 @@ func scanMilestone(row rowScanner) (*DayMilestone, error) {
 
 // ListDayMilestones returns a day's milestones by date.
 func (s *Store) ListDayMilestones(owner, dayID string) ([]*DayMilestone, error) {
-	rows, err := s.DB.Query(`SELECT `+milestoneColumns+` FROM day_milestones WHERE owner = ? AND day = ? ORDER BY date, created`, owner, dayID)
+	return s.queryMilestones(`SELECT `+milestoneColumns+` FROM day_milestones WHERE owner = ? AND day = ? ORDER BY date, created`, owner, dayID)
+}
+
+// ListAllDayMilestones returns the milestones of all owner's days by date.
+func (s *Store) ListAllDayMilestones(owner string) ([]*DayMilestone, error) {
+	return s.queryMilestones(`SELECT `+milestoneColumns+` FROM day_milestones WHERE owner = ? ORDER BY date, created`, owner)
+}
+
+func (s *Store) queryMilestones(query string, args ...any) ([]*DayMilestone, error) {
+	rows, err := s.DB.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -238,16 +279,16 @@ func (s *Store) SaveDayMilestone(m *DayMilestone) (*DayMilestone, error) {
 		if id, err = GenerateID(); err != nil {
 			return nil, err
 		}
-		_, err = s.DB.Exec(`INSERT INTO day_milestones(`+milestoneColumns+`) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, m.Day, m.Owner, m.Name, m.Date, m.Note, now, now)
+		_, err = s.DB.Exec(`INSERT INTO day_milestones(`+milestoneColumns+`) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, m.Day, m.Owner, m.Name, m.Date, m.Note, m.End, now, now)
 		if err != nil {
-			return nil, err
+			return nil, milestoneError(err)
 		}
 	} else {
-		result, err := s.DB.Exec(`UPDATE day_milestones SET name = ?, date = ?, note = ?, updated = ? WHERE owner = ? AND day = ? AND id = ?`,
-			m.Name, m.Date, m.Note, now, m.Owner, m.Day, id)
+		result, err := s.DB.Exec(`UPDATE day_milestones SET name = ?, date = ?, note = ?, is_end = ?, updated = ? WHERE owner = ? AND day = ? AND id = ?`,
+			m.Name, m.Date, m.Note, m.End, now, m.Owner, m.Day, id)
 		if err != nil {
-			return nil, err
+			return nil, milestoneError(err)
 		}
 		if n, _ := result.RowsAffected(); n == 0 {
 			return nil, ErrNotFound
@@ -266,4 +307,11 @@ func (s *Store) DeleteDayMilestone(owner, dayID, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func milestoneError(err error) error {
+	if strings.Contains(err.Error(), "UNIQUE") {
+		return ErrDayEndExists
+	}
+	return err
 }

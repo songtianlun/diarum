@@ -69,19 +69,31 @@ export interface DayCount {
 	/** Whole days, never negative. */
 	days: number;
 	direction: DayDirection;
+	/** The date counted from: today, or the end date once it has passed. */
+	ref: string;
+	/** True once the day's end date has been reached and the count stopped. */
+	ended: boolean;
 }
 
 /**
  * How far a day is from today, the way Days Matter counts it: days left until
  * a future (or repeating) day, days since a past one. With include_start the
  * start day itself counts, so a day that began today is "day 1".
+ *
+ * A day with an end date counts normally until then; from the end date on,
+ * every count is taken as of the end date and stays there.
  */
-export function countDay(day: Pick<Day, 'date' | 'repeat' | 'include_start'>, today = getToday()): DayCount {
-	const target = nextOccurrence(day.date, day.repeat, today);
-	const diff = diffDays(today, target);
-	if (diff > 0) return { target, days: diff, direction: 'future' };
-	if (diff === 0 && !day.include_start) return { target, days: 0, direction: 'today' };
-	return { target, days: -diff + (day.include_start ? 1 : 0), direction: 'past' };
+export function countDay(
+	day: Pick<Day, 'date' | 'repeat' | 'include_start'> & { end?: string },
+	today = getToday()
+): DayCount {
+	const ended = !!day.end && diffDays(day.end, today) >= 0;
+	const ref = ended ? day.end! : today;
+	const target = nextOccurrence(day.date, day.repeat, ref);
+	const diff = diffDays(ref, target);
+	if (diff > 0) return { target, days: diff, direction: 'future', ref, ended };
+	if (diff === 0 && !day.include_start) return { target, days: 0, direction: 'today', ref, ended };
+	return { target, days: -diff + (day.include_start ? 1 : 0), direction: 'past', ref, ended };
 }
 
 export interface Span {
@@ -112,9 +124,10 @@ export function spanBetween(a: string, b: string): Span {
 }
 
 /** Days sorted the way a countdown list reads best: upcoming first, nearest on top, then past ones, most recent on top. */
-export function sortDays<T extends Pick<Day, 'date' | 'repeat' | 'include_start'>>(days: T[], today = getToday()): T[] {
+export function sortDays<T extends Pick<Day, 'date' | 'repeat' | 'include_start'> & { end?: string }>(days: T[], today = getToday()): T[] {
 	const keyed = days.map((day) => ({ day, count: countDay(day, today) }));
-	const rank = (c: DayCount) => (c.direction === 'today' ? 0 : c.direction === 'future' ? 1 : 2);
+	// Running days first (today, then upcoming, then counting up), stopped ones last.
+	const rank = (c: DayCount) => (c.ended ? 3 : c.direction === 'today' ? 0 : c.direction === 'future' ? 1 : 2);
 	keyed.sort((a, b) => rank(a.count) - rank(b.count) || a.count.days - b.count.days);
 	return keyed.map((k) => k.day);
 }
@@ -134,4 +147,63 @@ export const TAG_COLORS = ['#b07a4f', '#c9a227', '#7f9a65', '#5f8f8b', '#8a7fa8'
 /** The colour a new tag gets: the first one not in use yet, cycling after that. */
 export function nextTagColor(used: string[]): string {
 	return TAG_COLORS.find((c) => !used.includes(c)) ?? TAG_COLORS[used.length % TAG_COLORS.length];
+}
+
+export interface TimeDomain {
+	start: string;
+	end: string;
+	/** Days from start to end. */
+	total: number;
+}
+
+/** A chart's time range: the given dates plus a little padding either side. */
+export function timeDomain(dates: string[]): TimeDomain {
+	const sorted = [...dates].sort();
+	const first = sorted[0];
+	const last = sorted[sorted.length - 1];
+	const span = Math.max(diffDays(first, last), 1);
+	const pad = Math.max(2, Math.round(span * 0.05));
+	const start = addDays(first, -pad);
+	const end = addDays(last, pad);
+	return { start, end, total: diffDays(start, end) };
+}
+
+export interface AxisTick {
+	date: string;
+	label: string;
+}
+
+/** Up to about eight evenly spaced labels: days, months or years depending on the span. */
+export function axisTicks({ start, end, total }: TimeDomain, locale: string): AxisTick[] {
+	const result: AxisTick[] = [];
+	if (total <= 90) {
+		const step = [1, 2, 7, 14, 28].find((s) => total / s <= 8) ?? 28;
+		for (let d = 0; d <= total; d += step) {
+			const date = addDays(start, d);
+			const [, m, day] = date.split('-').map(Number);
+			result.push({ date, label: `${m}/${day}` });
+		}
+		return result;
+	}
+	const months = total / 30.44;
+	const step = [1, 2, 3, 6, 12, 24, 60, 120].find((s) => months / s <= 7) ?? 120;
+	let [y, m] = start.split('-').map(Number);
+	const advance = (n: number) => {
+		m += n;
+		while (m > 12) {
+			m -= 12;
+			y += 1;
+		}
+	};
+	// First month boundary after the start that falls on the step.
+	advance(1);
+	while ((y * 12 + m - 1) % step !== 0) advance(1);
+	for (;;) {
+		const date = format({ y, m, d: 1 });
+		if (diffDays(date, end) < 0) break;
+		const label = step >= 12 || m === 1 ? String(y) : new Date(y, m - 1, 1).toLocaleDateString(locale, { month: 'short' });
+		result.push({ date, label });
+		advance(step);
+	}
+	return result;
 }

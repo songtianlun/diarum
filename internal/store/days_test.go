@@ -36,6 +36,26 @@ func TestDaysAndMilestones(t *testing.T) {
 	if err != nil || len(days) != 1 || days[0].Milestones != 1 {
 		t.Fatalf("list days: %v %v", days, err)
 	}
+	// One end milestone per day; the day reports its date.
+	end, err := s.SaveDayMilestone(&DayMilestone{Day: day.ID, Owner: user.ID, Name: "Stop", Date: "2026-12-01", End: true})
+	if err != nil || !end.End {
+		t.Fatalf("end milestone: %+v %v", end, err)
+	}
+	if _, err := s.SaveDayMilestone(&DayMilestone{Day: day.ID, Owner: user.ID, Name: "Again", Date: "2027-01-01", End: true}); !errors.Is(err, ErrDayEndExists) {
+		t.Fatalf("second end: %v", err)
+	}
+	if _, err := s.SaveDayMilestone(&DayMilestone{ID: m.ID, Day: day.ID, Owner: user.ID, Name: "Book", Date: "2026-10-01", End: true}); !errors.Is(err, ErrDayEndExists) {
+		t.Fatalf("second end by update: %v", err)
+	}
+	if got, _ := s.GetDay(user.ID, day.ID); got.End != "2026-12-01" {
+		t.Fatalf("day end: %q", got.End)
+	}
+	if all, err := s.ListAllDayMilestones(user.ID); err != nil || len(all) != 2 {
+		t.Fatalf("all milestones: %v %v", all, err)
+	}
+	if err := s.DeleteDayMilestone(user.ID, day.ID, end.ID); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.DeleteDayMilestone(user.ID, day.ID, m.ID); err != nil {
 		t.Fatal(err)
 	}

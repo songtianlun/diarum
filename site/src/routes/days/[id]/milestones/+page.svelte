@@ -33,6 +33,7 @@
 		date: string;
 		note: string;
 		origin?: boolean;
+		end?: boolean;
 		milestone?: Milestone;
 	}
 
@@ -43,7 +44,7 @@
 					{ id: '__origin', name: day.name, date: day.date, note: day.note, origin: true },
 					...[...milestones]
 						.sort((a, b) => a.date.localeCompare(b.date) || a.created.localeCompare(b.created))
-						.map((m) => ({ id: m.id, name: m.name, date: m.date, note: m.note, milestone: m }))
+						.map((m) => ({ id: m.id, name: m.name, date: m.date, note: m.note, end: m.end, milestone: m }))
 				]
 			: []
 	);
@@ -94,6 +95,7 @@
 	function onsaved(saved: Milestone) {
 		const exists = milestones.some((m) => m.id === saved.id);
 		milestones = exists ? milestones.map((m) => (m.id === saved.id ? saved : m)) : [...milestones, saved];
+		syncEnd();
 		editing = null;
 	}
 
@@ -101,7 +103,15 @@
 		if (!day || !confirm($t('days.milestones.deleteConfirm', { name: m.name }))) return;
 		await deleteMilestone(day.id, m.id);
 		milestones = milestones.filter((x) => x.id !== m.id);
+		syncEnd();
 	}
+
+	// The day's end date follows its end milestone.
+	function syncEnd() {
+		if (day) day.end = milestones.find((m) => m.end)?.date ?? '';
+	}
+
+	let endTaken = $derived(milestones.find((m) => m.end && m.id !== editing?.milestone?.id)?.name ?? null);
 
 	function offsetLabel(date: string): string {
 		if (!day) return '';
@@ -113,9 +123,14 @@
 	function relativeLabel(date: string, origin = false): string {
 		// The day itself counts the way its board does, start day included or not.
 		if (origin && day) {
-			const count = countDay({ date, repeat: '', include_start: day.include_start }, today);
-			if (count.direction === 'today') return $t('days.todayShort');
-			return count.direction === 'future' ? $t('days.inDays', { n: count.days }) : $t('days.agoDays', { n: count.days });
+			const count = countDay({ date, repeat: '', include_start: day.include_start, end: day.end }, today);
+			const label =
+				count.direction === 'today'
+					? $t('days.todayShort')
+					: count.direction === 'future'
+						? $t('days.inDays', { n: count.days })
+						: $t('days.agoDays', { n: count.days });
+			return count.ended ? `${label} · ${$t('days.endedShort')}` : label;
 		}
 		const n = diffDays(today, date);
 		if (n === 0) return $t('days.todayShort');
@@ -187,7 +202,9 @@
 									{#if index < rows.length - 1 || todayIndex === rows.length}
 										<span class="absolute top-6 -bottom-1 w-px bg-border"></span>
 									{/if}
-									{#if row.origin}
+									{#if row.milestone?.end}
+										<span class="relative mt-3 w-3.5 h-3.5 rounded-[3px] {passed ? 'bg-foreground/70' : 'bg-card border-2 border-foreground/50'} ring-4 ring-foreground/5"></span>
+									{:else if row.origin}
 										<span class="relative mt-3 w-4 h-4 rotate-45 rounded-[3px] bg-amber-500 shadow-sm ring-4 ring-amber-500/15"></span>
 									{:else}
 										<span class="relative mt-3.5 w-3 h-3 rounded-full {passed ? 'bg-primary' : 'bg-card border-2 border-primary/60'}"></span>
@@ -202,6 +219,9 @@
 													<span class="px-1.5 py-px rounded text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300">{$t('days.milestones.origin')}</span>
 												{:else}
 													<span class="px-1.5 py-px rounded text-[10px] bg-muted text-muted-foreground tabular-nums">{offsetLabel(row.date)}</span>
+												{/if}
+												{#if row.milestone?.end}
+													<span class="px-1.5 py-px rounded text-[10px] bg-foreground/10 text-foreground/80">■ {$t('days.milestones.endLabel')}</span>
 												{/if}
 											</div>
 											<div class="mt-0.5 text-xs text-muted-foreground tabular-nums">
@@ -252,5 +272,5 @@
 </div>
 
 {#if editing && day}
-	<MilestoneFormModal dayId={day.id} milestone={editing.milestone ?? null} onclose={() => (editing = null)} {onsaved} />
+	<MilestoneFormModal dayId={day.id} milestone={editing.milestone ?? null} {endTaken} onclose={() => (editing = null)} {onsaved} />
 {/if}

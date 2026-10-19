@@ -58,6 +58,18 @@ export const daysEn = {
 		saving: 'Saving…',
 		required: 'Name and date are required.'
 	},
+	endedOn: 'Stopped counting on {date}',
+	endsOn: 'Stops counting on {date}',
+	endedShort: 'Stopped',
+	view: { list: 'List', gantt: 'Gantt' },
+	gantt: {
+		empty: 'No days to show.',
+		legendRunning: 'Counting',
+		legendUpcoming: 'Until',
+		legendStopped: 'Stopped',
+		legendMilestone: 'Milestone',
+		legendEnd: 'End'
+	},
 	tags: {
 		manage: 'Tags',
 		title: 'Manage tags',
@@ -91,7 +103,12 @@ export const daysEn = {
 		offsetSame: 'same day',
 		today: 'Today',
 		passed: 'passed',
-		upcoming: 'upcoming'
+		upcoming: 'upcoming',
+		endLabel: 'End',
+		markEnd: 'Mark as the end',
+		markEndHint: 'The day stops counting once this date is reached. A day has one end.',
+		endTaken: 'This day already ends at “{name}”.',
+		endExists: 'This day already has an end milestone.'
 	}
 };
 
@@ -151,6 +168,18 @@ export const daysZh: typeof daysEn = {
 		saving: '保存中…',
 		required: '名称和日期不能为空。'
 	},
+	endedOn: '已于 {date} 终止计时',
+	endsOn: '将于 {date} 终止计时',
+	endedShort: '已终止',
+	view: { list: '清单', gantt: '甘特图' },
+	gantt: {
+		empty: '没有可显示的日子。',
+		legendRunning: '正数',
+		legendUpcoming: '倒数',
+		legendStopped: '已终止',
+		legendMilestone: '里程碑',
+		legendEnd: '终止'
+	},
 	tags: {
 		manage: '标签',
 		title: '标签管理',
@@ -184,6 +213,11 @@ export const daysZh: typeof daysEn = {
 		offsetSame: '当天',
 		today: '今天',
 		passed: '已过',
-		upcoming: '未到'
+		upcoming: '未到',
+		endLabel: '终止',
+		markEnd: '标记为终止',
+		markEndHint: '到达这一天后停止计时，每个日子只能有一个终止。',
+		endTaken: '这个日子已在「{name}」终止。',
+		endExists: '这个日子已经有终止里程碑了。'
 	}
 };

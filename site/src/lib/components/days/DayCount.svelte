@@ -7,7 +7,9 @@
 
 	let intl = $derived($locale === 'zh' ? 'zh-CN' : 'en-US');
 	let tone = $derived(
-		count.direction === 'future'
+		count.ended
+			? 'text-muted-foreground'
+			: count.direction === 'future'
 			? 'text-amber-700 dark:text-amber-300'
 			: count.direction === 'past'
 				? 'text-primary'

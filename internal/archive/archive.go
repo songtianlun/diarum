@@ -109,6 +109,8 @@ type Milestone struct {
 	Name string `json:"name"`
 	Date string `json:"date"`
 	Note string `json:"note,omitempty"`
+	// End marks the day's end milestone.
+	End bool `json:"end,omitempty"`
 }
 
 type ExportStats struct {
