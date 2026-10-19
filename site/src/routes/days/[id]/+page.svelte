@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { toPng } from 'html-to-image';
@@ -8,6 +8,7 @@
 	import DayCard from '$lib/components/days/DayCard.svelte';
 	import DayFormModal from '$lib/components/days/DayFormModal.svelte';
 	import DayTimeline from '$lib/components/days/DayTimeline.svelte';
+	import DayPoster from '$lib/components/days/DayPoster.svelte';
 	import { getDay, deleteDay, listDayTags, type Day, type DayTag, type Milestone } from '$lib/api/days';
 	import { getToday } from '$lib/utils/date';
 	import { isAuthenticated } from '$lib/api/client';
@@ -25,10 +26,8 @@
 	let wide = $derived(milestones.length > 0);
 	const today = getToday();
 	let dayTags = $derived(day ? tags.filter((tag) => day!.tags?.includes(tag.id)) : []);
-	let board: HTMLDivElement | undefined = $state();
-	let cardBox: HTMLDivElement | undefined = $state();
-	let timelineBox: HTMLDivElement | undefined = $state();
-	let sideActions: HTMLDivElement | undefined = $state();
+	// The poster exported as the image; only mounted while one is being made.
+	let poster: HTMLDivElement | undefined = $state();
 	let busy: '' | 'share' | 'export' = $state('');
 	let notice = $state('');
 	let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -64,23 +63,12 @@
 	}
 
 	async function render(): Promise<string | null> {
-		if (!board) return null;
+		await tick();
+		if (!poster) return null;
 		try {
 			// Wait for web fonts so the image matches the page.
 			await document.fonts?.ready;
-			// With milestones the image holds two cards; fill the space between them.
-			const backgroundColor = wide ? getComputedStyle(document.body).backgroundColor : undefined;
-			// Side by side, the actions under the card are left out, so the
-			// image ends with the taller of the two cards.
-			const side = !!sideActions?.offsetParent && cardBox && timelineBox;
-			const height = side ? Math.max(cardBox!.offsetHeight, timelineBox!.offsetHeight) : undefined;
-			return await toPng(board, {
-				pixelRatio: 2,
-				cacheBust: false,
-				backgroundColor,
-				height,
-				filter: (node) => !(node instanceof HTMLElement && 'exportSkip' in node.dataset)
-			});
+			return await toPng(poster, { pixelRatio: 2, cacheBust: false });
 		} catch (e) {
 			console.error('Failed to render day card:', e);
 			flash($t('days.exportFailed'));
@@ -164,17 +152,16 @@
 		{:else}
 			<div class="animate-fade-in-only">
 				{#if wide}
-					<div bind:this={board} class="grid gap-4 lg:gap-6 lg:grid-cols-[26rem_minmax(0,1fr)] items-start">
+					<div class="grid gap-4 lg:gap-6 lg:grid-cols-[26rem_minmax(0,1fr)] items-start">
 						<div>
-							<div bind:this={cardBox}><DayCard {day} tags={dayTags} /></div>
-							<!-- On desktop the actions sit under the card; they stay out of the image. -->
-							<div bind:this={sideActions} data-export-skip class="hidden lg:block">{@render actions(day)}</div>
+							<DayCard {day} tags={dayTags} />
+							<div class="hidden lg:block">{@render actions(day)}</div>
 						</div>
-						<div bind:this={timelineBox}><DayTimeline {day} {milestones} {today} /></div>
+						<DayTimeline {day} {milestones} {today} />
 					</div>
 					<div class="lg:hidden">{@render actions(day)}</div>
 				{:else}
-					<DayCard {day} tags={dayTags} bind:element={board} />
+					<DayCard {day} tags={dayTags} />
 					<!-- No milestones yet: the same title, leading to the milestone page to add one -->
 					<a
 						href="/days/{day.id}/milestones"
@@ -195,6 +182,13 @@
 
 	<Footer maxWidth="6xl" />
 </div>
+
+{#if busy && day}
+	<!-- Off screen: laid out for the image, not the page -->
+	<div class="fixed top-0 left-[-10000px] pointer-events-none" aria-hidden="true" inert>
+		<DayPoster {day} tags={dayTags} {milestones} {today} bind:element={poster} />
+	</div>
+{/if}
 
 {#if notice}
 	<div class="fixed left-1/2 -translate-x-1/2 bottom-6 z-50 px-4 py-2 rounded-full bg-foreground text-background text-sm shadow-lg animate-fade-in">{notice}</div>

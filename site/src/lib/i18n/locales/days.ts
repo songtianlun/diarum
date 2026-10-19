@@ -38,6 +38,7 @@ export const daysEn = {
 	export: 'Save image',
 	exporting: 'Rendering…',
 	copied: 'Image copied to clipboard',
+	poster: { reached: '{done}/{total} reached' },
 	exportFailed: 'Could not render the image',
 	form: {
 		newTitle: 'New day',
@@ -149,6 +150,7 @@ export const daysZh: typeof daysEn = {
 	export: '导出图片',
 	exporting: '生成中…',
 	copied: '图片已复制到剪贴板',
+	poster: { reached: '已抵达 {done}/{total}' },
 	exportFailed: '图片生成失败',
 	form: {
 		newTitle: '新建日子',
