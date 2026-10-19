@@ -18,6 +18,8 @@
 	let loading = $state(true);
 	let error = $state('');
 	let creating = $state(false);
+	// The day being edited straight from the list.
+	let editing = $state<Day | null>(null);
 	let tags: DayTag[] = $state([]);
 	let managingTags = $state(false);
 	// The tag the list is filtered by; null shows every day.
@@ -181,7 +183,7 @@
 		{:else}
 			<ul class="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-in-only">
 				{#each sorted as { day, count } (day.id)}
-					<li>
+					<li class="group/item relative">
 						<a
 							href="/days/{day.id}"
 							class="group flex items-center gap-3 h-full px-4 py-3.5 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:border-border transition-all"
@@ -207,6 +209,15 @@
 							</span>
 							<DayCount {count} />
 						</a>
+						<button
+							type="button"
+							onclick={() => (editing = day)}
+							class="absolute top-1.5 right-1.5 p-1.5 rounded-lg bg-card/90 border border-border/60 text-muted-foreground shadow-sm hover:text-foreground hover:bg-muted transition-opacity opacity-0 group-hover/item:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:hidden"
+							title={$t('days.edit')}
+							aria-label="{$t('days.edit')} · {day.name}"
+						>
+							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M4 20h4L18.5 9.5a2.5 2.5 0 00-3.536-3.536L4.5 16.5 4 20z" /></svg>
+						</button>
 					</li>
 				{/each}
 			</ul>
@@ -234,6 +245,18 @@
 		onsaved={(day) => {
 			creating = false;
 			goto(`/days/${day.id}`);
+		}}
+	/>
+{/if}
+
+{#if editing}
+	<DayFormModal
+		day={editing}
+		bind:tags
+		onclose={() => (editing = null)}
+		onsaved={(saved) => {
+			days = days.map((d) => (d.id === saved.id ? saved : d));
+			editing = null;
 		}}
 	/>
 {/if}

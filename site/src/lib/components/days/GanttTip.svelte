@@ -8,6 +8,8 @@
 		note?: string;
 		href?: string;
 		linkLabel?: string;
+		/** A button in place of the link, e.g. to edit the marker. */
+		action?: () => void;
 	}
 </script>
 
@@ -87,7 +89,9 @@
 	{#if content.note}
 		<p class="mt-2 pt-2 border-t border-border/60 text-xs text-muted-foreground leading-relaxed whitespace-pre-line break-words line-clamp-4">{content.note}</p>
 	{/if}
-	{#if pinned && content.href}
+	{#if pinned && content.action}
+		<button type="button" onclick={content.action} class="mt-2.5 block w-full text-center text-xs py-1.5 rounded-lg bg-muted/60 text-foreground hover:bg-muted transition-colors">{content.linkLabel}</button>
+	{:else if pinned && content.href}
 		<a href={content.href} class="mt-2.5 block text-center text-xs py-1.5 rounded-lg bg-muted/60 text-foreground hover:bg-muted transition-colors">{content.linkLabel}</a>
 	{/if}
 	<!-- Pointer towards the marker -->

@@ -24,8 +24,8 @@
 		emoji: seed?.emoji || '📅',
 		note: seed?.note ?? '',
 		repeat: seed?.repeat ?? '',
-		include_start: seed?.include_start ?? false,
-		show_on_home: seed?.show_on_home ?? true,
+		include_start: seed?.include_start ?? true,
+		show_on_home: seed?.show_on_home ?? false,
 		tags: [...(seed?.tags ?? [])]
 	});
 	// Inline "new tag" field; a tag made here is picked right away.

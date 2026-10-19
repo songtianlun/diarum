@@ -6,11 +6,10 @@
 	import { t, locale } from '$lib/i18n';
 
 	/**
-	 * A day as a plain card: a title band, the count, and the date. The card
-	 * is also the element exported as an image, so it carries its own
-	 * background and draws everything it shows.
+	 * A day as a plain card: a title band, the count, and the date. (The
+	 * exported image is DayPoster, laid out for the picture.)
 	 */
-	let { day, tags = [], element = $bindable() }: { day: Day; tags?: DayTag[]; element?: HTMLDivElement } = $props();
+	let { day, tags = [] }: { day: Day; tags?: DayTag[] } = $props();
 
 	let intl = $derived($locale === 'zh' ? 'zh-CN' : 'en-US');
 	let today = getToday();
@@ -34,7 +33,7 @@
 	let numberSize = $derived(digits.length > 6 ? 'text-6xl' : digits.length > 4 ? 'text-7xl' : 'text-8xl');
 </script>
 
-<div bind:this={element} class="rounded-2xl overflow-hidden bg-card border border-border/60 shadow-sm">
+<div class="rounded-2xl overflow-hidden bg-card border border-border/60 shadow-sm">
 	<div class="px-5 py-3 text-center text-sm font-medium {count.direction === 'future' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'}">
 		<span class="inline-flex items-center gap-1.5 max-w-full">
 			{#if day.emoji}<span>{day.emoji}</span>{/if}

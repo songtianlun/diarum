@@ -38,6 +38,7 @@ export const daysEn = {
 	export: 'Save image',
 	exporting: 'Rendering…',
 	copied: 'Image copied to clipboard',
+	poster: { reached: '{done}/{total} reached' },
 	exportFailed: 'Could not render the image',
 	form: {
 		newTitle: 'New day',
@@ -69,7 +70,7 @@ export const daysEn = {
 		legendStopped: 'Stopped',
 		legendMilestone: 'Milestone',
 		legendEnd: 'End',
-		tip: { date: 'Date', fromDay: 'From the day', fromToday: 'From today', count: 'Count', day: 'Day', open: 'Open this day →', openMilestone: 'Open in milestones →' }
+		tip: { date: 'Date', fromDay: 'From the day', fromPrev: 'Since previous', fromToday: 'From today', count: 'Count', day: 'Day', open: 'Open this day →', openMilestone: 'Open in milestones →', edit: 'Edit milestone' }
 	},
 	tags: {
 		manage: 'Tags',
@@ -149,6 +150,7 @@ export const daysZh: typeof daysEn = {
 	export: '导出图片',
 	exporting: '生成中…',
 	copied: '图片已复制到剪贴板',
+	poster: { reached: '已抵达 {done}/{total}' },
 	exportFailed: '图片生成失败',
 	form: {
 		newTitle: '新建日子',
@@ -180,7 +182,7 @@ export const daysZh: typeof daysEn = {
 		legendStopped: '已终止',
 		legendMilestone: '里程碑',
 		legendEnd: '终止',
-		tip: { date: '日期', fromDay: '距本日', fromToday: '距今', count: '计数', day: '所属', open: '查看这个日子 →', openMilestone: '查看这个里程碑 →' }
+		tip: { date: '日期', fromDay: '距本日', fromPrev: '距上一个', fromToday: '距今', count: '计数', day: '所属', open: '查看这个日子 →', openMilestone: '查看这个里程碑 →', edit: '编辑里程碑' }
 	},
 	tags: {
 		manage: '标签',
