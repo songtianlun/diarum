@@ -5,7 +5,7 @@
 	import { toPng } from 'html-to-image';
 	import PageHeader from '$lib/components/ui/PageHeader.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
-	import Blackboard from '$lib/components/days/Blackboard.svelte';
+	import DayCard from '$lib/components/days/DayCard.svelte';
 	import DayFormModal from '$lib/components/days/DayFormModal.svelte';
 	import { getDay, deleteDay, type Day } from '$lib/api/days';
 	import { isAuthenticated } from '$lib/api/client';
@@ -52,7 +52,7 @@
 	async function render(): Promise<string | null> {
 		if (!board) return null;
 		try {
-			// Fonts must be ready or the chalk falls back mid-render.
+			// Wait for web fonts so the image matches the page.
 			await document.fonts?.ready;
 			return await toPng(board, { pixelRatio: 2, cacheBust: false });
 		} catch (e) {
@@ -96,19 +96,19 @@
 <div class="min-h-screen bg-background flex flex-col">
 	<PageHeader title={day?.name ?? $t('days.title')} />
 
-	<main class="flex-1 w-full max-w-[400px] mx-auto px-4 py-5 sm:py-8">
+	<main class="flex-1 w-full max-w-md mx-auto px-4 py-5 sm:py-8">
 		<a href="/days" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4">
 			<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
 			{$t('days.back')}
 		</a>
 
 		{#if loading}
-			<div class="aspect-[4/5] rounded-3xl bg-muted/40 animate-pulse"></div>
+			<div class="h-72 rounded-2xl bg-muted/40 animate-pulse"></div>
 		{:else if missing || !day}
 			<div class="py-16 text-center text-sm text-muted-foreground">{$t('days.notFound')}</div>
 		{:else}
 			<div class="animate-fade-in-only">
-				<Blackboard {day} bind:element={board} />
+				<DayCard {day} bind:element={board} />
 
 				<div class="mt-5 grid grid-cols-2 gap-2">
 					<a
