@@ -123,8 +123,8 @@
 					<span class="absolute inset-y-0 w-px bg-border/50" style="left: {pos(tick.date)}%" aria-hidden="true"></span>
 				{/each}
 				<!-- Today -->
-				<span class="absolute inset-y-0 border-l-2 border-dashed border-rose-400/80 z-10" style="left: {pos(today)}%" aria-hidden="true">
-					<span class="absolute -top-0.5 left-1 px-1.5 py-px rounded bg-rose-500 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm">{$t('days.milestones.today')}</span>
+				<span class="absolute inset-y-0 border-l-2 border-dashed border-amber-500/70 z-10" style="left: {pos(today)}%" aria-hidden="true">
+					<span class="absolute -top-0.5 left-1 px-1.5 py-px rounded bg-amber-600 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm">{$t('days.milestones.today')}</span>
 				</span>
 
 				{#each items as item (item.id)}

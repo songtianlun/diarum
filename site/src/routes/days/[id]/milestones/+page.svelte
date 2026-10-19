@@ -175,9 +175,9 @@
 						{#each rows as row, index (row.id)}
 							{#if index === todayIndex && index > 0}
 								<li class="relative flex items-center gap-3 pl-0 py-1.5" aria-label={$t('days.milestones.today')}>
-									<span class="w-7 flex justify-center flex-shrink-0"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 ring-4 ring-rose-500/15"></span></span>
-									<span class="flex-1 border-t border-dashed border-rose-400/60"></span>
-									<span class="text-[11px] font-medium text-rose-500 tabular-nums">{$t('days.milestones.today')} · {today}</span>
+									<span class="w-7 flex justify-center flex-shrink-0"><span class="w-2.5 h-2.5 rounded-full bg-amber-600 ring-4 ring-amber-500/15"></span></span>
+									<span class="flex-1 border-t border-dashed border-amber-500/50"></span>
+									<span class="text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">{$t('days.milestones.today')} · {today}</span>
 								</li>
 							{/if}
 							{@const passed = diffDays(row.date, today) >= 0}
@@ -230,9 +230,9 @@
 						{/each}
 						{#if todayIndex === rows.length}
 							<li class="relative flex items-center gap-3 py-1.5">
-								<span class="w-7 flex justify-center flex-shrink-0"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 ring-4 ring-rose-500/15"></span></span>
-								<span class="flex-1 border-t border-dashed border-rose-400/60"></span>
-								<span class="text-[11px] font-medium text-rose-500 tabular-nums">{$t('days.milestones.today')} · {today}</span>
+								<span class="w-7 flex justify-center flex-shrink-0"><span class="w-2.5 h-2.5 rounded-full bg-amber-600 ring-4 ring-amber-500/15"></span></span>
+								<span class="flex-1 border-t border-dashed border-amber-500/50"></span>
+								<span class="text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">{$t('days.milestones.today')} · {today}</span>
 							</li>
 						{/if}
 					</ol>

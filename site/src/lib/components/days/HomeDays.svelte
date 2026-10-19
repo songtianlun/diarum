@@ -43,12 +43,8 @@
 				<li>
 					<a
 						href="/days/{day.id}"
-						class="group relative block h-full px-4 py-3 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:-translate-y-px transition-all overflow-hidden"
+						class="group block h-full px-4 py-3 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:border-border transition-all"
 					>
-						<span
-							class="absolute inset-x-0 top-0 h-0.5 {count.direction === 'future' ? 'bg-amber-400/80' : count.direction === 'past' ? 'bg-sky-400/80' : 'bg-rose-400/80'}"
-							aria-hidden="true"
-						></span>
 						<span class="flex items-center gap-1.5 min-w-0">
 							<span class="text-base leading-none">{day.emoji || '📅'}</span>
 							<span class="text-sm text-foreground truncate">{day.name}</span>

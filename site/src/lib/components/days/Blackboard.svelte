@@ -178,10 +178,10 @@
 		color: #f8e9a1;
 	}
 	[data-direction='past'] .headline {
-		color: #a9dcf5;
+		color: #f3cfa2;
 	}
 	[data-direction='today'] .headline {
-		color: #f7b7c6;
+		color: #fbe3b0;
 	}
 	.number {
 		font-family: 'Chalkduster', 'Chalkboard SE', 'Bradley Hand', Georgia, 'Times New Roman', serif;
@@ -203,10 +203,10 @@
 		color: rgba(248, 233, 161, 0.75);
 	}
 	[data-direction='past'] .underline-stroke {
-		color: rgba(169, 220, 245, 0.75);
+		color: rgba(243, 207, 162, 0.75);
 	}
 	[data-direction='today'] .underline-stroke {
-		color: rgba(247, 183, 198, 0.75);
+		color: rgba(251, 227, 176, 0.75);
 	}
 	.meta {
 		opacity: 0.88;

@@ -88,19 +88,15 @@
 					<li>
 						<a
 							href="/days/{day.id}"
-							class="group relative flex items-center gap-3 h-full pl-4 pr-4 py-3.5 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:border-border transition-all overflow-hidden"
+							class="group flex items-center gap-3 h-full px-4 py-3.5 rounded-xl bg-card border border-border/50 shadow-sm hover:shadow-md hover:border-border transition-all"
 						>
-							<span
-								class="absolute left-0 inset-y-0 w-1 {count.direction === 'future' ? 'bg-amber-400/80' : count.direction === 'past' ? 'bg-sky-400/80' : 'bg-rose-400/80'}"
-								aria-hidden="true"
-							></span>
-							<span class="w-10 h-10 flex-shrink-0 rounded-xl bg-muted/60 flex items-center justify-center text-xl">{day.emoji || '📅'}</span>
+							<span class="w-10 h-10 flex-shrink-0 rounded-xl bg-accent/70 flex items-center justify-center text-xl">{day.emoji || '📅'}</span>
 							<span class="min-w-0 flex-1">
 								<span class="block text-sm font-medium text-foreground truncate">{day.name}</span>
 								<span class="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground">
 									<span class="tabular-nums">{count.target}</span>
 									{#if day.repeat}<span class="px-1.5 rounded bg-muted/70">↻ {$t(`days.repeats.${day.repeat}`)}</span>{/if}
-									{#if day.show_on_home}<span class="px-1.5 rounded bg-primary/10 text-primary">{$t('days.onHome')}</span>{/if}
+									{#if day.show_on_home}<span class="px-1.5 rounded bg-muted/70">{$t('days.onHome')}</span>{/if}
 									{#if day.milestones > 0}<span class="px-1.5 rounded bg-muted/70">◆ {day.milestones}</span>{/if}
 								</span>
 							</span>
