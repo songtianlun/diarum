@@ -2,7 +2,9 @@
 	import type { Day, Milestone } from '$lib/api/days';
 	import { countDay, diffDays, timeDomain, axisTicks, weekday, type DayCount } from '$lib/utils/days';
 	import GanttTip, { type TipContent } from './GanttTip.svelte';
+	import GanttViewport, { type OverviewRow } from './GanttViewport.svelte';
 	import { goto } from '$app/navigation';
+	import { untrack } from 'svelte';
 	import { t, locale } from '$lib/i18n';
 
 	/**
@@ -60,10 +62,28 @@
 			...rows.flatMap((row) => [row.from, row.to, ...(row.origin ? [row.origin] : []), ...row.marks.map((m) => m.date), ...(row.day.end ? [row.day.end] : [])])
 		])
 	);
-	let ticks = $derived(axisTicks(domain, intl));
+	// The visible window, in days from the domain start; the slider moves it.
+	let from = $state(0);
+	let to = $state(0);
+	let span = $derived(to - from || domain.total);
+	let plotWidth = $state(0);
+	// Labels are spaced for a plot about 400px wide; a narrower one gets fewer.
+	let ticks = $derived(
+		axisTicks(domain, intl, span * Math.max(1, 400 / (plotWidth || 400))).filter((tick) => pos(tick.date) >= 0 && pos(tick.date) <= 100)
+	);
 
+	let overview: OverviewRow[] = $derived(
+		rows.map((row) => ({
+			from: diffDays(domain.start, row.from),
+			to: diffDays(domain.start, row.to),
+			tone: row.count.ended ? 'muted' : row.kind,
+			marks: row.marks.map((m) => diffDays(domain.start, m.date))
+		}))
+	);
+
+	/** Where a date falls across the visible window, in percent; outside it runs past 0 or 100. */
 	function pos(date: string): number {
-		return Math.min(100, Math.max(0, (diffDays(domain.start, date) / domain.total) * 100));
+		return ((diffDays(domain.start, date) - from) / span) * 100;
 	}
 
 	// The marker whose details are showing; pinned by a click or tap.
@@ -122,6 +142,13 @@
 		const anchor = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		tip = { key, anchor, content: content(), pinned: pin };
 	}
+
+	// A card left behind would point at a marker that has moved.
+	$effect(() => {
+		void from;
+		void to;
+		untrack(() => (tip = null));
+	});
 
 	// How the last press happened: a mouse (or keyboard) click goes straight
 	// to the marker's page, since hovering already showed the card; on touch
@@ -182,88 +209,99 @@
 {#if rows.length === 0}
 	<div class="py-14 text-center text-sm text-muted-foreground">{$t('days.gantt.empty')}</div>
 {:else}
-	<div class="overflow-x-auto overscroll-x-contain">
-		<div class="min-w-[640px]">
-			<!-- Axis -->
-			<div class="flex">
-				<div class="w-32 sm:w-52 flex-shrink-0 sticky left-0 z-20 bg-card"></div>
-				<div class="relative flex-1 h-11 mr-4">
-					<span class="absolute top-0 {pos(today) > 92 ? '-translate-x-full' : pos(today) < 8 ? '' : '-translate-x-1/2'} px-1.5 py-px rounded bg-amber-600 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm z-10" style="left: {pos(today)}%">{$t('days.milestones.today')}</span>
-					{#each ticks as tick (tick.date)}
-						<span class="absolute bottom-1.5 -translate-x-1/2 text-[10px] text-muted-foreground tabular-nums whitespace-nowrap" style="left: {pos(tick.date)}%">{tick.label}</span>
-					{/each}
-				</div>
-			</div>
-
-			<div class="relative flex border-t border-border/60">
-				<!-- Labels -->
-				<div class="w-32 sm:w-52 flex-shrink-0 sticky left-0 z-20 bg-card">
-					{#each rows as row (row.day.id)}
-						<a
-							href="/days/{row.day.id}"
-							class="h-14 pl-1 pr-2 sm:pr-3 flex items-center gap-2.5 border-b border-border/40 hover:bg-muted/40 transition-colors"
-						>
-							<span class="hidden sm:flex w-8 h-8 flex-shrink-0 rounded-lg bg-accent/60 items-center justify-center text-base">{row.day.emoji || '📅'}</span>
-							<span class="min-w-0">
-								<span class="block text-sm text-foreground truncate">{row.day.name}</span>
-								<span
-									class="block text-[11px] tabular-nums truncate {row.count.ended
-										? 'text-muted-foreground'
-										: row.kind === 'down'
-											? 'text-amber-700 dark:text-amber-300'
-											: 'text-primary'}"
-								>{countLabel(row.count)}</span>
-							</span>
-						</a>
-					{/each}
-				</div>
-
-				<!-- Chart -->
-				<div class="relative flex-1 mr-4">
-					{#each ticks as tick (tick.date)}
-						<span class="absolute inset-y-0 w-px bg-border/50" style="left: {pos(tick.date)}%" aria-hidden="true"></span>
-					{/each}
-					<span class="absolute inset-y-0 border-l-2 border-dashed border-amber-500/70 z-10 pointer-events-none" style="left: {pos(today)}%" aria-hidden="true"></span>
-
-					{#each rows as row (row.day.id)}
-						{@const left = pos(row.from)}
-						{@const width = Math.max(pos(row.to) - left, 0.6)}
-						<div class="group relative h-14 border-b border-border/40 hover:bg-muted/30 transition-colors">
-							<a href="/days/{row.day.id}" class="absolute inset-0" aria-label="{row.day.name} · {countLabel(row.count)}"></a>
-							{#if row.kind === 'up'}
-								<span
-									class="absolute top-1/2 -translate-y-1/2 h-3 rounded-full pointer-events-none {row.count.ended ? 'bg-muted-foreground/30' : 'bg-primary/55 group-hover:bg-primary/70'} transition-colors"
-									style="left: {left}%; width: {width}%"
-								></span>
-							{:else}
-								<span
-									class="absolute top-1/2 -translate-y-1/2 h-3 rounded-full pointer-events-none border border-dashed {row.count.ended ? 'border-muted-foreground/40 bg-muted-foreground/10' : 'border-amber-500/70 bg-amber-500/15 group-hover:bg-amber-500/25'} transition-colors"
-									style="left: {left}%; width: {width}%"
-								></span>
-								{@render marker(row, 'target', `${row.day.id}:target`, pos(row.to), `w-3 h-3 rounded-full ${row.count.ended ? 'bg-muted-foreground/50' : 'bg-amber-500'}`)}
-							{/if}
-							{#if row.origin}
-								{@render marker(row, 'start', `${row.day.id}:start`, pos(row.origin), `w-3 h-3 rotate-45 rounded-[2px] ${row.count.ended ? 'bg-muted-foreground/60' : 'bg-primary'}`)}
-							{/if}
-							{#each row.marks as m (m.id)}
-								{@render marker(row, 'milestone', m.id, pos(m.date), `w-2.5 h-2.5 rotate-45 rounded-[2px] ${diffDays(m.date, today) >= 0 ? 'bg-amber-600' : 'bg-card border-2 border-amber-600'}`, m)}
-							{/each}
-							{#if row.day.end}
-								{@render marker(row, 'end', `${row.day.id}:end`, pos(row.day.end), `w-3.5 h-3.5 rounded-[3px] ${row.count.ended ? 'bg-foreground/70' : 'bg-card border-2 border-foreground/60'}`, endByDay.get(row.day.id))}
-							{/if}
-						</div>
-					{/each}
-				</div>
+	<GanttViewport
+		start={domain.start}
+		total={domain.total}
+		today={diffDays(domain.start, today)}
+		{overview}
+		title={$t('days.title')}
+		storageKey="diarum_days_gantt_range"
+		gutter={16}
+		labelClass="[--gantt-label:8rem] sm:[--gantt-label:13rem]"
+		bind:from
+		bind:plotWidth
+		bind:to
+	>
+		<!-- Axis -->
+		<div class="flex">
+			<div class="w-[var(--gantt-label)] flex-shrink-0 sticky left-0 z-20 bg-card"></div>
+			<div class="relative flex-1 h-11 mr-4 overflow-hidden">
+				{#if pos(today) >= 0 && pos(today) <= 100}<span class="absolute top-0 {pos(today) > 92 ? '-translate-x-full' : pos(today) < 8 ? '' : '-translate-x-1/2'} px-1.5 py-px rounded bg-amber-600 text-white text-[10px] leading-4 whitespace-nowrap shadow-sm z-10" style="left: {pos(today)}%">{$t('days.milestones.today')}</span>{/if}
+				{#each ticks as tick (tick.date)}
+					<span class="absolute bottom-1.5 {pos(tick.date) < 4 ? '' : pos(tick.date) > 96 ? '-translate-x-full' : '-translate-x-1/2'} text-[10px] text-muted-foreground tabular-nums whitespace-nowrap" style="left: {pos(tick.date)}%">{tick.label}</span>
+				{/each}
 			</div>
 		</div>
-	</div>
 
-	<!-- Legend -->
-	<div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
-		<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-primary/55"></span>{$t('days.gantt.legendRunning')}</span>
-		<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full border border-dashed border-amber-500/70 bg-amber-500/15"></span>{$t('days.gantt.legendUpcoming')}</span>
-		<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-muted-foreground/30"></span>{$t('days.gantt.legendStopped')}</span>
-		<span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rotate-45 rounded-[1px] bg-amber-600"></span>{$t('days.gantt.legendMilestone')}</span>
-		<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-[2px] bg-foreground/70"></span>{$t('days.gantt.legendEnd')}</span>
-	</div>
+		<div class="relative flex border-t border-border/60">
+			<!-- Labels -->
+			<div class="w-[var(--gantt-label)] flex-shrink-0 sticky left-0 z-20 bg-card">
+				{#each rows as row (row.day.id)}
+					<a
+						href="/days/{row.day.id}"
+						class="h-14 pl-1 pr-2 sm:pr-3 flex items-center gap-2.5 border-b border-border/40 hover:bg-muted/40 transition-colors"
+					>
+						<span class="hidden sm:flex group-[.gantt-export]/export:flex w-8 h-8 flex-shrink-0 rounded-lg bg-accent/60 items-center justify-center text-base">{row.day.emoji || '📅'}</span>
+						<span class="min-w-0">
+							<span class="block text-sm text-foreground truncate">{row.day.name}</span>
+							<span
+								class="block text-[11px] tabular-nums truncate {row.count.ended
+									? 'text-muted-foreground'
+									: row.kind === 'down'
+										? 'text-amber-700 dark:text-amber-300'
+										: 'text-primary'}"
+							>{countLabel(row.count)}</span>
+						</span>
+					</a>
+				{/each}
+			</div>
+
+			<!-- Chart -->
+			<div data-gantt-track class="relative flex-1 mr-4 overflow-hidden">
+				{#each ticks as tick (tick.date)}
+					<span class="absolute inset-y-0 w-px bg-border/50" style="left: {pos(tick.date)}%" aria-hidden="true"></span>
+				{/each}
+				<span class="absolute inset-y-0 border-l-2 border-dashed border-amber-500/70 z-10 pointer-events-none" style="left: {pos(today)}%" aria-hidden="true"></span>
+
+				{#each rows as row (row.day.id)}
+					{@const left = pos(row.from)}
+					{@const width = Math.max(pos(row.to) - left, 0.6)}
+					<div class="group relative h-14 border-b border-border/40 hover:bg-muted/30 transition-colors">
+						<a href="/days/{row.day.id}" class="absolute inset-0" aria-label="{row.day.name} · {countLabel(row.count)}"></a>
+						{#if row.kind === 'up'}
+							<span
+								class="absolute top-1/2 -translate-y-1/2 h-3 rounded-full pointer-events-none {row.count.ended ? 'bg-muted-foreground/30' : 'bg-primary/55 group-hover:bg-primary/70'} transition-colors"
+								style="left: {left}%; width: {width}%"
+							></span>
+						{:else}
+							<span
+								class="absolute top-1/2 -translate-y-1/2 h-3 rounded-full pointer-events-none border border-dashed {row.count.ended ? 'border-muted-foreground/40 bg-muted-foreground/10' : 'border-amber-500/70 bg-amber-500/15 group-hover:bg-amber-500/25'} transition-colors"
+								style="left: {left}%; width: {width}%"
+							></span>
+							{@render marker(row, 'target', `${row.day.id}:target`, pos(row.to), `w-3 h-3 rounded-full ${row.count.ended ? 'bg-muted-foreground/50' : 'bg-amber-500'}`)}
+						{/if}
+						{#if row.origin}
+							{@render marker(row, 'start', `${row.day.id}:start`, pos(row.origin), `w-3 h-3 rotate-45 rounded-[2px] ${row.count.ended ? 'bg-muted-foreground/60' : 'bg-primary'}`)}
+						{/if}
+						{#each row.marks as m (m.id)}
+							{@render marker(row, 'milestone', m.id, pos(m.date), `w-2.5 h-2.5 rotate-45 rounded-[2px] ${diffDays(m.date, today) >= 0 ? 'bg-amber-600' : 'bg-card border-2 border-amber-600'}`, m)}
+						{/each}
+						{#if row.day.end}
+							{@render marker(row, 'end', `${row.day.id}:end`, pos(row.day.end), `w-3.5 h-3.5 rounded-[3px] ${row.count.ended ? 'bg-foreground/70' : 'bg-card border-2 border-foreground/60'}`, endByDay.get(row.day.id))}
+						{/if}
+					</div>
+				{/each}
+			</div>
+		</div>
+
+		{#snippet legend()}
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted-foreground">
+				<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-primary/55"></span>{$t('days.gantt.legendRunning')}</span>
+				<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full border border-dashed border-amber-500/70 bg-amber-500/15"></span>{$t('days.gantt.legendUpcoming')}</span>
+				<span class="inline-flex items-center gap-1.5"><span class="w-5 h-2 rounded-full bg-muted-foreground/30"></span>{$t('days.gantt.legendStopped')}</span>
+				<span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rotate-45 rounded-[1px] bg-amber-600"></span>{$t('days.gantt.legendMilestone')}</span>
+				<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-[2px] bg-foreground/70"></span>{$t('days.gantt.legendEnd')}</span>
+			</div>
+		{/snippet}
+	</GanttViewport>
 {/if}

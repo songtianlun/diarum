@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
 
-	/** A bottom sheet on phones, a centred dialog from `sm` up. */
+	/** A bottom sheet on phones, a centred dialog from `sm` up; `wide` for image previews. */
 	let {
 		title,
 		onclose,
+		wide = false,
 		children,
 		footer
-	}: { title: string; onclose: () => void; children: Snippet; footer?: Snippet } = $props();
+	}: { title: string; onclose: () => void; wide?: boolean; children: Snippet; footer?: Snippet } = $props();
 
 	let panel: HTMLDivElement | undefined = $state();
 
@@ -34,7 +35,7 @@
 		role="dialog"
 		aria-modal="true"
 		aria-label={title}
-		class="relative w-full sm:max-w-md max-h-[92vh] flex flex-col bg-card rounded-t-2xl sm:rounded-2xl shadow-xl border border-border/50 outline-none animate-fade-in"
+		class="relative w-full {wide ? 'sm:max-w-2xl' : 'sm:max-w-md'} max-h-[92vh] flex flex-col bg-card rounded-t-2xl sm:rounded-2xl shadow-xl border border-border/50 outline-none animate-fade-in"
 	>
 		<div class="sm:hidden mx-auto mt-2 h-1 w-10 rounded-full bg-muted-foreground/30" aria-hidden="true"></div>
 		<header class="flex items-center justify-between gap-3 px-5 pt-3 sm:pt-4 pb-3 border-b border-border/50">

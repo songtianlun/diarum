@@ -35,9 +35,18 @@ export const daysEn = {
 	delete: 'Delete',
 	deleteConfirm: 'Delete “{name}” and its milestones? This cannot be undone.',
 	share: 'Share',
-	export: 'Save image',
 	exporting: 'Rendering…',
-	copied: 'Image copied to clipboard',
+	imageSheet: {
+		title: 'Share image',
+		copy: 'Copy',
+		copied: 'Copied',
+		download: 'Download',
+		saved: 'Saved',
+		share: 'Share',
+		hint: 'Long-press the image to save it to your photos',
+		copyFailed: 'Copying images is not supported here. Download it instead.',
+		shareFailed: 'Could not share the image'
+	},
 	poster: { reached: '{done}/{total} reached' },
 	exportFailed: 'Could not render the image',
 	form: {
@@ -70,6 +79,8 @@ export const daysEn = {
 		legendStopped: 'Stopped',
 		legendMilestone: 'Milestone',
 		legendEnd: 'End',
+		range: { label: 'Time range', month: '{n}M', year: '{n}Y', all: 'All', start: 'Window start', end: 'Window end' },
+		image: { days: '{n} days' },
 		tip: { date: 'Date', fromDay: 'From the day', fromPrev: 'Since previous', fromToday: 'From today', count: 'Count', day: 'Day', open: 'Open this day →', openMilestone: 'Open in milestones →', edit: 'Edit milestone' }
 	},
 	tags: {
@@ -147,9 +158,18 @@ export const daysZh: typeof daysEn = {
 	delete: '删除',
 	deleteConfirm: '删除「{name}」及其全部里程碑？此操作无法撤销。',
 	share: '分享',
-	export: '导出图片',
 	exporting: '生成中…',
-	copied: '图片已复制到剪贴板',
+	imageSheet: {
+		title: '分享图片',
+		copy: '复制',
+		copied: '已复制',
+		download: '下载',
+		saved: '已下载',
+		share: '分享',
+		hint: '长按图片可保存到相册',
+		copyFailed: '当前环境不支持复制图片，请改用下载。',
+		shareFailed: '分享失败'
+	},
 	poster: { reached: '已抵达 {done}/{total}' },
 	exportFailed: '图片生成失败',
 	form: {
@@ -182,6 +202,8 @@ export const daysZh: typeof daysEn = {
 		legendStopped: '已终止',
 		legendMilestone: '里程碑',
 		legendEnd: '终止',
+		range: { label: '时间范围', month: '{n} 个月', year: '{n} 年', all: '全部', start: '起始日期', end: '结束日期' },
+		image: { days: '共 {n} 天' },
 		tip: { date: '日期', fromDay: '距本日', fromPrev: '距上一个', fromToday: '距今', count: '计数', day: '所属', open: '查看这个日子 →', openMilestone: '查看这个里程碑 →', edit: '编辑里程碑' }
 	},
 	tags: {

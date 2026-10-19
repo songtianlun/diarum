@@ -196,7 +196,13 @@
 
 			<div class="bg-card rounded-2xl border border-border/50 shadow-sm p-4 sm:p-6 animate-fade-in-only">
 				{#if view === 'gantt'}
-					<MilestoneGantt items={rows} {today} includeStart={day.include_start} onselect={selectGantt} />
+					<MilestoneGantt
+						items={rows}
+						{today}
+						includeStart={day.include_start}
+						title="{`${day.emoji || ''} ${day.name}`.trim()} · {$t('days.milestones.title')}"
+						onselect={selectGantt}
+					/>
 				{:else}
 					<ol class="relative">
 						{#each rows as row, index (row.id)}

@@ -173,11 +173,15 @@ export interface AxisTick {
 	label: string;
 }
 
-/** Up to about eight evenly spaced labels: days, months or years depending on the span. */
-export function axisTicks({ start, end, total }: TimeDomain, locale: string): AxisTick[] {
+/**
+ * Evenly spaced labels across the domain: days, months or years depending on
+ * the span. The span is how many days are visible at once (the whole domain
+ * unless the chart is zoomed in), and about eight labels fit in it.
+ */
+export function axisTicks({ start, end, total }: TimeDomain, locale: string, span = total): AxisTick[] {
 	const result: AxisTick[] = [];
-	if (total <= 90) {
-		const step = [1, 2, 7, 14, 28].find((s) => total / s <= 8) ?? 28;
+	if (span <= 90) {
+		const step = [1, 2, 7, 14, 28].find((s) => span / s <= 8) ?? 28;
 		for (let d = 0; d <= total; d += step) {
 			const date = addDays(start, d);
 			const [, m, day] = date.split('-').map(Number);
@@ -185,7 +189,7 @@ export function axisTicks({ start, end, total }: TimeDomain, locale: string): Ax
 		}
 		return result;
 	}
-	const months = total / 30.44;
+	const months = span / 30.44;
 	const step = [1, 2, 3, 6, 12, 24, 60, 120].find((s) => months / s <= 7) ?? 120;
 	let [y, m] = start.split('-').map(Number);
 	const advance = (n: number) => {
