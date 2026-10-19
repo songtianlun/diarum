@@ -121,14 +121,6 @@
 
 {#snippet actions(day: Day)}
 	<div class="mt-5 grid grid-cols-2 gap-2">
-		<a
-			href="/days/{day.id}/milestones"
-			class="col-span-2 inline-flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-sm hover:opacity-90 transition-opacity"
-		>
-			<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 21V4m0 0h11l-1.5 4L15 12H4" /></svg>
-			{$t('days.milestones.open')}
-			{#if day.milestones > 0}<span class="px-1.5 rounded-md bg-primary-foreground/20 text-xs tabular-nums">{day.milestones}</span>{/if}
-		</a>
 		<button
 			type="button"
 			onclick={share}
@@ -183,6 +175,18 @@
 					<div class="lg:hidden">{@render actions(day)}</div>
 				{:else}
 					<DayCard {day} tags={dayTags} bind:element={board} />
+					<!-- No milestones yet: the same title, leading to the milestone page to add one -->
+					<a
+						href="/days/{day.id}/milestones"
+						class="group mt-4 flex items-center gap-3 px-4 py-3 rounded-2xl bg-card border border-dashed border-border hover:border-primary/40 hover:bg-muted/30 transition-colors"
+					>
+						<svg class="w-4 h-4 flex-shrink-0 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 21V4m0 0h11l-1.5 4L15 12H4" /></svg>
+						<span class="min-w-0 flex-1">
+							<span class="block text-sm font-medium text-foreground">{$t('days.milestones.title')}</span>
+							<span class="block text-xs text-muted-foreground truncate">{$t('days.milestones.empty')}</span>
+						</span>
+						<svg class="w-4 h-4 flex-shrink-0 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+					</a>
 					{@render actions(day)}
 				{/if}
 			</div>

@@ -53,11 +53,13 @@
 
 <div class="rounded-2xl bg-card border border-border/60 shadow-sm overflow-hidden">
 	<div class="px-5 py-3 flex items-center justify-between gap-3 border-b border-border/60 bg-muted/30">
-		<div class="flex items-center gap-2 text-sm font-medium text-foreground">
+		<!-- The title opens the milestone page -->
+		<a href="/days/{day.id}/milestones" class="group -ml-1.5 px-1.5 py-0.5 rounded-lg flex items-center gap-2 text-sm font-medium text-foreground hover:bg-muted/70 transition-colors">
 			<svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 21V4m0 0h11l-1.5 4L15 12H4" /></svg>
 			{$t('days.milestones.title')}
 			<span class="px-1.5 rounded-md bg-primary/10 text-primary text-xs tabular-nums">{items.length}</span>
-		</div>
+			<svg class="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+		</a>
 		<div class="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
 			<span>{passedCount}/{items.length}</span>
 			<span class="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
