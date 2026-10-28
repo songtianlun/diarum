@@ -5,16 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 
 	"github.com/songtianlun/diarum/internal/imaging"
 )
-
-func init() {
-	// Go's built-in table has no video types, and the container may have no
-	// /etc/mime.types: register the one live photo clips are served as.
-	_ = mime.AddExtensionType(".mp4", "video/mp4")
-}
 
 // ErrLiveVideoTooLarge is returned for a live photo clip over the size cap.
 var ErrLiveVideoTooLarge = errors.New("live photo video is too large")

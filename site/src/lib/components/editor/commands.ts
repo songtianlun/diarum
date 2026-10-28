@@ -95,7 +95,7 @@ export const getSuggestionItems = (query: string): CommandItem[] => {
 		},
 		{
 			title: 'Image',
-			description: 'Upload images',
+			description: 'Upload images or videos',
 			icon: 'image',
 			group: 'INSERT',
 			command: ({ editor, range }) => {

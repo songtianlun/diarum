@@ -383,6 +383,12 @@ export const zh = {
 		notToday: '不能超过今天',
 		clear: '清除'
 	},
+	video: {
+		badge: '视频',
+		noPreview: '{name}：当前浏览器无法预览此视频，仍会上传；支持其编码的浏览器可以播放（HEVC/H.265 仅 Safari 等支持，其他浏览器建议 H.264）。',
+		failed: '当前浏览器无法播放此视频',
+		uploadNote: '视频：支持 MP4、M4V、MOV、WebM、OGV，单个不超过 200MB，按原文件保存，播放时流式加载。如需在所有浏览器播放，请使用 H.264 编码。视频保存在内置图库（本地或 S3）中，图片使用 Chevereto 时也是如此。'
+	},
 	live: {
 		badge: '实况',
 		menuLabel: '实况照片播放方式',

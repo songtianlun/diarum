@@ -14,13 +14,16 @@ export interface MarkdownOptions {
 }
 
 const BLOCK_TAGS = new Set([
-	'P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'HR', 'IMG', 'TABLE', 'FIGURE'
+	'P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'HR', 'IMG', 'VIDEO', 'TABLE', 'FIGURE'
 ]);
 
-/** The src of every image in html, as image() reads it. */
+/** The src of every image (and video, with its poster) in html, as image() and video() read them. */
 export function imageSources(html: string): string[] {
 	const doc = new DOMParser().parseFromString(html, 'text/html');
 	const sources = Array.from(doc.querySelectorAll('img'), (img) => img.dataset.fullSrc || img.getAttribute('src') || '');
+	for (const video of doc.querySelectorAll('video')) {
+		sources.push(video.getAttribute('src') || '', video.getAttribute('poster') || '');
+	}
 	return [...new Set(sources.filter((src) => src && !src.startsWith('blob:') && !src.startsWith('data:')))];
 }
 
@@ -104,6 +107,8 @@ class Converter {
 			}
 			case 'IMG':
 				return this.image(node as HTMLImageElement);
+			case 'VIDEO':
+				return this.video(node as HTMLVideoElement);
 			case 'INPUT':
 				return '';
 			default:
@@ -119,6 +124,20 @@ class Converter {
 		const alt = (img.getAttribute('alt') ?? '').replace(/[[\]]/g, '');
 		const url = this.options.imageUrls?.[src] ?? absolute(src, this.options.baseUrl);
 		return `![${alt}](${url.replace(/\)/g, '%29').replace(/ /g, '%20')})`;
+	}
+
+	/** Markdown has no video: a link to it, behind its poster when there is one. */
+	video(video: HTMLVideoElement): string {
+		if (this.options.includeImages === false) return '';
+		const src = video.getAttribute('src') || video.querySelector('source[src]')?.getAttribute('src') || '';
+		if (!src || src.startsWith('blob:')) return '';
+		const label = (video.getAttribute('aria-label') || video.getAttribute('title') || 'Video').replace(/[[\]]/g, '');
+		const encode = (url: string) => url.replace(/\)/g, '%29').replace(/ /g, '%20');
+		const url = encode(this.options.imageUrls?.[src] ?? absolute(src, this.options.baseUrl));
+		const poster = video.getAttribute('poster');
+		if (!poster) return `[▶ ${label}](${url})`;
+		const posterUrl = encode(this.options.imageUrls?.[poster] ?? absolute(poster, this.options.baseUrl));
+		return `[![▶ ${label}](${posterUrl})](${url})`;
 	}
 
 	/** Inline content of a block, one Markdown line per source line. */
@@ -175,6 +194,8 @@ class Converter {
 				return '---';
 			case 'IMG':
 				return this.image(el as HTMLImageElement);
+			case 'VIDEO':
+				return this.video(el as HTMLVideoElement);
 			case 'BLOCKQUOTE': {
 				const inner = this.blocks(el.childNodes);
 				return inner ? inner.split('\n').map((line) => (line ? `> ${line}` : '>')).join('\n') : '';

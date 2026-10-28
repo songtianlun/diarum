@@ -1,5 +1,6 @@
-import { uploadImage, isCheveretoResult, getMediaUrl, getMediaLiveUrl, UploadAbortedError } from '$lib/utils/uploadImage';
-import { prepareUpload, isHeicFile, type UploadSource, type PreparedUpload } from '$lib/utils/livePhoto';
+import { uploadImage, isCheveretoResult, getMediaUrl, getMediaLiveUrl, getMediaPosterUrl, UploadAbortedError } from '$lib/utils/uploadImage';
+import { prepareUpload, isHeicFile, isVideoFile, type UploadSource, type PreparedUpload } from '$lib/utils/livePhoto';
+import { probeVideo } from '$lib/utils/video';
 
 export type UploadStatus = 'queued' | 'preparing' | 'uploading' | 'finishing' | 'done' | 'error';
 
@@ -7,7 +8,9 @@ export type UploadStatus = 'queued' | 'preparing' | 'uploading' | 'finishing' | 
 export type UploadNotice =
 	| { kind: 'liveDroppedChevereto'; fileName: string }
 	| { kind: 'liveVideoTooLarge'; fileName: string }
-	| { kind: 'liveVideoInvalid'; fileName: string };
+	| { kind: 'liveVideoInvalid'; fileName: string }
+	/** This browser could not decode the video; others may still play it. */
+	| { kind: 'videoNoPreview'; fileName: string };
 
 export interface UploadState {
 	status: UploadStatus;
@@ -18,6 +21,10 @@ export interface UploadState {
 	url?: string;
 	/** The uploaded live photo clip, when the image is a live photo. */
 	liveUrl?: string;
+	/** Set for a video upload; `url` is then the video itself. */
+	video?: boolean;
+	/** The uploaded video's poster frame. */
+	posterUrl?: string;
 	error?: string;
 }
 
@@ -27,7 +34,7 @@ interface Task {
 	id: string;
 	source: UploadSource;
 	/** Normalised once and kept for retries. */
-	prepared?: PreparedUpload;
+	prepared?: PreparedUpload & { poster?: File };
 	state: UploadState;
 	listeners: Set<Listener>;
 	controller?: AbortController;
@@ -57,7 +64,7 @@ function preloadImage(url: string): Promise<void> {
 }
 
 /**
- * Runs image uploads for one editor with bounded concurrency. Each upload is
+ * Runs image and video uploads for one editor with bounded concurrency. Each upload is
  * shown in the document as a placeholder node that follows its task's state;
  * the editor swaps the placeholder for the final image once the task is done.
  */
@@ -79,18 +86,20 @@ export class UploadQueue {
 		private readonly concurrency = DEFAULT_CONCURRENCY
 	) {}
 
-	/** Queues an image, or a live photo given as `{ file, video }`. */
+	/** Queues an image, a video, or a live photo given as `{ file, video }`. */
 	add(input: File | UploadSource): string {
 		const source = input instanceof File ? { file: input } : input;
 		const { file } = source;
+		const video = !source.video && isVideoFile(file);
 		const id = `upload-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 		// Most browsers cannot show HEIC: its preview appears once converted.
-		const previewUrl = isHeicFile(file) ? BLANK_PREVIEW : URL.createObjectURL(file);
+		// A video's preview is its poster frame, once captured.
+		const previewUrl = video || isHeicFile(file) ? BLANK_PREVIEW : URL.createObjectURL(file);
 		this.tasks.set(id, {
 			id,
 			source,
 			listeners: new Set(),
-			state: { status: 'queued', progress: 0, fileName: file.name, previewUrl }
+			state: { status: 'queued', progress: 0, fileName: file.name, previewUrl, video: video || undefined }
 		});
 		this.pending.push(id);
 		this.pump();
@@ -179,10 +188,20 @@ export class UploadQueue {
 		}
 	}
 
-	/** Splits off a live photo clip and converts HEIC, once per task. */
-	private async prepare(task: Task): Promise<PreparedUpload> {
+	/**
+	 * Splits off a live photo clip and converts HEIC, or captures a video's
+	 * poster frame, once per task.
+	 */
+	private async prepare(task: Task): Promise<PreparedUpload & { poster?: File }> {
 		if (task.prepared) return task.prepared;
 		this.update(task, { status: 'preparing', progress: 0 });
+		if (task.state.video) {
+			const probe = await probeVideo(task.source.file);
+			task.prepared = { still: task.source.file, poster: probe.poster };
+			if (!probe.playable) this.hooks.onNotice?.({ kind: 'videoNoPreview', fileName: task.state.fileName });
+			if (probe.poster && this.tasks.has(task.id)) this.update(task, { previewUrl: URL.createObjectURL(probe.poster) });
+			return task.prepared;
+		}
 		const prepared = await prepareUpload(task.source);
 		task.prepared = prepared;
 		if (prepared.still !== task.source.file && this.tasks.has(task.id)) {
@@ -203,6 +222,7 @@ export class UploadQueue {
 			this.update(task, { status: 'uploading', progress: 0 });
 			const result = await uploadImage(prepared.still, {
 				live: prepared.video,
+				poster: prepared.poster,
 				signal: controller.signal,
 				onProgress: ({ percentage }) => {
 					if (task.state.status === 'uploading') this.update(task, { progress: percentage });
@@ -213,15 +233,19 @@ export class UploadQueue {
 			if (prepared.videoSkipped === 'invalid') this.hooks.onNotice?.({ kind: 'liveVideoInvalid', fileName });
 			let url: string;
 			let liveUrl: string | undefined;
+			let posterUrl: string | undefined;
 			if (isCheveretoResult(result)) {
 				url = result.cheveretoUrl;
 				if (result.liveDropped) this.hooks.onNotice?.({ kind: 'liveDroppedChevereto', fileName });
 			} else {
 				url = getMediaUrl(result);
 				liveUrl = getMediaLiveUrl(result) ?? undefined;
+				posterUrl = getMediaPosterUrl(result) ?? undefined;
 			}
-			this.update(task, { status: 'finishing', progress: 100, url, liveUrl });
-			await preloadImage(url);
+			this.update(task, { status: 'finishing', progress: 100, url, liveUrl, posterUrl });
+			// A video is streamed when played: only its poster is worth loading now.
+			if (!task.state.video) await preloadImage(url);
+			else if (posterUrl) await preloadImage(posterUrl);
 			if (!this.tasks.has(task.id)) return;
 			this.update(task, { status: 'done' });
 			this.hooks.onSettled(task.id);

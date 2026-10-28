@@ -393,6 +393,12 @@ export const en = {
 		notToday: "Can't go past today",
 		clear: 'Clear'
 	},
+	video: {
+		badge: 'VIDEO',
+		noPreview: "{name}: this browser can't preview the video. It is uploaded anyway; browsers that support its codec will play it (HEVC/H.265 plays in Safari, most others need H.264).",
+		failed: "This browser can't play this video",
+		uploadNote: 'Videos: MP4, M4V, MOV, WebM and OGV up to 200MB, stored as uploaded and streamed when played. For playback in every browser, use H.264 video. Videos are kept in the built-in library (local or S3), also when images go to Chevereto.'
+	},
 	live: {
 		badge: 'LIVE',
 		menuLabel: 'Live photo playback',

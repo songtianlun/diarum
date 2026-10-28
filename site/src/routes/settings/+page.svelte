@@ -2660,6 +2660,9 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 					<p class="text-xs text-muted-foreground mt-4">
 						{$t('live.uploadNote')}
 					</p>
+					<p class="text-xs text-muted-foreground mt-2">
+						{$t('video.uploadNote')}
+					</p>
 				</div>
 
 				{#if originalImageUploadSettings.provider === 'local' || originalImageUploadSettings.provider === 's3'}

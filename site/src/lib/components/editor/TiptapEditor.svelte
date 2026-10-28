@@ -16,6 +16,7 @@
 	import { common, createLowlight } from 'lowlight';
 	import { DOMSerializer, type Fragment } from '@tiptap/pm/model';
 	import { validateUploadSource } from '$lib/utils/uploadImage';
+	import { validateVideoFile, VIDEO_ACCEPT } from '$lib/utils/video';
 	import { groupLiveFiles, isImageFile, isVideoFile } from '$lib/utils/livePhoto';
 	import { t } from '$lib/i18n';
 	import { SlashCommands } from './SlashCommands';
@@ -74,10 +75,12 @@
 				return $t('live.videoTooLarge', { name: notice.fileName });
 			case 'liveVideoInvalid':
 				return $t('live.videoInvalid', { name: notice.fileName });
+			case 'videoNoPreview':
+				return $t('video.noPreview', { name: notice.fileName });
 		}
 	}
 
-	/** Files an upload can start from: images, and videos that may pair with one. */
+	/** Files an upload can start from: images and videos. */
 	function uploadableFiles(files: File[]): File[] {
 		return files.filter((file) => isImageFile(file) || isVideoFile(file));
 	}
@@ -122,7 +125,9 @@
 			const id = node.attrs['data-placeholder-id'] as string | null;
 			const task = id ? uploadQueue.get(id) : undefined;
 			if (id && task?.status === 'done' && task.url) {
-				const image: ImageInsert = { src: task.url, alt: task.fileName, live: task.liveUrl };
+				const image: ImageInsert = task.video
+					? { src: task.url, alt: task.fileName, video: true, poster: task.posterUrl }
+					: { src: task.url, alt: task.fileName, live: task.liveUrl };
 				finishedUploads.set(id, image);
 				uploadQueue.release(id);
 				changes.push({ pos, size: node.nodeSize, attrs: node.attrs, image });
@@ -140,7 +145,9 @@
 					...change.attrs,
 					src: change.image.src,
 					alt: change.image.alt || null,
-					'data-live-video': change.image.live || null,
+					'data-live-video': change.image.video ? null : change.image.live || null,
+					'data-media-type': change.image.video ? 'video' : null,
+					poster: change.image.video ? change.image.poster || null : null,
 					'data-uploading': null,
 					'data-placeholder-id': null,
 				});
@@ -153,23 +160,28 @@
 	}
 
 	/**
-	 * Uploads the images among `files`, showing a placeholder for each right
-	 * away. A live photo given as a still and its video becomes one upload.
+	 * Uploads the images and videos among `files`, showing a placeholder for
+	 * each right away. A live photo given as a still and its video becomes one
+	 * upload; any other video is uploaded as a video.
 	 */
 	function uploadFiles(files: File[], at?: number) {
 		if (!editor) return;
 		const { sources, strayVideos } = groupLiveFiles(uploadableFiles(files));
 		if (sources.length === 0 && strayVideos.length === 0) return;
 
-		const rejected: string[] = strayVideos.map((video) => $t('live.strayVideo', { name: video.name || 'Video' }));
+		const rejected: string[] = [];
 		const placeholders: { id: string; src: string; alt: string }[] = [];
-		for (const source of sources) {
-			const invalid = validateUploadSource(source.file);
+		const ordered = files.flatMap((file) => [
+			...sources.filter((source) => source.file === file),
+			...strayVideos.filter((video) => video === file).map((video) => ({ file: video, isVideo: true }))
+		]);
+		for (const source of ordered) {
+			const invalid = 'isVideo' in source ? validateVideoFile(source.file) : validateUploadSource(source.file);
 			if (invalid) {
-				rejected.push(`${source.file.name || 'Image'}: ${invalid}`);
+				rejected.push(`${source.file.name || ('isVideo' in source ? 'Video' : 'Image')}: ${invalid}`);
 				continue;
 			}
-			const id = uploadQueue.add(source);
+			const id = uploadQueue.add('isVideo' in source ? source.file : source);
 			placeholders.push({ id, src: uploadQueue.get(id)!.previewUrl, alt: source.file.name });
 		}
 
@@ -179,7 +191,7 @@
 			chain.insertUploadPlaceholders(placeholders).run();
 		}
 		if (rejected.length > 0) {
-			showUploadError(rejected.length === 1 ? rejected[0] : `${rejected.length} images skipped. ${rejected[0]}`);
+			showUploadError(rejected.length === 1 ? rejected[0] : `${rejected.length} files skipped. ${rejected[0]}`);
 		}
 	}
 
@@ -461,7 +473,7 @@
 	{/if}
 	<input
 		type="file"
-		accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml,image/heic,image/heif,.heic,.heif,video/quicktime,video/mp4,.mov,.mp4"
+		accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml,image/heic,image/heif,.heic,.heif,{VIDEO_ACCEPT}"
 		multiple
 		bind:this={fileInput}
 		on:change={handleFileSelect}
@@ -470,7 +482,7 @@
 	{#if uploadingCount > 0}
 		<div class="upload-status" class:raised={!!uploadError} role="status" aria-live="polite">
 			<span class="upload-status-spinner"></span>
-			Uploading {uploadingCount} {uploadingCount === 1 ? 'image' : 'images'}…
+			Uploading {uploadingCount} {uploadingCount === 1 ? 'file' : 'files'}…
 		</div>
 	{/if}
 	{#if uploadError}

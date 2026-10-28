@@ -23,6 +23,10 @@ import (
 	"github.com/songtianlun/diarum/internal/store"
 )
 
+// maxImageBytes caps the size of an uploaded image; videos have their own
+// cap (imaging.MaxVideoBytes).
+const maxImageBytes = 50 << 20
+
 func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.MiddlewareFunc) {
 	group := e.Group("/api/v1/media", authMiddleware)
 
@@ -61,20 +65,28 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		defer file.Close()
 
 		buffer := make([]byte, 512)
-		n, _ := file.Read(buffer)
-		if seeker, ok := file.(interface {
-			Seek(int64, int) (int64, error)
-		}); ok {
-			_, _ = seeker.Seek(0, 0)
+		n, _ := io.ReadFull(file, buffer)
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return serverError("Failed to read upload", err)
 		}
-		if detected, allowed := config.IsAllowedMediaType(buffer[:n]); !allowed {
-			return badRequest("Invalid file type: "+detected, nil)
-		}
-		if header.Size > 50*1024*1024 {
-			return badRequest("File size exceeds 50MB limit", nil)
+		filename := store.SafeFilename(header.Filename)
+		// Videos are kept as uploaded; their extension follows the container
+		// so they are served with a type browsers play.
+		container := imaging.DetectVideo(buffer[:n])
+		if container != "" {
+			if header.Size > imaging.MaxVideoBytes {
+				return badRequest("Video size exceeds 200MB limit", nil)
+			}
+			filename = imaging.VideoFilename(filename, container)
+		} else {
+			if detected, allowed := config.IsAllowedMediaType(buffer[:n]); !allowed {
+				return badRequest("Invalid file type: "+detected, nil)
+			}
+			if header.Size > maxImageBytes {
+				return badRequest("File size exceeds 50MB limit", nil)
+			}
 		}
 
-		filename := store.SafeFilename(header.Filename)
 		name := c.FormValue("name")
 		if name == "" {
 			name = filename
@@ -89,9 +101,16 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 			_ = s.DeleteMedia(media.ID, user.ID)
 			return serverError("Failed to save media file", err)
 		}
-		// A live photo arrives as its still ("file") plus its clip ("live"),
-		// whatever the phone stored them as; the client splits and pairs them.
-		if liveFile, liveHeader, err := c.Request().FormFile("live"); err == nil {
+		if media.IsVideo() {
+			// The poster is the frame the browser showed on upload; a video
+			// without one (it could not be decoded there) still plays.
+			if posterFile, _, err := c.Request().FormFile("poster"); err == nil {
+				defer posterFile.Close()
+				savePoster(s, media, posterFile)
+			}
+		} else if liveFile, liveHeader, err := c.Request().FormFile("live"); err == nil {
+			// A live photo arrives as its still ("file") plus its clip ("live"),
+			// whatever the phone stored them as; the client splits and pairs them.
 			defer liveFile.Close()
 			if err := saveLiveVideo(s, media, liveFile, liveHeader.Size); err != nil {
 				_ = s.DeleteMediaFile(media)
@@ -104,6 +123,9 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		detail["size"] = header.Size
 		if media.Live != "" {
 			detail["live"] = true
+		}
+		if media.IsVideo() {
+			detail["video"] = true
 		}
 		if len(media.Diary) > 0 {
 			detail["diary"] = media.Diary
@@ -192,6 +214,9 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 					return redirectToPublicURL(c, target)
 				}
 			}
+			if media.IsVideo() {
+				return serveVideo(c, s, media, imaging.VideoContentType(media.File))
+			}
 			return serveOriginal(c, s, media)
 		}
 		if live := store.LiveMedia(media); live != nil && filename == live.File {
@@ -200,7 +225,15 @@ func RegisterMediaRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 					return redirectToPublicURL(c, target)
 				}
 			}
-			return serveLiveVideo(c, s, live)
+			return serveVideo(c, s, live, "video/mp4")
+		}
+		if poster := store.PosterMedia(media); poster != nil && filename == poster.File {
+			if !direct {
+				if target, ok := s.MediaPublicURL(poster); ok {
+					return redirectToPublicURL(c, target)
+				}
+			}
+			return serveOriginal(c, s, poster)
 		}
 		variant, ok := imaging.ParseVariant(media.File, filename)
 		if !ok {
@@ -335,29 +368,32 @@ func saveLiveVideo(s *store.Store, media *store.Media, file io.ReadSeeker, size 
 	return nil
 }
 
-// serveLiveVideo serves a live photo clip. Browsers (Safari above all) only
-// play video that supports range requests, so a clip in object storage is
-// read into memory first; clips are small and capped in size.
-func serveLiveVideo(c echo.Context, s *store.Store, live *store.Media) error {
-	path := s.MediaFilePath(live)
-	if _, err := os.Stat(path); err == nil {
-		setImmutableCache(c)
-		c.Response().Header().Set(echo.HeaderContentType, "video/mp4")
-		return c.File(path)
-	}
-	reader, err := s.OpenMediaFile(live)
+// serveVideo serves a video, or a live photo clip, with range requests:
+// browsers stream video that way, and Safari plays nothing else. A file in
+// object storage is read in ranges too, never whole.
+func serveVideo(c echo.Context, s *store.Store, media *store.Media, contentType string) error {
+	reader, err := s.OpenMediaSeeker(media)
 	if err != nil {
 		return notFound("File not found")
 	}
 	defer reader.Close()
-	data, err := io.ReadAll(io.LimitReader(reader, imaging.MaxLiveVideoBytes))
-	if err != nil {
-		return serverError("Failed to read media file", err)
-	}
 	setImmutableCache(c)
-	c.Response().Header().Set(echo.HeaderContentType, "video/mp4")
-	http.ServeContent(c.Response(), c.Request(), live.File, time.Time{}, bytes.NewReader(data))
+	c.Response().Header().Set(echo.HeaderContentType, contentType)
+	http.ServeContent(c.Response(), c.Request(), media.File, time.Time{}, reader)
 	return nil
+}
+
+// savePoster stores a video's poster frame, best effort: one that is not a
+// JPEG, PNG or WebP image, or is too large, is dropped.
+func savePoster(s *store.Store, media *store.Media, file io.Reader) {
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(file, head)
+	switch http.DetectContentType(head[:n]) {
+	case "image/jpeg", "image/png", "image/webp":
+	default:
+		return
+	}
+	_ = s.SaveMediaPoster(media, io.MultiReader(bytes.NewReader(head[:n]), file))
 }
 
 func parsePositiveInt(raw string, fallback int) int {

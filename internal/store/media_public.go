@@ -117,6 +117,9 @@ func (s *Store) MediaURLPublicURL(owner, src string) (string, bool) {
 	if live := LiveMedia(media); live != nil && filename == live.File {
 		return s.MediaPublicURL(live)
 	}
+	if poster := PosterMedia(media); poster != nil && filename == poster.File {
+		return s.MediaPublicURL(poster)
+	}
 	return "", false
 }
 
