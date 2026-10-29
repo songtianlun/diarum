@@ -21,8 +21,11 @@
 		type AuditFile,
 		type ArchiveInfo,
 		type RunReport,
-		type S3Config
+		type S3Config,
+		type S3Source
 	} from '$lib/api/admin';
+	import S3SourceSelect from '$lib/components/storage/S3SourceSelect.svelte';
+	import S3Fields from '$lib/components/storage/S3Fields.svelte';
 	import { getIntlLocale, t } from '$lib/i18n';
 
 	let { onview }: { onview?: (day: string) => void } = $props();
@@ -31,6 +34,7 @@
 	let retention = $state(3);
 	let archiveEnabled = $state(false);
 	let archiveRetention = $state(30);
+	let source = $state<S3Source>('system');
 	let s3 = $state<S3Config>({ bucket: '', region: '', endpoint: '', access_key: '', secret: '', force_path_style: false, prefix: 'diarum-audit' });
 	let saved = $state('');
 
@@ -53,7 +57,7 @@
 	});
 
 	function snapshot() {
-		return JSON.stringify({ retention, archiveEnabled, archiveRetention, s3 });
+		return JSON.stringify({ retention, archiveEnabled, archiveRetention, source, s3 });
 	}
 
 	function applySettings(next: AuditSettings) {
@@ -61,6 +65,7 @@
 		retention = next.retention_days;
 		archiveEnabled = next.archive.enabled;
 		archiveRetention = next.archive.retention_days;
+		source = next.archive.source;
 		s3 = { ...next.archive.s3, secret: '' };
 		saved = snapshot();
 	}
@@ -113,7 +118,7 @@
 			applySettings(
 				await saveAuditSettings({
 					retention_days: Number(retention),
-					archive: { enabled: archiveEnabled, retention_days: Number(archiveRetention), s3 }
+					archive: { enabled: archiveEnabled, retention_days: Number(archiveRetention), source, s3 }
 				})
 			);
 			flash(true, $t('admin.archive.saved'));
@@ -127,7 +132,7 @@
 	async function test() {
 		testing = true;
 		try {
-			await testAuditArchive(s3);
+			await testAuditArchive(source, s3);
 			flash(true, $t('admin.archive.testOk'));
 		} catch (e) {
 			flash(false, e instanceof Error ? e.message : $t('admin.archive.testFailed'));
@@ -202,6 +207,7 @@
 
 	let dirty = $derived(settings !== null && snapshot() !== saved);
 	let s3Complete = $derived(!!(s3.bucket && s3.region && s3.access_key && (s3.secret || settings?.secret_set)));
+	let canTest = $derived(source === 'system' ? !!settings?.system_s3_available : s3Complete);
 	let localFiles = $derived(files.filter((f) => !f.pulled));
 	let pulledFiles = $derived(files.filter((f) => f.pulled));
 	let localBytes = $derived(localFiles.reduce((sum, f) => sum + f.size, 0));
@@ -282,21 +288,16 @@
 					<input type="checkbox" bind:checked={archiveEnabled} class="mt-1 h-5 w-5 rounded border-border accent-[hsl(var(--primary))]" />
 				</label>
 
-				<div class="mt-4 grid gap-3 sm:grid-cols-2 {archiveEnabled ? '' : 'opacity-60'}">
-					<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.archive.bucket')}</span><input bind:value={s3.bucket} autocomplete="off" class="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" /></label>
-					<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.archive.region')}</span><input bind:value={s3.region} autocomplete="off" placeholder="us-east-1" class="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" /></label>
-					<label class="block text-sm sm:col-span-2"><span class="text-muted-foreground text-xs">{$t('admin.archive.endpoint')}</span><input bind:value={s3.endpoint} autocomplete="off" placeholder="https://s3.example.com" class="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" /></label>
-					<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.archive.accessKey')}</span><input bind:value={s3.access_key} autocomplete="off" class="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40" /></label>
-					<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.archive.secret')}</span><input type="password" bind:value={s3.secret} autocomplete="new-password" placeholder={settings.secret_set ? $t('admin.archive.secretKeep') : ''} class="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40" /></label>
-					<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.archive.prefix')}</span><input bind:value={s3.prefix} autocomplete="off" class="mt-1 w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40" /></label>
-					<label class="flex items-center gap-2 text-sm sm:mt-6"><input type="checkbox" bind:checked={s3.force_path_style} class="rounded border-border" />{$t('admin.archive.pathStyle')}</label>
+				<div class="mt-4 {archiveEnabled ? '' : 'opacity-60'}">
+					<S3SourceSelect id="audit-archive-source" bind:source available={settings.system_s3_available} path={settings.system_s3_path} missingText={$t('s3.systemMissingAdmin')}>
+						<S3Fields bind:s3 secretSet={settings.secret_set} prefixPlaceholder="diarum-audit" prefixHint={$t('admin.archive.layoutHint', { path: `${s3.prefix || 'diarum-audit'}/YYYY-MM-DD.log.gz` })} />
+					</S3SourceSelect>
 				</div>
-				<p class="mt-2 text-xs text-muted-foreground">{$t('admin.archive.layoutHint', { path: `${s3.prefix || 'diarum-audit'}/YYYY-MM-DD.log.gz` })}</p>
 			</div>
 
 			<div class="mt-5 flex flex-wrap items-center gap-2">
 				<button onclick={save} disabled={saving || !dirty} class="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed">{saving ? $t('common.saving') : $t('common.save')}</button>
-				<button onclick={test} disabled={testing || !s3Complete} class="px-4 py-2 rounded-lg border border-border/60 text-sm hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed">{testing ? $t('admin.archive.testing') : $t('admin.archive.test')}</button>
+				<button onclick={test} disabled={testing || !canTest} class="px-4 py-2 rounded-lg border border-border/60 text-sm hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed">{testing ? $t('admin.archive.testing') : $t('admin.archive.test')}</button>
 				{#if dirty}<span class="text-xs text-amber-600 dark:text-amber-400">{$t('admin.archive.unsaved')}</span>{/if}
 			</div>
 		</section>

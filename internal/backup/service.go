@@ -59,8 +59,11 @@ var (
 	ErrBusy       = errors.New("another backup or restore is already running")
 	ErrDisabled   = errors.New("backups are not enabled")
 	ErrIncomplete = errors.New("bucket, region, access key and secret are required for S3")
-	ErrInvalidID  = errors.New("invalid backup id")
-	ErrNotFound   = errors.New("backup not found")
+	// ErrSystemUnavailable is returned when a user chose the system S3 but
+	// the administrator has not configured it or does not offer it for backups.
+	ErrSystemUnavailable = errors.New("the system S3 storage is not available for backups; ask an administrator or enter your own S3")
+	ErrInvalidID         = errors.New("invalid backup id")
+	ErrNotFound          = errors.New("backup not found")
 
 	idPattern = regexp.MustCompile(`^\d{8}T\d{6}Z-[0-9a-f]{6}$`)
 )
@@ -129,6 +132,9 @@ type Service struct {
 
 	// OpenStore connects to a destination; tests replace it.
 	OpenStore func(S3Config) (ObjectStore, error)
+	// SystemS3 returns the system S3 for user backups, with the folder all
+	// users' backups go under as its prefix; nil means none is offered.
+	SystemS3 SystemS3Func
 	// OnRestored runs after a successful restore.
 	OnRestored func(userID string)
 
@@ -246,7 +252,50 @@ func (s *Service) finishJob(userID string, err error, fn func(*Job)) {
 	}
 }
 
+// SystemAvailable reports whether users can back up to the system S3.
+func (s *Service) SystemAvailable() bool {
+	_, ok := s.systemS3()
+	return ok
+}
+
+func (s *Service) systemS3() (S3Config, bool) {
+	if s.SystemS3 == nil {
+		return S3Config{}, false
+	}
+	cfg, ok := s.SystemS3()
+	cfg = cfg.Normalized()
+	return cfg, ok && cfg.Complete()
+}
+
+// SystemPath returns the folder a user's backups go to on the system S3,
+// e.g. "diarum/user-backups/<user id>/"; ok is false when it is not offered.
+func (s *Service) SystemPath(userID string) (string, bool) {
+	cfg, ok := s.systemS3()
+	if !ok {
+		return "", false
+	}
+	return UserPrefix(cfg, userID), true
+}
+
+// Resolve returns the connection a destination uses: the system S3 (with
+// its user backup folder as prefix) or the custom one.
+func (s *Service) Resolve(source string, custom S3Config) (S3Config, error) {
+	if source == SourceSystem {
+		cfg, ok := s.systemS3()
+		if !ok {
+			return S3Config{}, ErrSystemUnavailable
+		}
+		return cfg, nil
+	}
+	custom = custom.Normalized()
+	if !custom.Complete() {
+		return S3Config{}, ErrIncomplete
+	}
+	return custom, nil
+}
+
 // destination loads the user's settings and connects to the destination.
+// The returned settings carry the resolved connection in S3.
 func (s *Service) destination(userID string) (Settings, ObjectStore, error) {
 	settings, err := LoadSettings(s.config, userID)
 	if err != nil {
@@ -255,8 +304,8 @@ func (s *Service) destination(userID string) (Settings, ObjectStore, error) {
 	if !settings.Enabled {
 		return settings, nil, ErrDisabled
 	}
-	if !settings.S3.Complete() {
-		return settings, nil, ErrIncomplete
+	if settings.S3, err = s.Resolve(settings.Source, settings.S3); err != nil {
+		return settings, nil, err
 	}
 	dest, err := s.OpenStore(settings.S3)
 	if err != nil {
@@ -382,7 +431,11 @@ func (s *Service) putLog(dest ObjectStore, key string, log *Log) error {
 func (s *Service) backup(ctx context.Context, r *run, settings Settings, dest ObjectStore) error {
 	prefix := UserPrefix(settings.S3, r.userID)
 	archiveKey := prefix + r.log.ID + archiveSuffix
-	r.info("Destination: s3://%s/%s", settings.S3.Bucket, prefix)
+	if settings.Source == SourceSystem {
+		r.info("Destination: system S3 storage, %s", prefix)
+	} else {
+		r.info("Destination: s3://%s/%s", settings.S3.Bucket, prefix)
+	}
 
 	if err := os.MkdirAll(s.tempDir, 0o700); err != nil {
 		return fmt.Errorf("create temp directory: %w", err)
@@ -741,10 +794,10 @@ func (s *Service) restore(userID, key string, dest ObjectStore) (*archive.Import
 
 // Test checks that the destination accepts writes, reads, listings and
 // deletes, which is everything backups, restores and cleanup rely on.
-func (s *Service) Test(ctx context.Context, userID string, cfg S3Config) error {
-	cfg = cfg.Normalized()
-	if !cfg.Complete() {
-		return ErrIncomplete
+func (s *Service) Test(ctx context.Context, userID, source string, cfg S3Config) error {
+	cfg, err := s.Resolve(source, cfg)
+	if err != nil {
+		return err
 	}
 	dest, err := s.OpenStore(cfg)
 	if err != nil {

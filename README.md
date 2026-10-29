@@ -213,6 +213,8 @@ The system audit log is written asynchronously as one JSON-lines file per day un
 
 Diary visits (when an administrator turns visitor statistics on) are kept in their own SQLite file, `visits/visits.db`, so they never grow the main database. Repeated reads by the same visitor on the same device within a minute count once, refused and signed-out attempts are rate limited, and a record cap trims the oldest records. Records are kept 3 years by default; finished days can be archived to S3 (kept 10 years by default) and pulled back in one click from the admin console.
 
+Administrators can set up one **system S3 storage** under Admin → S3 storage (bucket, credentials and a global prefix, `diarum` by default). The audit archive, the visitor statistics archive and — if the administrator allows it — users' automatic backups can each pick "System S3" from their storage dropdown instead of entering their own connection ("Custom S3…" still works). Everything lands below the global prefix: `diarum/audit/`, `diarum/visits/` and `diarum/user-backups/<user id>/`. Each save checks the connection first, and the system S3 cannot be removed while an archive still writes to it.
+
 ### Unit Tests
 
 [![codecov](https://codecov.io/gh/songtianlun/diarum/graph/badge.svg?token=S6DXR0YJH2)](https://codecov.io/gh/songtianlun/diarum)
@@ -417,6 +419,8 @@ Diarum 会在配置的数据目录下使用 `diarum.db` 保存应用数据。启
 系统审计日志异步写入数据目录下的 `logs/system-audit/`，每天一个 JSON Lines 文件。默认本地保留 3 天；已结束的日期可以归档到 S3（默认保留 30 天），并可在系统后台一键拉取回来分析。拉取的日志存放在 `logs/system-audit/pulled/`，下一次每日清理时删除。
 
 开启访客统计后，日记访问记录保存在独立的 SQLite 文件 `visits/visits.db` 中，不会撑大主数据库。同一访客同一设备 1 分钟内重复查看只计一次，被拒绝和未登录的尝试有频率限制，超过记录上限会删除最旧的记录。访客日志默认保留 3 年；已结束的日期可归档到 S3（默认保留 10 年），并可在系统后台一键拉取回来查看。
+
+管理员可以在「系统后台 → S3 存储」中配置一个统一的**系统 S3**（存储桶、密钥和全局前缀，默认 `diarum`）。审计日志归档、访客统计归档，以及（管理员允许时）用户的自动备份，都可以在存储位置下拉框中直接选择「系统 S3」，也可以选择「自定义 S3…」自行填写。所有内容都写在全局前缀下：`diarum/audit/`、`diarum/visits/`、`diarum/user-backups/<用户 ID>/`。每次保存前都会先验证连接；仍有归档在使用时，系统 S3 无法被移除。
 
 ### 单元测试
 

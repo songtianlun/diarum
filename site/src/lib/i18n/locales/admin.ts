@@ -5,7 +5,7 @@
 export const adminEn = {
 	pageTitle: 'Admin Console',
 	title: 'Admin Console',
-	tabs: { overview: 'Overview', users: 'Users', audit: 'Audit log', archive: 'Archive & retention', visits: 'Visitor statistics' },
+	tabs: { overview: 'Overview', users: 'Users', audit: 'Audit log', archive: 'Archive & retention', visits: 'Visitor statistics', storage: 'S3 storage' },
 	refresh: 'Refresh',
 	retry: 'Retry',
 	prev: 'Previous',
@@ -208,6 +208,7 @@ export const adminEn = {
 			admin_audit_settings: 'Changed audit settings',
 			admin_audit_pull: 'Pulled archive',
 			admin_visits_settings: 'Changed visitor statistics settings',
+			admin_s3_settings: 'Changed system S3 storage',
 			admin_visits_pull: 'Pulled visit archives',
 			admin_visits_unload: 'Unloaded pulled visits'
 		}
@@ -235,14 +236,6 @@ export const adminEn = {
 		days: 'days',
 		enable: 'Archive to S3',
 		enableDesc: 'Upload each finished day, gzip-compressed. Days that fail to upload are kept locally up to 7 extra days and retried hourly.',
-		bucket: 'Bucket',
-		region: 'Region',
-		endpoint: 'Endpoint (optional, for S3-compatible services)',
-		accessKey: 'Access key',
-		secret: 'Secret',
-		secretKeep: 'Saved — leave blank to keep',
-		prefix: 'Folder (prefix)',
-		pathStyle: 'Use path-style requests',
 		layoutHint: 'Stored as {path}',
 		test: 'Test connection',
 		testing: 'Testing…',
@@ -283,7 +276,7 @@ export const adminEn = {
 export const adminZh: typeof adminEn = {
 	pageTitle: '系统后台',
 	title: '系统后台',
-	tabs: { overview: '概览', users: '用户', audit: '审计日志', archive: '归档与保留', visits: '访客统计' },
+	tabs: { overview: '概览', users: '用户', audit: '审计日志', archive: '归档与保留', visits: '访客统计', storage: 'S3 存储' },
 	refresh: '刷新',
 	retry: '重试',
 	prev: '上一页',
@@ -486,6 +479,7 @@ export const adminZh: typeof adminEn = {
 			admin_audit_settings: '修改审计设置',
 			admin_audit_pull: '拉取归档',
 			admin_visits_settings: '修改访客统计设置',
+			admin_s3_settings: '修改系统 S3 存储',
 			admin_visits_pull: '拉取访客归档',
 			admin_visits_unload: '卸载访客记录'
 		}
@@ -513,14 +507,6 @@ export const adminZh: typeof adminEn = {
 		days: '天',
 		enable: '归档到 S3',
 		enableDesc: '每天结束后以 gzip 压缩上传。上传失败的日期会在本地多保留最多 7 天，并每小时重试。',
-		bucket: '存储桶',
-		region: '区域',
-		endpoint: 'Endpoint（可选，用于 S3 兼容服务）',
-		accessKey: 'Access Key',
-		secret: 'Secret',
-		secretKeep: '已保存，留空则不修改',
-		prefix: '目录（前缀）',
-		pathStyle: '使用 path-style 请求',
 		layoutHint: '存储路径：{path}',
 		test: '测试连接',
 		testing: '测试中…',

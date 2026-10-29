@@ -26,6 +26,10 @@ type backupSettingsResponse struct {
 	backup.Settings
 	NextRun        string `json:"next_run,omitempty"`
 	ServerTimezone string `json:"server_timezone"`
+	// SystemS3 tells whether the administrator offers the system S3 for
+	// backups; SystemS3Path is where this user's backups would go there.
+	SystemS3     bool   `json:"system_s3_available"`
+	SystemS3Path string `json:"system_s3_path,omitempty"`
 }
 
 type backupRoutes struct {
@@ -53,6 +57,7 @@ func RegisterBackupRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Midd
 
 func (r *backupRoutes) settingsResponse(userID string, settings backup.Settings) backupSettingsResponse {
 	resp := backupSettingsResponse{Settings: settings, ServerTimezone: time.Local.String()}
+	resp.SystemS3Path, resp.SystemS3 = r.service.SystemPath(userID)
 	if next, ok := r.scheduler.NextRun(userID); ok {
 		resp.NextRun = next.Format(time.RFC3339)
 	}
@@ -75,6 +80,13 @@ func (r *backupRoutes) putSettings(c echo.Context) error {
 		return badRequest("Invalid request body", err)
 	}
 	body.S3 = body.S3.Normalized()
+	switch body.Source {
+	case "":
+		body.Source = backup.NormalizeSource("", body.S3)
+	case backup.SourceSystem, backup.SourceCustom:
+	default:
+		return badRequest("Source must be system or custom", nil)
+	}
 	body.Schedule = strings.Join(strings.Fields(body.Schedule), " ")
 	body.Timezone = strings.TrimSpace(body.Timezone)
 	if body.Schedule == "" {
@@ -88,7 +100,11 @@ func (r *backupRoutes) putSettings(c echo.Context) error {
 	}
 
 	if body.Enabled {
-		if err := requireS3Fields(body.S3.Bucket, body.S3.Region, body.S3.AccessKey, body.S3.Secret); err != nil {
+		if body.Source == backup.SourceSystem {
+			if !r.service.SystemAvailable() {
+				return badRequest(backup.ErrSystemUnavailable.Error(), nil)
+			}
+		} else if err := requireS3Fields(body.S3.Bucket, body.S3.Region, body.S3.AccessKey, body.S3.Secret); err != nil {
 			return err
 		}
 		// Prove the destination works whenever it is switched on or changed,
@@ -97,10 +113,11 @@ func (r *backupRoutes) putSettings(c echo.Context) error {
 		if err != nil {
 			return serverError("Failed to load backup settings", err)
 		}
-		if !current.Enabled || current.S3 != body.S3 {
+		changed := current.Source != body.Source || (body.Source == backup.SourceCustom && current.S3 != body.S3)
+		if !current.Enabled || changed {
 			ctx, cancel := context.WithTimeout(c.Request().Context(), backupTestTimeout)
 			defer cancel()
-			if err := r.service.Test(ctx, userID, body.S3); err != nil {
+			if err := r.service.Test(ctx, userID, body.Source, body.S3); err != nil {
 				return badRequest("S3 check failed", err)
 			}
 		}
@@ -119,13 +136,20 @@ func (r *backupRoutes) putSettings(c echo.Context) error {
 
 func (r *backupRoutes) test(c echo.Context) error {
 	userID := auth.CurrentUser(c).ID
-	var body backup.S3Config
+	// The body is the S3 connection, plus the source it belongs to.
+	var body struct {
+		backup.S3Config
+		Source string `json:"source"`
+	}
 	if err := c.Bind(&body); err != nil {
 		return badRequest("Invalid request body", err)
 	}
+	if body.Source == "" {
+		body.Source = backup.SourceCustom
+	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), backupTestTimeout)
 	defer cancel()
-	if err := r.service.Test(ctx, userID, body); err != nil {
+	if err := r.service.Test(ctx, userID, body.Source, body.S3Config); err != nil {
 		return c.JSON(http.StatusOK, map[string]any{"success": false, "message": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]any{"success": true, "message": "Connection works: write, read, list and delete succeeded"})
@@ -222,7 +246,7 @@ func backupError(message string, err error) error {
 		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	case errors.Is(err, backup.ErrNotFound):
 		return notFound(err.Error())
-	case errors.Is(err, backup.ErrDisabled), errors.Is(err, backup.ErrIncomplete), errors.Is(err, backup.ErrInvalidID):
+	case errors.Is(err, backup.ErrDisabled), errors.Is(err, backup.ErrIncomplete), errors.Is(err, backup.ErrInvalidID), errors.Is(err, backup.ErrSystemUnavailable):
 		return badRequest(err.Error(), nil)
 	default:
 		return echo.NewHTTPError(http.StatusBadGateway, message+": "+err.Error())

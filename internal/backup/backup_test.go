@@ -489,13 +489,13 @@ func (m mismatchStore) Get(ctx context.Context, key string) (io.ReadCloser, erro
 func TestConnectionTest(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	if err := f.svc.Test(ctx, f.user.ID, testS3()); err != nil {
+	if err := f.svc.Test(ctx, f.user.ID, SourceCustom, testS3()); err != nil {
 		t.Fatalf("Test: %v", err)
 	}
 	if len(f.mem.Keys()) != 0 {
 		t.Fatalf("probe left behind: %v", f.mem.Keys())
 	}
-	if err := f.svc.Test(ctx, f.user.ID, S3Config{Bucket: " "}); !errors.Is(err, ErrIncomplete) {
+	if err := f.svc.Test(ctx, f.user.ID, SourceCustom, S3Config{Bucket: " "}); !errors.Is(err, ErrIncomplete) {
 		t.Fatalf("incomplete err = %v", err)
 	}
 	cases := map[string]func(){
@@ -509,18 +509,18 @@ func TestConnectionTest(t *testing.T) {
 	for want, setup := range cases {
 		f.mem.FailPut, f.mem.FailGet, f.mem.FailList, f.mem.FailDelete = nil, nil, nil, nil
 		setup()
-		if err := f.svc.Test(ctx, f.user.ID, testS3()); err == nil || !strings.Contains(err.Error(), want) {
+		if err := f.svc.Test(ctx, f.user.ID, SourceCustom, testS3()); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("want %q, got %v", want, err)
 		}
 	}
 	// Map order is random: clear whichever failure the last case set.
 	f.mem.FailPut, f.mem.FailGet, f.mem.FailList, f.mem.FailDelete = nil, nil, nil, nil
 	f.svc.OpenStore = func(S3Config) (ObjectStore, error) { return mismatchStore{f.mem}, nil }
-	if err := f.svc.Test(ctx, f.user.ID, testS3()); err == nil || !strings.Contains(err.Error(), "did not match") {
+	if err := f.svc.Test(ctx, f.user.ID, SourceCustom, testS3()); err == nil || !strings.Contains(err.Error(), "did not match") {
 		t.Fatalf("mismatch err = %v", err)
 	}
 	f.svc.OpenStore = func(S3Config) (ObjectStore, error) { return nil, errors.New("nope") }
-	if err := f.svc.Test(ctx, f.user.ID, testS3()); err == nil || !strings.Contains(err.Error(), "connect: nope") {
+	if err := f.svc.Test(ctx, f.user.ID, SourceCustom, testS3()); err == nil || !strings.Contains(err.Error(), "connect: nope") {
 		t.Fatalf("connect err = %v", err)
 	}
 }
@@ -670,7 +670,7 @@ func TestS3StoreAgainstFakeServer(t *testing.T) {
 	f := newFixture(t)
 	f.svc.OpenStore = NewS3Store
 	f.configure(Settings{Enabled: true, S3: fake.config(), Keep: 1})
-	if err := f.svc.Test(ctx, f.user.ID, fake.config()); err != nil {
+	if err := f.svc.Test(ctx, f.user.ID, SourceCustom, fake.config()); err != nil {
 		t.Fatalf("Test against fake S3: %v", err)
 	}
 	if job := f.backup(); job.Status != StatusSuccess {

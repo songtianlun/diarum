@@ -36,9 +36,11 @@ const (
 
 	DefaultArchivePrefix = "diarum-visits"
 
-	// S3 sources for the archive.
+	// S3 sources for the archive. S3SourceShared (reuse the audit archive's
+	// connection) predates the system S3 and is kept for existing settings.
+	S3SourceSystem = backup.SourceSystem
 	S3SourceShared = "audit"
-	S3SourceCustom = "custom"
+	S3SourceCustom = backup.SourceCustom
 )
 
 // SettingsStore persists the settings.
@@ -76,11 +78,13 @@ type Settings struct {
 // ArchiveSettings configures the S3 archive of finished days.
 type ArchiveSettings struct {
 	Enabled bool `json:"enabled"`
-	// Source is S3SourceShared (reuse the audit archive's connection) or
-	// S3SourceCustom (use S3 below).
+	// Source is S3SourceSystem (the admin-managed system S3, writing to
+	// <global prefix>/visits/), S3SourceCustom (S3 below) or the legacy
+	// S3SourceShared (the audit archive's connection).
 	Source string          `json:"source"`
 	S3     backup.S3Config `json:"s3"`
-	// Prefix is the folder archives are written under, whatever the source.
+	// Prefix is the folder archives are written under for the custom and
+	// shared sources; the system source uses its own folder.
 	Prefix string `json:"prefix"`
 	// RetentionDays is how long archives are kept in the bucket; 0 is forever.
 	RetentionDays int `json:"retention_days"`
@@ -97,7 +101,7 @@ func DefaultSettings() Settings {
 		GlobalFailedPerMinute: DefaultGlobalLimit,
 		OwnerLimitPerMinute:   DefaultOwnerLimit,
 		Archive: ArchiveSettings{
-			Source:        S3SourceShared,
+			Source:        S3SourceSystem,
 			Prefix:        DefaultArchivePrefix,
 			RetentionDays: DefaultArchiveRetentionDays,
 		},
@@ -128,10 +132,10 @@ func (s Settings) Validate() (Settings, error) {
 	}
 	switch s.Archive.Source {
 	case "":
-		s.Archive.Source = S3SourceShared
-	case S3SourceShared, S3SourceCustom:
+		s.Archive.Source = backup.NormalizeSource("", s.Archive.S3.Normalized())
+	case S3SourceSystem, S3SourceShared, S3SourceCustom:
 	default:
-		return s, errors.New("archive source must be audit or custom")
+		return s, errors.New("archive source must be system, audit or custom")
 	}
 	s.Archive.S3 = s.Archive.S3.Normalized()
 	s.Archive.S3.Prefix = ""
@@ -169,7 +173,10 @@ func (s Settings) fillDefaults() Settings {
 	if s.Archive.RetentionDays < 0 || s.Archive.RetentionDays > MaxArchiveRetentionDays {
 		s.Archive.RetentionDays = d.Archive.RetentionDays
 	}
-	if s.Archive.Source != S3SourceCustom {
+	switch s.Archive.Source {
+	case S3SourceSystem, S3SourceCustom:
+	default:
+		// Settings saved before the system S3 existed: missing meant shared.
 		s.Archive.Source = S3SourceShared
 	}
 	s.Archive.S3 = s.Archive.S3.Normalized()
@@ -193,6 +200,7 @@ func (a *archiver) loadSettings() {
 		return
 	}
 	settings := DefaultSettings()
+	settings.Archive.Source = ""
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
 		logger.Error("[Visits] settings are unreadable, using defaults: %v", err)
 		return
@@ -229,6 +237,9 @@ func (t *Tracker) UpdateSettings(next Settings) (Settings, error) {
 	if err != nil {
 		return previous, err
 	}
+	if next.Archive.Enabled && next.Archive.Source == S3SourceSystem && !a.archiveReady(next) {
+		return previous, ErrSystemS3Unavailable
+	}
 	if a.store != nil {
 		raw, err := json.Marshal(next)
 		if err != nil {
@@ -247,10 +258,23 @@ func (t *Tracker) UpdateSettings(next Settings) (Settings, error) {
 // archiveS3 resolves the S3 connection the archive uses, with the visit
 // archive's own prefix. ok is false when no complete connection exists.
 func (a *archiver) archiveS3(s Settings) (cfg backup.S3Config, ok bool) {
-	if s.Archive.Source == S3SourceCustom {
+	switch s.Archive.Source {
+	case S3SourceSystem:
+		if a.system == nil {
+			return backup.S3Config{}, false
+		}
+		cfg, ok = a.system()
+		cfg = cfg.Normalized()
+		if cfg.Prefix == "" {
+			cfg.Prefix = DefaultArchivePrefix
+		}
+		return cfg, ok && cfg.Complete()
+	case S3SourceCustom:
 		cfg = s.Archive.S3
-	} else if a.shared != nil {
-		cfg = a.shared().Normalized()
+	default:
+		if a.shared != nil {
+			cfg = a.shared().Normalized()
+		}
 	}
 	cfg.Prefix = s.Archive.Prefix
 	return cfg, cfg.Complete()
@@ -263,6 +287,26 @@ func (a *archiver) archiveReady(s Settings) bool {
 	}
 	_, ok := a.archiveS3(s)
 	return ok
+}
+
+// UsesSystemS3 reports whether the archive is switched on and uses the
+// system S3.
+func (t *Tracker) UsesSystemS3() bool {
+	if t == nil {
+		return false
+	}
+	s := t.archiver.current()
+	return s.Archive.Enabled && s.Archive.Source == S3SourceSystem
+}
+
+// SystemS3Path returns the folder the archive writes to on the system S3,
+// e.g. "diarum/visits/"; ok is false while the system S3 is not configured.
+func (t *Tracker) SystemS3Path() (path string, ok bool) {
+	if t == nil {
+		return "", false
+	}
+	target, ok := t.archiver.archiveS3(Settings{Archive: ArchiveSettings{Source: S3SourceSystem}})
+	return archivePrefix(target), ok
 }
 
 // SharedS3Available reports whether the audit archive has a complete S3

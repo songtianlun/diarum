@@ -48,10 +48,12 @@ const (
 // Errors returned by archive operations.
 var (
 	ErrArchiveDisabled = errors.New("the visit archive is not enabled or has no complete S3 connection")
-	ErrArchiveNotFound = errors.New("no archive for this day")
-	ErrInvalidDay      = errors.New("invalid day, expected YYYY-MM-DD")
-	ErrCapacity        = errors.New("pulling these archives would exceed the record limit; unload pulled records or raise the limit first")
-	ErrBusy            = errors.New("another archive operation is running")
+	// ErrSystemS3Unavailable: the archive uses the system S3 but none is set up.
+	ErrSystemS3Unavailable = errors.New("the system S3 storage is not configured; set it up under Admin → S3 storage or choose a custom S3")
+	ErrArchiveNotFound     = errors.New("no archive for this day")
+	ErrInvalidDay          = errors.New("invalid day, expected YYYY-MM-DD")
+	ErrCapacity            = errors.New("pulling these archives would exceed the record limit; unload pulled records or raise the limit first")
+	ErrBusy                = errors.New("another archive operation is running")
 )
 
 // RunReport describes one archive or cleanup run.
@@ -106,6 +108,7 @@ type archiver struct {
 	t       *Tracker
 	store   SettingsStore
 	shared  SharedS3Func
+	system  backup.SystemS3Func
 	factory ObjectStoreFactory
 
 	mu       sync.Mutex
@@ -121,11 +124,11 @@ type archiver struct {
 	doneCh   chan struct{}
 }
 
-func newArchiver(t *Tracker, store SettingsStore, shared SharedS3Func, factory ObjectStoreFactory) *archiver {
+func newArchiver(t *Tracker, store SettingsStore, shared SharedS3Func, system backup.SystemS3Func, factory ObjectStoreFactory) *archiver {
 	if factory == nil {
 		factory = backup.NewS3Store
 	}
-	a := &archiver{t: t, store: store, shared: shared, factory: factory, settings: DefaultSettings(), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+	a := &archiver{t: t, store: store, shared: shared, system: system, factory: factory, settings: DefaultSettings(), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 	a.loadSettings()
 	return a
 }
@@ -445,32 +448,34 @@ func (t *Tracker) trimToCap(limit int) (int64, error) {
 	return trimmed, nil
 }
 
-func archivePrefix(s Settings) string {
-	prefix := backup.NormalizePrefix(s.Archive.Prefix)
+// archivePrefix is the folder of a resolved target, with a trailing slash.
+func archivePrefix(target backup.S3Config) string {
+	prefix := backup.NormalizePrefix(target.Prefix)
 	if prefix == "" {
 		prefix = DefaultArchivePrefix
 	}
 	return prefix + "/"
 }
 
-func archiveKey(s Settings, day string) string {
-	return archivePrefix(s) + day[:4] + "/" + day + archiveSuffix
+func archiveKey(target backup.S3Config, day string) string {
+	return archivePrefix(target) + day[:4] + "/" + day + archiveSuffix
 }
 
-func (a *archiver) connect(s Settings) (backup.ObjectStore, error) {
+func (a *archiver) connect(s Settings) (backup.ObjectStore, backup.S3Config, error) {
 	cfg, ok := a.archiveS3(s)
 	if !ok {
-		return nil, ErrArchiveDisabled
+		return nil, cfg, ErrArchiveDisabled
 	}
-	return a.factory(cfg)
+	store, err := a.factory(cfg)
+	return store, cfg, err
 }
 
 func (a *archiver) listArchive(ctx context.Context, s Settings) ([]ArchiveInfo, backup.ObjectStore, error) {
-	store, err := a.connect(s)
+	store, target, err := a.connect(s)
 	if err != nil {
 		return nil, nil, err
 	}
-	prefix := archivePrefix(s)
+	prefix := archivePrefix(target)
 	objects, err := store.List(ctx, prefix)
 	if err != nil {
 		return nil, nil, err
@@ -485,7 +490,7 @@ func (a *archiver) listArchive(ctx context.Context, s Settings) ([]ArchiveInfo, 
 			continue
 		}
 		day := strings.TrimSuffix(name, archiveSuffix)
-		if !validDay(day) || obj.Key != archiveKey(s, day) {
+		if !validDay(day) || obj.Key != archiveKey(target, day) {
 			continue
 		}
 		out = append(out, ArchiveInfo{Day: day, Key: obj.Key, Size: obj.Size})
@@ -526,7 +531,8 @@ func (a *archiver) upload(ctx context.Context, store backup.ObjectStore, s Setti
 		}
 		writer.CloseWithError(err)
 	}()
-	err = store.Put(ctx, archiveKey(s, day), reader, "application/gzip")
+	target, _ := a.archiveS3(s)
+	err = store.Put(ctx, archiveKey(target, day), reader, "application/gzip")
 	reader.CloseWithError(err)
 	return err
 }
@@ -771,16 +777,18 @@ func (t *Tracker) Unload(day string) (int64, error) {
 }
 
 // TestArchive checks that the bucket can be listed, written and cleaned up.
-// cfg is used for the custom source; the shared source uses the audit
-// archive's connection.
+// cfg and prefix are used for the custom source; the system source uses the
+// system S3 and the legacy shared source the audit archive's connection.
 func (t *Tracker) TestArchive(ctx context.Context, source string, cfg backup.S3Config, prefix string) error {
 	if t == nil {
 		return errClosed
 	}
 	current := t.archiver.current()
 	s := Settings{Archive: ArchiveSettings{Source: source, S3: cfg.Normalized(), Prefix: prefix}}
-	if s.Archive.Source != S3SourceCustom {
-		s.Archive.Source = S3SourceShared
+	switch s.Archive.Source {
+	case S3SourceSystem, S3SourceShared, S3SourceCustom:
+	default:
+		s.Archive.Source = S3SourceSystem
 	}
 	if s.Archive.S3.Secret == "" {
 		s.Archive.S3.Secret = current.Archive.S3.Secret
@@ -788,17 +796,20 @@ func (t *Tracker) TestArchive(ctx context.Context, source string, cfg backup.S3C
 	if s.Archive.Prefix = backup.NormalizePrefix(prefix); s.Archive.Prefix == "" {
 		s.Archive.Prefix = DefaultArchivePrefix
 	}
-	store, err := t.archiver.connect(s)
+	store, target, err := t.archiver.connect(s)
 	if err != nil {
 		if errors.Is(err, ErrArchiveDisabled) {
-			if s.Archive.Source == S3SourceShared {
+			switch s.Archive.Source {
+			case S3SourceSystem:
+				return ErrSystemS3Unavailable
+			case S3SourceShared:
 				return errors.New("the audit archive has no complete S3 connection to reuse")
 			}
 			return errors.New("bucket, region, access key and secret are required")
 		}
 		return err
 	}
-	p := archivePrefix(s)
+	p := archivePrefix(target)
 	if _, err := store.List(ctx, p); err != nil {
 		return fmt.Errorf("list: %w", err)
 	}

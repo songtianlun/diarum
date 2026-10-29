@@ -29,6 +29,7 @@ import (
 	"github.com/songtianlun/diarum/internal/medialib"
 	"github.com/songtianlun/diarum/internal/static"
 	"github.com/songtianlun/diarum/internal/store"
+	"github.com/songtianlun/diarum/internal/systems3"
 	"github.com/songtianlun/diarum/internal/visits"
 )
 
@@ -153,8 +154,12 @@ func run(args []string, stdout io.Writer) error {
 
 	// The audit trail is best effort: if its directory cannot be created the
 	// app still runs, just without recording.
+	// The system S3 an admin configures once; the audit archive, the visit
+	// archive and user backups can each choose it.
+	systemS3 := systems3.New(appStore, nil)
+
 	audit.RemoveLegacy(appStore.DataDir)
-	auditLog, err := audit.New(appStore.DataDir, audit.Options{Settings: appStore})
+	auditLog, err := audit.New(appStore.DataDir, audit.Options{Settings: appStore, SystemS3: systemS3.Func(systems3.FolderAudit)})
 	if err != nil {
 		logger.Error("[AUDIT] !!! audit logging disabled: %v", err)
 	} else {
@@ -165,9 +170,12 @@ func run(args []string, stdout io.Writer) error {
 
 	// Diary visit tracking keeps its own database; like the audit trail it
 	// is best effort and the app runs without it.
-	visitOpts := visits.Options{Settings: appStore}
+	visitOpts := visits.Options{Settings: appStore, SystemS3: systemS3.Func(systems3.FolderVisits)}
 	if auditLog != nil {
-		visitOpts.SharedS3 = func() backup.S3Config { return auditLog.Settings().Archive.S3 }
+		visitOpts.SharedS3 = func() backup.S3Config {
+			cfg, _ := auditLog.ArchiveTarget()
+			return cfg
+		}
 	}
 	visitTracker, err := visits.New(appStore.DataDir, visitOpts)
 	if err != nil {
@@ -221,6 +229,7 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterExportImportRoutes(e, appStore, authMiddleware, embeddingService)
 	backupService := backup.NewService(appStore, Version)
 	backupService.OnRestored = onDiaryChanged
+	backupService.SystemS3 = systemS3.UserBackups
 	backupScheduler := backup.NewScheduler(backupService)
 	backupScheduler.Start(context.Background())
 	api.RegisterBackupRoutes(e, appStore, authMiddleware, backupService, backupScheduler)
@@ -231,6 +240,7 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterAdminRoutes(e, appStore, authMiddleware, auditLog, Version)
 	api.RegisterVisitRoutes(e, appStore, authMiddleware, visitTracker)
 	api.RegisterAdminVisitRoutes(e, appStore, authMiddleware, visitTracker)
+	api.RegisterAdminS3Routes(e, authMiddleware, systemS3, auditLog, visitTracker)
 	api.RegisterVersionRoutes(e, Version, Name)
 	if logger.GetLevel() <= logger.LevelDebug {
 		api.RegisterOpenAPIRoutes(e, Version, Name)

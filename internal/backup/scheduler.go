@@ -150,7 +150,7 @@ func (sc *Scheduler) Reload(userID string) {
 func (sc *Scheduler) load(userID string) {
 	settings, err := LoadSettings(sc.svc.config, userID)
 	var schedule *Schedule
-	if err == nil && settings.Enabled && settings.AutoEnabled && settings.S3.Complete() {
+	if err == nil && settings.Enabled && settings.AutoEnabled && (settings.Source == SourceSystem || settings.S3.Complete()) {
 		schedule, err = ParseSchedule(settings.Schedule, settings.Timezone)
 		if err != nil {
 			logger.Warn("[Backup] ignoring invalid schedule of %s: %v", userID, err)
