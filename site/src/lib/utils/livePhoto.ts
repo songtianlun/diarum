@@ -36,7 +36,15 @@ export const LIVE_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 /** Largest source file read for an embedded clip (a still plus its video). */
 export const LIVE_SOURCE_MAX_BYTES = 120 * 1024 * 1024;
 
-const VIDEO_EXTENSION = /\.(mov|mp4|m4v|qt)$/i;
+const VIDEO_EXTENSION = /\.(mov|mp4|m4v|qt|webm|ogv)$/i;
+// Live photo clips are MP4/QuickTime and about three seconds long, a few
+// megabytes even in 4K: a bigger video is a video of its own.
+const LIVE_CLIP_EXTENSION = /\.(mov|mp4|m4v|qt)$/i;
+const LIVE_PAIR_MAX_BYTES = 20 * 1024 * 1024;
+
+function mayBeLiveClip(video: File): boolean {
+	return video.size <= LIVE_PAIR_MAX_BYTES && (LIVE_CLIP_EXTENSION.test(video.name) || /^video\/(mp4|quicktime)$/.test(video.type));
+}
 const HEIC_EXTENSION = /\.(heic|heif|hif)$/i;
 const IMAGE_EXTENSION = /\.(jpe?g|png|gif|webp|svg|heic|heif|hif)$/i;
 
@@ -78,14 +86,15 @@ export interface UploadSource {
 /**
  * Groups picked or dropped files into uploads: each image with the video of
  * the same name (an Apple Live Photo), and a lone image with a lone video.
- * Videos that pair with nothing are returned separately; they are not
- * uploaded on their own.
+ * Videos that pair with nothing are returned separately, to be uploaded as
+ * videos of their own.
  */
 export function groupLiveFiles(files: File[]): { sources: UploadSource[]; strayVideos: File[] } {
 	const images = files.filter((file) => !isVideoFile(file) && isImageFile(file));
 	const videos = files.filter(isVideoFile);
+	const clips = videos.filter(mayBeLiveClip);
 	const videosByStem = new Map<string, File>();
-	for (const video of videos) {
+	for (const video of clips) {
 		const key = stem(video.name).toLowerCase();
 		if (key && !videosByStem.has(key)) videosByStem.set(key, video);
 	}
@@ -102,7 +111,7 @@ export function groupLiveFiles(files: File[]): { sources: UploadSource[]; strayV
 
 	let strayVideos = videos.filter((video) => !used.has(video));
 	const unpaired = sources.filter((source) => !source.video);
-	if (unpaired.length === 1 && strayVideos.length === 1) {
+	if (unpaired.length === 1 && strayVideos.length === 1 && mayBeLiveClip(strayVideos[0])) {
 		unpaired[0].video = strayVideos[0];
 		strayVideos = [];
 	}

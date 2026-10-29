@@ -275,7 +275,7 @@
 									aria-pressed={selecting && item.managed ? isSelected : undefined}
 								>
 									<div class="w-full h-full transition-transform duration-150 {isSelected ? 'scale-[0.92] rounded-md overflow-hidden' : ''}">
-										<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} live={!!item.live} />
+										<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} live={!!item.live} video={!!item.video} />
 									</div>
 									<div class="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"></div>
 									{#if selecting && item.managed}
@@ -336,7 +336,7 @@
 
 {#if viewerOpen && state.items.length > 0}
 	<Lightbox
-		items={state.items.map((item) => ({ src: item.src, thumb: item.thumb, title: item.title, live: item.live }))}
+		items={state.items.map((item) => ({ src: item.src, thumb: item.thumb, title: item.title, live: item.live, video: item.video, poster: item.poster }))}
 		bind:index={viewerIndex}
 		onClose={closeViewer}
 		hasInfo

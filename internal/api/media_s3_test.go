@@ -28,6 +28,8 @@ type fakeS3 struct {
 	bucket  string
 	objects map[string][]byte
 	types   map[string]string
+	// ranges counts ranged GETs ("bytes=N-", the only form supported).
+	ranges int
 }
 
 func newFakeS3(t *testing.T, bucket string) (*fakeS3, *httptest.Server) {
@@ -60,6 +62,15 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodGet {
 				_, _ = io.WriteString(w, `<Error><Code>NoSuchKey</Code></Error>`)
 			}
+			return
+		}
+		if from, ok := strings.CutPrefix(r.Header.Get("Range"), "bytes="); ok && r.Method == http.MethodGet {
+			start, _ := strconv.Atoi(strings.TrimSuffix(from, "-"))
+			f.ranges++
+			w.Header().Set("Content-Range", "bytes "+strconv.Itoa(start)+"-"+strconv.Itoa(len(body)-1)+"/"+strconv.Itoa(len(body)))
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)-start))
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write(body[start:])
 			return
 		}
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))

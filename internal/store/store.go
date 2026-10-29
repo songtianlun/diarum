@@ -136,6 +136,14 @@ type Media struct {
 	// Live is the file name of the clip that makes the image a live photo
 	// (photo.live.mp4, stored beside it); empty for a plain still.
 	Live string `json:"live,omitempty"`
+	// Poster is the file name of a video's poster frame (clip.poster.jpg,
+	// stored beside it); empty for images and videos without one.
+	Poster string `json:"poster,omitempty"`
+}
+
+// IsVideo reports whether the media is a video rather than an image.
+func (m *Media) IsVideo() bool {
+	return m != nil && imaging.IsVideo(m.File)
 }
 
 // InTrash reports whether the image has been moved to the trash.
@@ -1338,7 +1346,7 @@ func scanMedia(row interface{ Scan(dest ...any) error }) (*Media, error) {
 	var diaryRaw string
 	media := &Media{}
 	err := row.Scan(&media.Alt, &media.Created, &media.File, &media.ID, &media.Name, &media.Owner, &media.Updated, &diaryRaw,
-		&media.Date, &media.Storage, &media.Deleted, &media.DeletedBy, &media.DeleteReason, &media.DeleteTrigger, &media.S3Prefix, &media.Live)
+		&media.Date, &media.Storage, &media.Deleted, &media.DeletedBy, &media.DeleteReason, &media.DeleteTrigger, &media.S3Prefix, &media.Live, &media.Poster)
 	if err != nil {
 		return nil, err
 	}
@@ -1746,7 +1754,8 @@ func (s *Store) SaveUploadedMedia(media *Media, reader io.Reader) error {
 		}
 		return s.setMediaStorage(media, MediaStorageS3, cfg.Prefix)
 	}
-	if s.imageUploadProvider(media.Owner) == "chevereto" {
+	// Chevereto hosts images only: videos of its users are kept by Diarum.
+	if s.imageUploadProvider(media.Owner) == "chevereto" && !media.IsVideo() {
 		return fmt.Errorf("chevereto uploads must use the chevereto upload endpoint")
 	}
 	if err := s.SaveUploadedFile(filepath.Join(s.userLocalMediaDir(media.Owner), media.ID, media.File), reader); err != nil {
@@ -1850,8 +1859,8 @@ func (s *Store) OpenMediaFile(media *Media) (io.ReadCloser, error) {
 	return s.openMediaFromS3(s.legacyS3Client, s.LegacyS3, media)
 }
 
-// DeleteMediaFile removes a media file and, best effort, its variants and
-// live photo clip.
+// DeleteMediaFile removes a media file and, best effort, its variants, live
+// photo clip and video poster.
 func (s *Store) DeleteMediaFile(media *Media) error {
 	err := s.deleteMediaObject(media)
 	if media != nil && imaging.Supported(media.File) {
@@ -1861,6 +1870,9 @@ func (s *Store) DeleteMediaFile(media *Media) error {
 	}
 	if live := LiveMedia(media); live != nil {
 		_ = s.deleteMediaObject(live)
+	}
+	if poster := PosterMedia(media); poster != nil {
+		_ = s.deleteMediaObject(poster)
 	}
 	return err
 }

@@ -13,6 +13,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/songtianlun/diarum/internal/imaging"
 )
 
 const (
@@ -20,8 +22,11 @@ const (
 	FormatVersion = 1
 	// ManifestName is the manifest's path inside the archive.
 	ManifestName = "diarum_export.json"
-	// MaxMediaFileSize caps a single media file accepted on import.
-	MaxMediaFileSize = 100 << 20
+	// MaxMediaFileSize caps a single media file accepted on import: a video;
+	// images are capped lower (maxImportImageSize).
+	MaxMediaFileSize = imaging.MaxVideoBytes
+	// maxImportImageSize caps an image accepted on import.
+	maxImportImageSize = 100 << 20
 
 	dateLayout = "2006-01-02"
 	batchSize  = 500
@@ -75,7 +80,10 @@ type Media struct {
 	// Live and LivePath name a live photo's clip and its archive entry.
 	Live     string `json:"live,omitempty"`
 	LivePath string `json:"livePath,omitempty"`
-	Owner    string `json:"-"`
+	// Poster and PosterPath name a video's poster frame and its archive entry.
+	Poster     string `json:"poster,omitempty"`
+	PosterPath string `json:"posterPath,omitempty"`
+	Owner      string `json:"-"`
 }
 
 type Conversation struct {

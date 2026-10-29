@@ -2,7 +2,8 @@ import { pb } from '$lib/api/client';
 import type { Media, UploadProgress } from '$lib/api/client';
 import { get } from 'svelte/store';
 import { imageUploadSettings, loadImageUploadSettings, isImageUploadLoaded } from '$lib/stores/imageUpload';
-import { isHeicFile, LIVE_SOURCE_MAX_BYTES } from '$lib/utils/livePhoto';
+import { isHeicFile, isVideoFile, LIVE_SOURCE_MAX_BYTES } from '$lib/utils/livePhoto';
+import { validateVideoFile } from '$lib/utils/video';
 
 export const IMAGE_UPLOAD_LIMITS = {
 	maxSize: 50 * 1024 * 1024, // must match the backend media limit
@@ -13,6 +14,8 @@ export interface UploadOptions {
 	alt?: string;
 	/** The clip of a live photo, stored with the image (built-in library only). */
 	live?: File;
+	/** A video's poster frame (videos only). */
+	poster?: File;
 	onProgress?: (progress: UploadProgress) => void;
 	signal?: AbortSignal;
 }
@@ -133,13 +136,14 @@ function postForm<T>(url: string, form: FormData, options: UploadOptions): Promi
 }
 
 /**
- * Upload an image to the active provider: the built-in media library (local
+ * Upload an image or a video to the active provider: the built-in media library (local
  * or S3) or Chevereto. Built-in uploads are linked to their diary by the
  * server when the entry is saved with the image in it, so no entry has to
  * exist yet.
  */
 export async function uploadImage(file: File, options: UploadOptions = {}): Promise<Media | CheveretoUploadResult> {
-	const invalid = validateImageFile(file);
+	const video = isVideoFile(file);
+	const invalid = video ? validateVideoFile(file) : validateImageFile(file);
 	if (invalid) {
 		throw new Error(invalid);
 	}
@@ -149,7 +153,8 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 	}
 	const settings = get(imageUploadSettings);
 
-	if (settings.provider === 'chevereto') {
+	// Chevereto hosts images only; videos always go to the built-in library.
+	if (settings.provider === 'chevereto' && !video) {
 		const form = new FormData();
 		form.append('source', file);
 		const result = await postForm<{ url?: string }>('/api/v1/chevereto/upload', form, options);
@@ -165,8 +170,11 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
 	if (options.alt) {
 		form.append('alt', options.alt);
 	}
-	if (options.live) {
+	if (options.live && !video) {
 		form.append('live', options.live, options.live.name || 'live.mp4');
+	}
+	if (options.poster && video) {
+		form.append('poster', options.poster, options.poster.name || 'poster.jpg');
 	}
 	return await postForm<Media>('/api/v1/media', form, options);
 }
@@ -184,6 +192,12 @@ export function getMediaUrl(media: Media, thumb?: string): string {
 
 	const url = `/api/v1/files/media/${encodeURIComponent(media.id)}/${encodeURIComponent(media.file)}`;
 	return thumb ? `${url}?thumb=${encodeURIComponent(thumb)}` : url;
+}
+
+/** The URL of a video's poster frame, or null when it has none. */
+export function getMediaPosterUrl(media: Media): string | null {
+	if (!media.id || !media.poster) return null;
+	return `/api/v1/files/media/${encodeURIComponent(media.id)}/${encodeURIComponent(media.poster)}`;
 }
 
 /** The URL of a media record's live photo clip, or null when it has none. */

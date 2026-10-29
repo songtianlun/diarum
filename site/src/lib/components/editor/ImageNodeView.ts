@@ -19,11 +19,29 @@ export interface ImageInsert {
 	title?: string;
 	/** The clip of a live photo. */
 	live?: string;
+	/** Set when `src` is a video. */
+	video?: boolean;
+	/** A video's poster frame. */
+	poster?: string;
 }
 
-/** Node attributes for an image to insert. */
-function insertAttrs({ live, ...image }: ImageInsert): Record<string, any> {
+/** Node attributes for an image or video to insert. */
+function insertAttrs({ live, video, poster, ...image }: ImageInsert): Record<string, any> {
+	if (video) return { ...image, 'data-media-type': 'video', poster: poster || null };
 	return live ? { ...image, 'data-live-video': live } : image;
+}
+
+/** Attributes of the <video> element a video node is saved and shown as. */
+function videoAttrs(attrs: Record<string, any>): Record<string, string> {
+	const out: Record<string, string> = { src: attrs.src, controls: '', preload: 'metadata', playsinline: '' };
+	if (attrs.poster) out.poster = attrs.poster;
+	if (attrs.title) out.title = attrs.title;
+	if (attrs.alt) out['aria-label'] = attrs.alt;
+	return out;
+}
+
+function isVideoNode(attrs: Record<string, any>): boolean {
+	return attrs['data-media-type'] === 'video' && attrs['data-uploading'] !== 'true';
 }
 
 declare module '@tiptap/core' {
@@ -33,7 +51,7 @@ declare module '@tiptap/core' {
 			insertImages: (images: ImageInsert[]) => ReturnType;
 			insertUploadPlaceholders: (placeholders: { id: string; src: string; alt?: string }[]) => ReturnType;
 			removePlaceholder: (id: string) => ReturnType;
-			replacePlaceholderWithImage: (options: { id: string; src: string; alt?: string; live?: string }) => ReturnType;
+			replacePlaceholderWithImage: (options: { id: string; src: string; alt?: string; live?: string; video?: boolean; poster?: string }) => ReturnType;
 		};
 	}
 }
@@ -126,14 +144,36 @@ export const ImageExtension = Node.create<ImageOptions>({
 			'data-live-mode': {
 				default: null,
 			},
+			// Videos share the node: same uploads, library and placement, but
+			// saved as <video src poster controls>.
+			'data-media-type': {
+				default: null,
+				parseHTML: (element) => (element.tagName === 'VIDEO' ? 'video' : null),
+				renderHTML: () => ({}),
+			},
+			poster: {
+				default: null,
+			},
 		};
 	},
 
 	parseHTML() {
-		return [{ tag: 'img[src]' }];
+		return [
+			{ tag: 'img[src]' },
+			{
+				tag: 'video',
+				getAttrs: (element) => {
+					const video = element as HTMLElement;
+					const src = video.getAttribute('src') || video.querySelector('source[src]')?.getAttribute('src');
+					if (!src) return false;
+					return { src, alt: video.getAttribute('aria-label'), title: video.getAttribute('title') };
+				},
+			},
+		];
 	},
 
-	renderHTML({ HTMLAttributes }) {
+	renderHTML({ node, HTMLAttributes }) {
+		if (isVideoNode(node.attrs)) return ['video', videoAttrs(node.attrs)];
 		return ['img', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes)];
 	},
 
@@ -145,6 +185,8 @@ export const ImageExtension = Node.create<ImageOptions>({
 			wrapper.appendChild(img);
 
 			let currentNode = node;
+			// The player of a video node, shown in place of the image.
+			let video: HTMLVideoElement | null = null;
 			let unsubscribe: (() => void) | null = null;
 			let overlay: HTMLDivElement | null = null;
 			let live: LivePhoto | null = null;
@@ -225,6 +267,40 @@ export const ImageExtension = Node.create<ImageOptions>({
 				const immediate = displaySrcSync(original);
 				if (immediate === original) load(original);
 				else void resolveDisplaySrc(original).then(load);
+			};
+
+			// Switches the node between showing the image and the video player.
+			const showVideo = (attrs: Record<string, any> | null) => {
+				if (!attrs) {
+					if (!video) return;
+					video.pause();
+					video.remove();
+					video = null;
+					wrapper.classList.remove('is-video', 'is-error');
+					wrapper.prepend(img);
+					return;
+				}
+				if (!video) {
+					video = el('video');
+					video.controls = true;
+					video.preload = 'metadata';
+					video.playsInline = true;
+					video.draggable = false;
+					video.addEventListener('error', () => wrapper.classList.add('is-error'));
+					video.addEventListener('loadedmetadata', () => wrapper.classList.remove('is-error'));
+					img.remove();
+					wrapper.prepend(video);
+					wrapper.classList.add('is-video');
+					shownOriginal = null;
+				}
+				for (const [key, value] of Object.entries(videoAttrs(attrs))) {
+					if (key !== 'src' && video.getAttribute(key) !== value) video.setAttribute(key, value);
+				}
+				if (!attrs.poster) video.removeAttribute('poster');
+				if (video.getAttribute('src') !== attrs.src) {
+					wrapper.classList.remove('is-error');
+					video.src = attrs.src;
+				}
 			};
 
 			const tools = el('div', 'image-tools');
@@ -312,7 +388,7 @@ export const ImageExtension = Node.create<ImageOptions>({
 			});
 
 			wrapper.addEventListener('dblclick', (event) => {
-				if (wrapper.classList.contains('is-pending') || wrapper.classList.contains('is-error')) return;
+				if (video || wrapper.classList.contains('is-pending') || wrapper.classList.contains('is-error')) return;
 				if ((event.target as HTMLElement).closest('.image-url-editor, .image-tools')) return;
 				event.preventDefault();
 				openLightboxFor(img, editor.view.dom);
@@ -405,11 +481,18 @@ export const ImageExtension = Node.create<ImageOptions>({
 					const preview = this.options.getUploadQueue()?.get(pendingId)?.previewUrl || next.attrs.src;
 					if (img.getAttribute('src') !== preview) img.src = preview;
 					shownOriginal = null;
+					showVideo(null);
 					syncLive(null);
 					return;
 				}
 
 				if (wasPending) clearOverlay(true);
+				if (isVideoNode(next.attrs) && next.attrs.src) {
+					syncLive(null);
+					showVideo(next.attrs);
+					return;
+				}
+				showVideo(null);
 				if (next.attrs.src && shownOriginal !== next.attrs.src) {
 					showImage(next.attrs.src, wasPending);
 				}
@@ -431,7 +514,8 @@ export const ImageExtension = Node.create<ImageOptions>({
 				// Clicks and typing in our controls belong to them, not to ProseMirror.
 				stopEvent: (event) => {
 					const target = event.target as HTMLElement | null;
-					return !!target?.closest('button, .image-url-editor, .live-controls');
+					// The video's own controls (play, seek, volume) too.
+					return !!target?.closest('button, .image-url-editor, .live-controls, video');
 				},
 				// Our own class/overlay changes must not make ProseMirror redraw the node.
 				ignoreMutation: (mutation) => mutation.type !== 'selection',
@@ -443,6 +527,12 @@ export const ImageExtension = Node.create<ImageOptions>({
 					unsubscribe = null;
 					live?.destroy();
 					live = null;
+					if (video) {
+						video.pause();
+						video.removeAttribute('src');
+						video.load();
+						video = null;
+					}
 				},
 			};
 		};
@@ -517,7 +607,9 @@ export const ImageExtension = Node.create<ImageOptions>({
 							...found.node.attrs,
 							src: options.src,
 							alt: options.alt || null,
-							'data-live-video': options.live || null,
+							'data-live-video': options.video ? null : options.live || null,
+							'data-media-type': options.video ? 'video' : null,
+							poster: options.video ? options.poster || null : null,
 							'data-uploading': null,
 							'data-placeholder-id': null,
 						});

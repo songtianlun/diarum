@@ -293,6 +293,9 @@ func (e *exporter) eachMedia(fn func(Media) error) error {
 			if m.Live != "" {
 				item.Live, item.LivePath = m.Live, "media/"+m.ID+"/"+store.SafeFilename(m.Live)
 			}
+			if m.Poster != "" {
+				item.Poster, item.PosterPath = m.Poster, "media/"+m.ID+"/"+store.SafeFilename(m.Poster)
+			}
 			if err := fn(item); err != nil {
 				return err
 			}
@@ -321,7 +324,8 @@ func (e *exporter) writeMarkdown() error {
 	})
 }
 
-// writeMediaFile copies one media file, and its live photo clip if any, into
+// writeMediaFile copies one media file, and its live photo clip or video
+// poster if any, into
 // the archive. A file that cannot be read is recorded as failed; an error
 // means the archive is broken.
 func (e *exporter) writeMediaFile(m Media) error {
@@ -332,6 +336,11 @@ func (e *exporter) writeMediaFile(m Media) error {
 	e.stats.Media.ActualExported++
 	if m.Live != "" {
 		if _, err := e.copyMediaObject(m, m.Live, m.LivePath); err != nil {
+			return err
+		}
+	}
+	if m.Poster != "" {
+		if _, err := e.copyMediaObject(m, m.Poster, m.PosterPath); err != nil {
 			return err
 		}
 	}

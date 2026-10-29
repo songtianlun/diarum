@@ -237,8 +237,13 @@ func (im *importer) importMedia(m Media) error {
 	defer rc.Close()
 	body := bufio.NewReaderSize(rc, 4096)
 	head, _ := body.Peek(1024)
-	if detected, allowed := config.IsAllowedMediaType(head); !allowed {
+	filename := store.SafeFilename(m.File)
+	if container := imaging.DetectVideo(head); container != "" {
+		filename = imaging.VideoFilename(filename, container)
+	} else if detected, allowed := config.IsAllowedMediaType(head); !allowed {
 		return fmt.Errorf("disallowed MIME type %s", detected)
+	} else if f.UncompressedSize64 > maxImportImageSize {
+		return fmt.Errorf("image is larger than %d bytes", maxImportImageSize)
 	}
 
 	diaries := make([]string, 0, len(m.Diary))
@@ -247,7 +252,7 @@ func (im *importer) importMedia(m Media) error {
 			diaries = append(diaries, newID)
 		}
 	}
-	media, err := im.s.CreateMedia(im.userID, store.SafeFilename(m.File), m.Name, m.Alt, diaries)
+	media, err := im.s.CreateMedia(im.userID, filename, m.Name, m.Alt, diaries)
 	if err != nil {
 		return err
 	}
@@ -257,8 +262,36 @@ func (im *importer) importMedia(m Media) error {
 		_ = im.s.DeleteMedia(media.ID, im.userID)
 		return err
 	}
-	im.importLive(m, media)
+	if media.IsVideo() {
+		im.importPoster(m, media)
+	} else {
+		im.importLive(m, media)
+	}
 	return nil
+}
+
+// importPoster restores the poster frame of a video. The video is imported
+// either way: without its poster, it still plays.
+func (im *importer) importPoster(m Media, media *store.Media) {
+	f, ok := im.files[m.PosterPath]
+	if m.PosterPath == "" || !ok {
+		return
+	}
+	rc, err := f.Open()
+	if err != nil {
+		logger.Warn("[Import] media %s poster failed: %v", m.ID, err)
+		return
+	}
+	defer rc.Close()
+	body := bufio.NewReaderSize(rc, 4096)
+	head, _ := body.Peek(512)
+	if detected, allowed := config.IsAllowedMediaType(head); !allowed || detected == "image/svg+xml" {
+		logger.Warn("[Import] media %s poster is not an image", m.ID)
+		return
+	}
+	if err := im.s.SaveMediaPoster(media, body); err != nil {
+		logger.Warn("[Import] media %s poster failed: %v", m.ID, err)
+	}
 }
 
 // importLive restores the clip of a live photo. The still is imported

@@ -102,7 +102,7 @@
 	function preloadNeighbours() {
 		for (const offset of [1, -1]) {
 			const neighbour = items[index + offset];
-			if (neighbour) new Image().src = neighbour.src;
+			if (neighbour && !neighbour.video) new Image().src = neighbour.src;
 		}
 	}
 
@@ -165,6 +165,8 @@
 
 	function handlePointerDown(event: PointerEvent) {
 		if (event.button !== 0 && event.pointerType === 'mouse') return;
+		// A video's own controls take its pointer events (no zoom or swipe).
+		if (event.target instanceof HTMLVideoElement) return;
 		startedOnBackground = event.target === stage;
 		stage.setPointerCapture(event.pointerId);
 		pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -254,6 +256,8 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
+		// Keys go to a focused video's controls (seek, volume), Escape aside.
+		if (event.target instanceof HTMLVideoElement && event.key !== 'Escape') return;
 		switch (event.key) {
 			case 'Escape':
 				event.preventDefault();
@@ -309,15 +313,17 @@
 				{#if items.length > 1}{index + 1} / {items.length}{/if}
 			</div>
 			<div class="lightbox-tools">
-				<button type="button" class="lb-btn" on:click={() => zoomBy(1 / 1.5)} disabled={!zoomed} title="Zoom out (-)" aria-label="Zoom out">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path stroke-linecap="round" d="M8 11h6M20 20l-3.5-3.5" /></svg>
-				</button>
-				<button type="button" class="lb-scale" on:click={() => resetView()} title="Reset zoom (0)">
-					{Math.round(scale * 100)}%
-				</button>
-				<button type="button" class="lb-btn" on:click={() => zoomBy(1.5)} disabled={scale >= MAX_SCALE} title="Zoom in (+)" aria-label="Zoom in">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path stroke-linecap="round" d="M8 11h6M11 8v6M20 20l-3.5-3.5" /></svg>
-				</button>
+				{#if !item.video}
+					<button type="button" class="lb-btn" on:click={() => zoomBy(1 / 1.5)} disabled={!zoomed} title="Zoom out (-)" aria-label="Zoom out">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path stroke-linecap="round" d="M8 11h6M20 20l-3.5-3.5" /></svg>
+					</button>
+					<button type="button" class="lb-scale" on:click={() => resetView()} title="Reset zoom (0)">
+						{Math.round(scale * 100)}%
+					</button>
+					<button type="button" class="lb-btn" on:click={() => zoomBy(1.5)} disabled={scale >= MAX_SCALE} title="Zoom in (+)" aria-label="Zoom in">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7" /><path stroke-linecap="round" d="M8 11h6M11 8v6M20 20l-3.5-3.5" /></svg>
+					</button>
+				{/if}
 				{#if item.live}
 					<button
 						type="button"
@@ -361,55 +367,79 @@
 			on:pointercancel={handlePointerUp}
 			on:dragstart|preventDefault
 		>
-			{#if !loaded && !failed}
-				{#if item.thumb}
-					<img class="lightbox-thumb" src={item.thumb} alt="" aria-hidden="true" />
-				{:else}
-					<div class="lightbox-spinner" aria-label="Loading"></div>
-				{/if}
-			{/if}
-			{#if failed}
-				<div class="lightbox-error">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.6-4.6a2 2 0 012.8 0L16 16m-2-2l1.6-1.6a2 2 0 012.8 0L20 14M4 4l16 16" /></svg>
-					<span>Image failed to load</span>
-				</div>
-			{/if}
-			{#key item.src}
-				<img
-					bind:this={imgEl}
-					src={item.src}
-					alt={item.alt || item.title || ''}
-					class="lightbox-image"
-					class:loaded
-					class:over-thumb={!!item.thumb}
-					class:animating
-					style="transform: translate3d({tx + swipe.dx}px, {ty + swipe.dy}px, 0) scale({scale});"
-					draggable="false"
-					on:load={() => (loaded = true)}
-					on:error={() => (failed = true)}
-				/>
-				{#if showLive && item.live}
+			{#if item.video}
+				{#key item.src}
+					<!-- svelte-ignore a11y-media-has-caption -->
 					<video
-						use:liveVideo
-						src={item.live}
-						class="lightbox-live"
-						class:playing={livePlaying}
-						class:animating
-						style="left: {liveBox.left}px; top: {liveBox.top}px; width: {liveBox.width}px; height: {liveBox.height}px; transform: translate3d({tx + swipe.dx}px, {ty + swipe.dy}px, 0) scale({scale});"
-						muted
+						class="lightbox-video"
+						src={item.src}
+						poster={item.poster || undefined}
+						controls
+						autoplay
 						playsinline
-						disablepictureinpicture
-						aria-hidden="true"
-						tabindex="-1"
-						on:playing={() => (livePlaying = true)}
-						on:ended={() => (livePlaying = false)}
-						on:error={() => {
-							livePlaying = false;
-							liveFailed = true;
-						}}
+						preload="metadata"
+						aria-label={item.title || item.alt || 'Video'}
+						on:loadedmetadata={() => (loaded = true)}
+						on:error={() => (failed = true)}
 					></video>
+				{/key}
+				{#if failed}
+					<div class="lightbox-error">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.6-4.6a2 2 0 012.8 0L16 16m-2-2l1.6-1.6a2 2 0 012.8 0L20 14M4 4l16 16" /></svg>
+						<span>{$t('video.failed')}</span>
+					</div>
 				{/if}
-			{/key}
+			{:else}
+				{#if !loaded && !failed}
+					{#if item.thumb}
+						<img class="lightbox-thumb" src={item.thumb} alt="" aria-hidden="true" />
+					{:else}
+						<div class="lightbox-spinner" aria-label="Loading"></div>
+					{/if}
+				{/if}
+				{#if failed}
+					<div class="lightbox-error">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.6-4.6a2 2 0 012.8 0L16 16m-2-2l1.6-1.6a2 2 0 012.8 0L20 14M4 4l16 16" /></svg>
+						<span>Image failed to load</span>
+					</div>
+				{/if}
+				{#key item.src}
+					<img
+						bind:this={imgEl}
+						src={item.src}
+						alt={item.alt || item.title || ''}
+						class="lightbox-image"
+						class:loaded
+						class:over-thumb={!!item.thumb}
+						class:animating
+						style="transform: translate3d({tx + swipe.dx}px, {ty + swipe.dy}px, 0) scale({scale});"
+						draggable="false"
+						on:load={() => (loaded = true)}
+						on:error={() => (failed = true)}
+					/>
+					{#if showLive && item.live}
+						<video
+							use:liveVideo
+							src={item.live}
+							class="lightbox-live"
+							class:playing={livePlaying}
+							class:animating
+							style="left: {liveBox.left}px; top: {liveBox.top}px; width: {liveBox.width}px; height: {liveBox.height}px; transform: translate3d({tx + swipe.dx}px, {ty + swipe.dy}px, 0) scale({scale});"
+							muted
+							playsinline
+							disablepictureinpicture
+							aria-hidden="true"
+							tabindex="-1"
+							on:playing={() => (livePlaying = true)}
+							on:ended={() => (livePlaying = false)}
+							on:error={() => {
+								livePlaying = false;
+								liveFailed = true;
+							}}
+						></video>
+					{/if}
+				{/key}
+			{/if}
 		</div>
 
 		{#if hasPrev}
@@ -580,6 +610,14 @@
 
 	.lightbox-image.animating {
 		transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	.lightbox-video {
+		max-width: 100%;
+		max-height: 100%;
+		background: #000;
+		border-radius: 4px;
+		touch-action: auto;
 	}
 
 	.lightbox-live {

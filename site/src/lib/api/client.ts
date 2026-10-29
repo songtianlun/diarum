@@ -46,6 +46,8 @@ export interface Media {
     storage?: string;
     /** File name of the clip that makes it a live photo; absent for a still. */
     live?: string;
+    /** File name of a video's poster frame; absent for images. */
+    poster?: string;
     /** When it was moved to the trash; absent outside the trash. */
     deleted?: string;
     deletedBy?: string;

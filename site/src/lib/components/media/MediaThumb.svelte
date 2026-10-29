@@ -6,18 +6,24 @@
 	export let eager = false;
 	/** Marks a live photo. */
 	export let live = false;
+	/**
+	 * Marks a video: `src` is its poster ('' without one) and `fallback` the
+	 * video, whose first frame is shown when there is no poster.
+	 */
+	export let video = false;
 
 	let loaded = false;
 	let failed = false;
-	let requested = '';
+	let requested: string | null = null;
 	let current = '';
 
 	$: if (src !== requested) {
 		requested = src;
-		current = src;
+		current = src || (video ? fallback : '');
 		loaded = false;
-		failed = false;
+		failed = !current;
 	}
+	$: frame = video && !!current && current === fallback;
 
 	function handleError() {
 		if (fallback && current !== fallback) current = fallback;
@@ -37,17 +43,37 @@
 		</svg>
 	{:else}
 		{#key current}
-			<img
-				src={current}
-				{alt}
-				loading={eager ? 'eager' : 'lazy'}
-				decoding="async"
-				draggable="false"
-				use:checkComplete
-				on:load={() => (loaded = true)}
-				on:error={handleError}
-			/>
+			{#if frame}
+				<!-- #t= makes browsers (Safari too) paint a frame instead of nothing. -->
+				<video
+					src="{current}#t=0.1"
+					muted
+					playsinline
+					preload="metadata"
+					disablepictureinpicture
+					tabindex="-1"
+					aria-hidden="true"
+					on:loadeddata={() => (loaded = true)}
+					on:error={() => (failed = true)}
+				></video>
+			{:else}
+				<img
+					src={current}
+					{alt}
+					loading={eager ? 'eager' : 'lazy'}
+					decoding="async"
+					draggable="false"
+					use:checkComplete
+					on:load={() => (loaded = true)}
+					on:error={handleError}
+				/>
+			{/if}
 		{/key}
+	{/if}
+	{#if video && !failed}
+		<span class="thumb-play" aria-hidden="true">
+			<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 001.5.87l11-6.5a1 1 0 000-1.74l-11-6.5A1 1 0 008 5.5z" /></svg>
+		</span>
 	{/if}
 	{#if live}
 		<span class="thumb-live" title="Live">
@@ -73,7 +99,8 @@
 		background: hsl(var(--muted) / 0.5);
 	}
 
-	img {
+	img,
+	video {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
@@ -82,7 +109,8 @@
 		transition: opacity 0.3s ease, transform 0.4s ease;
 	}
 
-	.loaded img {
+	.loaded img,
+	.loaded video {
 		opacity: 1;
 		transform: none;
 	}
@@ -109,6 +137,29 @@
 	.thumb-live svg {
 		width: 12px;
 		height: 12px;
+	}
+
+	.thumb-play {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		margin: -18px 0 0 -18px;
+		border-radius: 999px;
+		background: rgb(0 0 0 / 0.45);
+		color: #fff;
+		pointer-events: none;
+		backdrop-filter: blur(4px);
+	}
+
+	.thumb-play svg {
+		width: 16px;
+		height: 16px;
+		margin-left: 2px;
 	}
 
 	.thumb-broken {

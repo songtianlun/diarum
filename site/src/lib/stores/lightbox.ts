@@ -10,6 +10,10 @@ export interface LightboxItem {
 	live?: string;
 	/** The photo's own live playback mode (loop, once, off), if set. */
 	liveMode?: string;
+	/** Set when `src` is a video, played with its own controls. */
+	video?: boolean;
+	/** A video's poster frame. */
+	poster?: string;
 }
 
 export interface LightboxRequest {

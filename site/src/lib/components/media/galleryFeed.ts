@@ -2,7 +2,8 @@ import { get, writable, type Readable } from 'svelte/store';
 import { t, getIntlLocale } from '$lib/i18n';
 import { fetchMediaPage, getMediaFileUrl, type MediaWithDiary } from '$lib/api/media';
 import { variantUrl } from '$lib/utils/imageDisplay';
-import { getMediaLiveUrl } from '$lib/utils/uploadImage';
+import { getMediaLiveUrl, getMediaPosterUrl } from '$lib/utils/uploadImage';
+import { isVideoUrl } from '$lib/utils/video';
 
 export interface GalleryItem {
 	key: string;
@@ -15,6 +16,10 @@ export interface GalleryItem {
 	date: string;
 	/** The clip of a live photo, absent for a still. */
 	live?: string;
+	/** Set when `src` is a video; `thumb` is then its poster ('' without one). */
+	video?: boolean;
+	/** A video's poster frame. */
+	poster?: string;
 	/** Stored by Diarum (local or S3): can be selected and deleted. External images (e.g. Chevereto) cannot. */
 	managed: boolean;
 	media: MediaWithDiary;
@@ -63,13 +68,17 @@ export function imageDay(media: Pick<MediaWithDiary, 'date' | 'created'>): strin
 function fromMedia(media: MediaWithDiary): GalleryItem {
 	const external = media.kind === 'external' && !!media.url;
 	const src = external ? media.url! : getMediaFileUrl(media);
+	const video = isVideoUrl(external ? src : media.file);
+	const poster = (!external && getMediaPosterUrl(media)) || undefined;
 	return {
 		key: external ? `ext:${media.url}` : media.id ?? media.file ?? '',
 		managed: !external,
 		src,
-		thumb: variantUrl(src, 'th') ?? src,
-		live: external ? undefined : getMediaLiveUrl(media) ?? undefined,
-		title: media.name || media.alt || 'Image',
+		thumb: video ? poster ?? '' : variantUrl(src, 'th') ?? src,
+		live: external || video ? undefined : getMediaLiveUrl(media) ?? undefined,
+		video: video || undefined,
+		poster,
+		title: media.name || media.alt || (video ? 'Video' : 'Image'),
 		date: imageDay(media),
 		media
 	};

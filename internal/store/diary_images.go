@@ -18,7 +18,8 @@ type DiaryImage struct {
 }
 
 var (
-	htmlImagePattern     = regexp.MustCompile(`(?is)<img\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
+	// Videos count as images: they are uploaded, linked and cleaned up alike.
+	htmlImagePattern     = regexp.MustCompile(`(?is)<(?:img|video)\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
 	markdownImagePattern = regexp.MustCompile(`!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)`)
 )
 
@@ -115,7 +116,7 @@ func (s *Store) DiaryImages(diaryID string) ([]DiaryImage, error) {
 // are read, so after the first run it costs one query.
 func (s *Store) BackfillDiaryImages() error {
 	rows, err := s.DB.Query(`SELECT id, owner, date, content FROM diaries d
-		WHERE (content LIKE '%<img%' OR content LIKE '%![%')
+		WHERE (content LIKE '%<img%' OR content LIKE '%<video%' OR content LIKE '%![%')
 		AND NOT EXISTS (SELECT 1 FROM diary_images i WHERE i.diary = d.id)`)
 	if err != nil {
 		return err

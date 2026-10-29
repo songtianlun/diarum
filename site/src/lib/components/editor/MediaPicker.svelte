@@ -29,6 +29,7 @@
 	}
 
 	function toInsert(item: GalleryItem): ImageInsert {
+		if (item.video) return { src: item.src, alt: item.title, video: true, poster: item.poster };
 		return { src: item.src, alt: item.title, live: item.live };
 	}
 
@@ -144,7 +145,7 @@
 								title="{item.title} — double-click to insert"
 								aria-pressed={!!order}
 							>
-								<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} live={!!item.live} />
+								<MediaThumb src={item.thumb} fallback={item.src} alt={item.title} live={!!item.live} video={!!item.video} />
 								<span class="check" aria-hidden="true">
 									{#if order}{order}{/if}
 								</span>
