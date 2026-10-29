@@ -151,7 +151,8 @@ export interface VisitSettings {
 	owner_limit_per_minute: number;
 	archive: {
 		enabled: boolean;
-		source: 'audit' | 'custom';
+		/** 'audit' (reuse the audit archive's connection) predates the system S3. */
+		source: 'system' | 'audit' | 'custom';
 		s3: S3Config;
 		prefix: string;
 		retention_days: number;
@@ -162,6 +163,8 @@ export interface VisitSettingsResponse extends VisitSettings {
 	secret_set: boolean;
 	shared_s3_available: boolean;
 	shared_s3_bucket: string;
+	system_s3_available: boolean;
+	system_s3_path: string;
 	state: VisitArchiveState;
 	server_timezone: string;
 	limits: Record<string, number>;

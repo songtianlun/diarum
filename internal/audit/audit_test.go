@@ -175,7 +175,7 @@ func TestNilLoggerIsSafe(t *testing.T) {
 	if err := l.RemovePulled("2026-01-01"); err == nil {
 		t.Fatal("nil remove")
 	}
-	if err := l.TestArchive(context.Background(), DefaultSettings().Archive.S3); err == nil {
+	if err := l.TestArchive(context.Background(), ArchiveSourceCustom, DefaultSettings().Archive.S3); err == nil {
 		t.Fatal("nil test")
 	}
 }

@@ -168,6 +168,8 @@ func (r *adminRoutes) setRole(c echo.Context) error {
 type auditSettingsResponse struct {
 	audit.Settings
 	SecretSet      bool        `json:"secret_set"`
+	SystemS3       bool        `json:"system_s3_available"`
+	SystemS3Path   string      `json:"system_s3_path"`
 	State          audit.State `json:"state"`
 	ServerTimezone string      `json:"server_timezone"`
 	Enabled        bool        `json:"enabled"`
@@ -191,6 +193,7 @@ func (r *adminRoutes) settingsResponse() auditSettingsResponse {
 			"archive_retention_def": audit.DefaultArchiveRetentionDays,
 		},
 	}
+	resp.SystemS3Path, resp.SystemS3 = r.audit.SystemS3Path()
 	// The secret never leaves the server.
 	resp.Archive.S3.Secret = ""
 	return resp
@@ -216,6 +219,7 @@ func (r *adminRoutes) putAuditSettings(c echo.Context) error {
 	recordAudit(c, audit.ActionAdminAudit, "", map[string]any{
 		"retention_days":         [2]int{previous.RetentionDays, next.RetentionDays},
 		"archive_enabled":        [2]bool{previous.Archive.Enabled, next.Archive.Enabled},
+		"archive_source":         [2]string{previous.Archive.Source, next.Archive.Source},
 		"archive_retention_days": [2]int{previous.Archive.RetentionDays, next.Archive.RetentionDays},
 		"bucket":                 next.Archive.S3.Bucket,
 		"secret_changed":         body.Archive.S3.Secret != "",
@@ -224,13 +228,16 @@ func (r *adminRoutes) putAuditSettings(c echo.Context) error {
 }
 
 func (r *adminRoutes) testArchive(c echo.Context) error {
-	var body backup.S3Config
+	var body struct {
+		Source string          `json:"source"`
+		S3     backup.S3Config `json:"s3"`
+	}
 	if err := c.Bind(&body); err != nil {
 		return badRequest("Invalid request body", err)
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), adminS3Timeout)
 	defer cancel()
-	if err := r.audit.TestArchive(ctx, body); err != nil {
+	if err := r.audit.TestArchive(ctx, body.Source, body.S3); err != nil {
 		return badRequest("Connection test failed: "+err.Error(), nil)
 	}
 	return c.JSON(http.StatusOK, map[string]any{"ok": true})

@@ -13,6 +13,8 @@ export interface BackupS3Config {
 
 export interface BackupSettings {
 	enabled: boolean;
+	/** 'system': the administrator's shared S3; 'custom': the s3 fields. */
+	source: 'system' | 'custom';
 	s3: BackupS3Config;
 	auto_enabled: boolean;
 	schedule: string;
@@ -23,6 +25,10 @@ export interface BackupSettings {
 export interface BackupSettingsResponse extends BackupSettings {
 	next_run?: string;
 	server_timezone: string;
+	/** Whether the administrator offers the system S3 for backups. */
+	system_s3_available: boolean;
+	/** Where this user's backups go on the system S3. */
+	system_s3_path?: string;
 }
 
 export type BackupStatus = 'success' | 'failed' | 'missing';
@@ -91,6 +97,7 @@ export const MAX_BACKUP_KEEP = 100;
 
 export const defaultBackupSettings: BackupSettings = {
 	enabled: false,
+	source: 'system',
 	s3: { bucket: '', region: '', endpoint: '', access_key: '', secret: '', force_path_style: false, prefix: 'diarum-backups' },
 	auto_enabled: false,
 	schedule: '0 2 * * *',
@@ -121,8 +128,8 @@ export async function saveBackupSettings(settings: BackupSettings): Promise<Back
 	return result.settings;
 }
 
-export function testBackupDestination(s3: BackupS3Config): Promise<{ success: boolean; message: string }> {
-	return request('/test', { method: 'POST', body: JSON.stringify(s3) });
+export function testBackupDestination(source: BackupSettings['source'], s3: BackupS3Config): Promise<{ success: boolean; message: string }> {
+	return request('/test', { method: 'POST', body: JSON.stringify({ ...s3, source }) });
 }
 
 export function previewSchedule(schedule: string, timezone: string): Promise<SchedulePreview> {

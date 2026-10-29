@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/songtianlun/diarum/internal/backup"
 	"github.com/songtianlun/diarum/internal/logger"
 )
 
@@ -55,6 +56,7 @@ const (
 	ActionAdminAudit     = "admin.audit_settings"
 	ActionAdminPull      = "admin.audit_pull"
 	ActionAdminVisits    = "admin.visits_settings"
+	ActionAdminS3        = "admin.s3_settings"
 	ActionAdminVisitPull = "admin.visits_pull"
 	ActionAdminVisitDrop = "admin.visits_unload"
 )
@@ -130,6 +132,9 @@ type Options struct {
 	FlushInterval time.Duration
 	// NewObjectStore overrides how the S3 archive is reached, for tests.
 	NewObjectStore ObjectStoreFactory
+	// SystemS3 returns the system S3 connection (prefix included) used when
+	// the archive's source is ArchiveSourceSystem; nil means there is none.
+	SystemS3 backup.SystemS3Func
 	// SchedulerDelay is how long after StartScheduler the first cleanup
 	// runs; defaults to 30 seconds.
 	SchedulerDelay time.Duration
@@ -205,7 +210,7 @@ func New(dataDir string, opts Options) (*Logger, error) {
 	if l.schedulerDelay <= 0 {
 		l.schedulerDelay = startupDelay
 	}
-	l.archiver = newArchiver(l, opts.Settings, opts.NewObjectStore)
+	l.archiver = newArchiver(l, opts.Settings, opts.NewObjectStore, opts.SystemS3)
 	go l.run()
 	return l, nil
 }

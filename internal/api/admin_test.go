@@ -345,10 +345,10 @@ func TestAdminAuditSettingsAndArchive(t *testing.T) {
 	}
 
 	cfg := `{"bucket":"b","region":"r","access_key":"ak","secret":"sk","prefix":"logs"}`
-	if code, _ := env.do(t, env.admin, http.MethodPost, "/api/v1/admin/audit/settings/test", cfg); code != http.StatusOK {
+	if code, _ := env.do(t, env.admin, http.MethodPost, "/api/v1/admin/audit/settings/test", `{"source":"custom","s3":`+cfg+`}`); code != http.StatusOK {
 		t.Fatalf("test = %d", code)
 	}
-	if code, _ := env.do(t, env.admin, http.MethodPost, "/api/v1/admin/audit/settings/test", `{"bucket":"b"}`); code != http.StatusBadRequest {
+	if code, _ := env.do(t, env.admin, http.MethodPost, "/api/v1/admin/audit/settings/test", `{"source":"custom","s3":{"bucket":"b"}}`); code != http.StatusBadRequest {
 		t.Fatalf("test incomplete = %d", code)
 	}
 	if code, _ := env.do(t, env.admin, http.MethodPost, "/api/v1/admin/audit/settings/test", `{bad`); code != http.StatusBadRequest {

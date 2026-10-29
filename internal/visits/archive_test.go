@@ -49,6 +49,7 @@ func TestArchiveCleanupAndPull(t *testing.T) {
 		s.DedupeSeconds = 0
 		s.RetentionDays = 5
 		s.Archive.Enabled = true
+		s.Archive.Source = S3SourceShared
 		s.Archive.RetentionDays = 30
 	})
 	if !f.t.SharedS3Available() || f.t.SharedS3Bucket() != "b" {
@@ -163,6 +164,7 @@ func TestRetentionKeepsUnarchivedDays(t *testing.T) {
 	f.enable(t, func(s *Settings) {
 		s.RetentionDays = 5
 		s.Archive.Enabled = true
+		s.Archive.Source = S3SourceShared
 	})
 	recordOn(t, f, "2026-09-20", "2026-08-01")
 	f.shared.Bucket = "fail"
@@ -231,6 +233,7 @@ func TestPullCapacityAndBadArchives(t *testing.T) {
 	f.enable(t, func(s *Settings) {
 		s.DedupeSeconds = 0
 		s.Archive.Enabled = true
+		s.Archive.Source = S3SourceShared
 		s.MaxRecords = MinMaxRecords
 		s.OwnerLimitPerMinute = MaxRateLimit
 	})
@@ -296,7 +299,7 @@ func TestPullCapacityAndBadArchives(t *testing.T) {
 func TestPullBusy(t *testing.T) {
 	f := newFixture(t)
 	f.shared = sharedS3()
-	f.enable(t, func(s *Settings) { s.Archive.Enabled = true })
+	f.enable(t, func(s *Settings) { s.Archive.Enabled, s.Archive.Source = true, S3SourceShared })
 	f.t.archiver.runMu.Lock()
 	_, err := f.t.Pull(context.Background(), nil, "", "")
 	f.t.archiver.runMu.Unlock()
@@ -318,7 +321,7 @@ func TestTestArchive(t *testing.T) {
 		t.Fatal("connect error hidden")
 	}
 	f.shared = sharedS3()
-	if err := f.t.TestArchive(ctx, "", backup.S3Config{}, "/x/"); err != nil {
+	if err := f.t.TestArchive(ctx, S3SourceShared, backup.S3Config{}, "/x/"); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.bucket.Keys()) != 0 {

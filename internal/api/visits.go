@@ -495,6 +495,8 @@ type visitSettingsResponse struct {
 	SecretSet      bool           `json:"secret_set"`
 	SharedS3       bool           `json:"shared_s3_available"`
 	SharedBucket   string         `json:"shared_s3_bucket"`
+	SystemS3       bool           `json:"system_s3_available"`
+	SystemS3Path   string         `json:"system_s3_path"`
 	State          visits.State   `json:"state"`
 	ServerTimezone string         `json:"server_timezone"`
 	Limits         map[string]int `json:"limits"`
@@ -523,6 +525,7 @@ func (r *adminVisitRoutes) settingsResponse() visitSettingsResponse {
 			"pulled_keep_days":      visits.PulledKeepDays,
 		},
 	}
+	resp.SystemS3Path, resp.SystemS3 = r.tracker.SystemS3Path()
 	// The secret never leaves the server.
 	resp.Archive.S3.Secret = ""
 	return resp
@@ -548,7 +551,7 @@ func (r *adminVisitRoutes) putSettings(c echo.Context) error {
 		"dedupe_seconds":         [2]int{previous.DedupeSeconds, next.DedupeSeconds},
 		"max_records":            [2]int{previous.MaxRecords, next.MaxRecords},
 		"archive_enabled":        [2]bool{previous.Archive.Enabled, next.Archive.Enabled},
-		"archive_source":         next.Archive.Source,
+		"archive_source":         [2]string{previous.Archive.Source, next.Archive.Source},
 		"archive_retention_days": [2]int{previous.Archive.RetentionDays, next.Archive.RetentionDays},
 		"secret_changed":         body.Archive.S3.Secret != "",
 	})

@@ -34,6 +34,10 @@ const (
 
 	DefaultArchivePrefix = "diarum-audit"
 
+	// Where the archive's S3 connection comes from.
+	ArchiveSourceSystem = backup.SourceSystem
+	ArchiveSourceCustom = backup.SourceCustom
+
 	archiveSuffix = ".log.gz"
 	stateFile     = "state.json"
 
@@ -58,6 +62,10 @@ var ErrAlreadyLocal = errors.New("this day is still available locally")
 // is configured.
 var ErrArchiveDisabled = errors.New("S3 archive is not enabled or not fully configured")
 
+// ErrSystemS3Unavailable is returned when the archive uses the system S3 but
+// none is configured.
+var ErrSystemS3Unavailable = errors.New("the system S3 storage is not configured; set it up under Admin → S3 storage or choose a custom S3")
+
 // ErrArchiveNotFound is returned when a day has no archive object.
 var ErrArchiveNotFound = errors.New("no archive for this day")
 
@@ -79,8 +87,11 @@ type Settings struct {
 
 // ArchiveSettings configures the S3 archive of finished days.
 type ArchiveSettings struct {
-	Enabled bool            `json:"enabled"`
-	S3      backup.S3Config `json:"s3"`
+	Enabled bool `json:"enabled"`
+	// Source is ArchiveSourceSystem (the admin-managed system S3, writing to
+	// <global prefix>/audit/) or ArchiveSourceCustom (S3 below, with its own prefix).
+	Source string          `json:"source"`
+	S3     backup.S3Config `json:"s3"`
 	// RetentionDays is how many days of archives are kept in the bucket.
 	RetentionDays int `json:"retention_days"`
 }
@@ -90,6 +101,7 @@ func DefaultSettings() Settings {
 	return Settings{
 		RetentionDays: DefaultRetentionDays,
 		Archive: ArchiveSettings{
+			Source:        ArchiveSourceSystem,
 			S3:            backup.S3Config{Prefix: DefaultArchivePrefix},
 			RetentionDays: DefaultArchiveRetentionDays,
 		},
@@ -104,19 +116,51 @@ func (s Settings) Validate() (Settings, error) {
 	if s.Archive.RetentionDays < MinArchiveRetentionDays || s.Archive.RetentionDays > MaxArchiveRetentionDays {
 		return s, fmt.Errorf("archive retention_days must be between %d and %d", MinArchiveRetentionDays, MaxArchiveRetentionDays)
 	}
+	switch s.Archive.Source {
+	case "":
+		s.Archive.Source = backup.NormalizeSource("", s.Archive.S3.Normalized())
+	case ArchiveSourceSystem, ArchiveSourceCustom:
+	default:
+		return s, errors.New("archive source must be system or custom")
+	}
 	s.Archive.S3 = s.Archive.S3.Normalized()
 	if s.Archive.S3.Prefix == "" {
 		s.Archive.S3.Prefix = DefaultArchivePrefix
 	}
-	if s.Archive.Enabled && !s.Archive.S3.Complete() {
+	if s.Archive.Enabled && s.Archive.Source == ArchiveSourceCustom && !s.Archive.S3.Complete() {
 		return s, errors.New("bucket, region, access key and secret are required to enable the archive")
 	}
 	return s, nil
 }
 
+// target resolves the connection the archive uses, with Prefix set to the
+// folder archives are written under. ok is false when none is complete.
+func (a *archiver) target(s Settings) (cfg backup.S3Config, ok bool) {
+	if s.Archive.Source == ArchiveSourceCustom {
+		cfg = s.Archive.S3.Normalized()
+		if cfg.Prefix == "" {
+			cfg.Prefix = DefaultArchivePrefix
+		}
+		return cfg, cfg.Complete()
+	}
+	if a.system == nil {
+		return backup.S3Config{}, false
+	}
+	cfg, ok = a.system()
+	cfg = cfg.Normalized()
+	if cfg.Prefix == "" {
+		cfg.Prefix = DefaultArchivePrefix
+	}
+	return cfg, ok && cfg.Complete()
+}
+
 // archiveReady reports whether finished days should go to S3.
-func (s Settings) archiveReady() bool {
-	return s.Archive.Enabled && s.Archive.S3.Complete()
+func (a *archiver) archiveReady(s Settings) bool {
+	if !s.Archive.Enabled {
+		return false
+	}
+	_, ok := a.target(s)
+	return ok
 }
 
 // RunReport describes one archive or cleanup run.
@@ -156,6 +200,7 @@ type archiver struct {
 	l       *Logger
 	store   SettingsStore
 	factory ObjectStoreFactory
+	system  backup.SystemS3Func
 
 	mu       sync.Mutex
 	settings Settings
@@ -170,11 +215,11 @@ type archiver struct {
 	doneCh   chan struct{}
 }
 
-func newArchiver(l *Logger, store SettingsStore, factory ObjectStoreFactory) *archiver {
+func newArchiver(l *Logger, store SettingsStore, factory ObjectStoreFactory, system backup.SystemS3Func) *archiver {
 	if factory == nil {
 		factory = backup.NewS3Store
 	}
-	a := &archiver{l: l, store: store, factory: factory, settings: DefaultSettings(), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+	a := &archiver{l: l, store: store, factory: factory, system: system, settings: DefaultSettings(), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 	a.loadSettings()
 	a.loadState()
 	return a
@@ -193,10 +238,13 @@ func (a *archiver) loadSettings() {
 		return
 	}
 	settings := DefaultSettings()
+	settings.Archive.Source = ""
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
 		logger.Error("[AUDIT] !!! audit settings are unreadable, using defaults: %v", err)
 		return
 	}
+	// Settings saved before sources existed keep their own connection.
+	settings.Archive.Source = backup.NormalizeSource(settings.Archive.Source, settings.Archive.S3)
 	if settings.RetentionDays == 0 {
 		settings.RetentionDays = DefaultRetentionDays
 	}
@@ -271,6 +319,11 @@ func (l *Logger) UpdateSettings(next Settings) (Settings, error) {
 	next, err := next.Validate()
 	if err != nil {
 		return previous, err
+	}
+	if next.Archive.Enabled && next.Archive.Source == ArchiveSourceSystem {
+		if _, ok := a.target(next); !ok {
+			return previous, ErrSystemS3Unavailable
+		}
 	}
 	if a.store != nil {
 		raw, err := json.Marshal(next)
@@ -366,7 +419,7 @@ func (a *archiver) loop(delay time.Duration) {
 			report = a.run(false, "retry")
 		}
 		retry = time.Time{}
-		if report.Error != "" && a.current().archiveReady() {
+		if report.Error != "" && a.archiveReady(a.current()) {
 			retry = now.Add(retryInterval)
 		}
 	}
@@ -383,7 +436,7 @@ func (l *Logger) Cleanup(trigger string) *RunReport {
 
 // ArchiveNow uploads finished days that are not in the bucket yet.
 func (l *Logger) ArchiveNow(trigger string) (*RunReport, error) {
-	if l == nil || !l.archiver.current().archiveReady() {
+	if l == nil || !l.archiver.archiveReady(l.archiver.current()) {
 		return nil, ErrArchiveDisabled
 	}
 	report := l.archiver.run(false, trigger)
@@ -414,7 +467,7 @@ func (a *archiver) run(full bool, trigger string) (report *RunReport) {
 		if full {
 			a.state.LastCleanup = report
 		}
-		if a.settings.archiveReady() || !full {
+		if a.archiveReady(a.settings) || !full {
 			a.state.LastArchive = report
 		}
 		a.mu.Unlock()
@@ -442,8 +495,10 @@ func (a *archiver) run(full bool, trigger string) (report *RunReport) {
 
 	archived := map[string]bool{}
 	var errs []string
-	if settings.archiveReady() {
-		objects, store, err := a.listArchive(ctx, settings)
+	ready := a.archiveReady(settings)
+	target, _ := a.target(settings)
+	if ready {
+		objects, store, err := a.listArchive(ctx, target)
 		if err != nil {
 			errs = append(errs, "list archive: "+err.Error())
 		} else {
@@ -454,7 +509,7 @@ func (a *archiver) run(full bool, trigger string) (report *RunReport) {
 				if file.Date >= todayDate || archived[file.Date] {
 					continue
 				}
-				if err := a.upload(ctx, store, settings, file.Date); err != nil {
+				if err := a.upload(ctx, store, target, file.Date); err != nil {
 					errs = append(errs, file.Date+": "+err.Error())
 					continue
 				}
@@ -484,7 +539,7 @@ func (a *archiver) run(full bool, trigger string) (report *RunReport) {
 			if file.Date >= cutoff {
 				continue
 			}
-			if settings.archiveReady() && !archived[file.Date] && file.Date >= hardCutoff {
+			if ready && !archived[file.Date] && file.Date >= hardCutoff {
 				report.Kept = append(report.Kept, file.Date)
 				continue
 			}
@@ -510,24 +565,25 @@ func (a *archiver) run(full bool, trigger string) (report *RunReport) {
 	return report
 }
 
-func archivePrefix(settings Settings) string {
-	prefix := backup.NormalizePrefix(settings.Archive.S3.Prefix)
+// archivePrefix is the folder of a resolved target, with a trailing slash.
+func archivePrefix(target backup.S3Config) string {
+	prefix := backup.NormalizePrefix(target.Prefix)
 	if prefix == "" {
 		prefix = DefaultArchivePrefix
 	}
 	return prefix + "/"
 }
 
-func archiveKey(settings Settings, date string) string {
-	return archivePrefix(settings) + date + archiveSuffix
+func archiveKey(target backup.S3Config, date string) string {
+	return archivePrefix(target) + date + archiveSuffix
 }
 
-func (a *archiver) listArchive(ctx context.Context, settings Settings) ([]ArchiveInfo, backup.ObjectStore, error) {
-	store, err := a.factory(settings.Archive.S3)
+func (a *archiver) listArchive(ctx context.Context, target backup.S3Config) ([]ArchiveInfo, backup.ObjectStore, error) {
+	store, err := a.factory(target)
 	if err != nil {
 		return nil, nil, err
 	}
-	prefix := archivePrefix(settings)
+	prefix := archivePrefix(target)
 	objects, err := store.List(ctx, prefix)
 	if err != nil {
 		return nil, nil, err
@@ -547,7 +603,7 @@ func (a *archiver) listArchive(ctx context.Context, settings Settings) ([]Archiv
 	return out, store, nil
 }
 
-func (a *archiver) upload(ctx context.Context, store backup.ObjectStore, settings Settings, date string) error {
+func (a *archiver) upload(ctx context.Context, store backup.ObjectStore, target backup.S3Config, date string) error {
 	f, err := os.Open(a.l.filePath(date, false))
 	if err != nil {
 		return err
@@ -562,7 +618,7 @@ func (a *archiver) upload(ctx context.Context, store backup.ObjectStore, setting
 		}
 		writer.CloseWithError(err)
 	}()
-	err = store.Put(ctx, archiveKey(settings, date), reader, "application/gzip")
+	err = store.Put(ctx, archiveKey(target, date), reader, "application/gzip")
 	reader.CloseWithError(err)
 	return err
 }
@@ -574,10 +630,11 @@ func (l *Logger) ListArchives(ctx context.Context) ([]ArchiveInfo, error) {
 		return nil, ErrArchiveDisabled
 	}
 	settings := l.archiver.current()
-	if !settings.archiveReady() {
+	target, ok := l.archiver.target(settings)
+	if !settings.Archive.Enabled || !ok {
 		return nil, ErrArchiveDisabled
 	}
-	archives, _, err := l.archiver.listArchive(ctx, settings)
+	archives, _, err := l.archiver.listArchive(ctx, target)
 	if err != nil {
 		return nil, err
 	}
@@ -605,7 +662,8 @@ func (l *Logger) Pull(ctx context.Context, date string) (*FileInfo, error) {
 	}
 	a := l.archiver
 	settings := a.current()
-	if !settings.archiveReady() {
+	target, ok := a.target(settings)
+	if !settings.Archive.Enabled || !ok {
 		return nil, ErrArchiveDisabled
 	}
 	if fileExists(l.filePath(date, false)) {
@@ -613,11 +671,11 @@ func (l *Logger) Pull(ctx context.Context, date string) (*FileInfo, error) {
 	}
 	a.runMu.Lock()
 	defer a.runMu.Unlock()
-	store, err := a.factory(settings.Archive.S3)
+	store, err := a.factory(target)
 	if err != nil {
 		return nil, err
 	}
-	body, err := store.Get(ctx, archiveKey(settings, date))
+	body, err := store.Get(ctx, archiveKey(target, date))
 	if errors.Is(err, backup.ErrObjectNotFound) {
 		return nil, ErrArchiveNotFound
 	}
@@ -671,24 +729,62 @@ func (l *Logger) RemovePulled(date string) error {
 	return os.Remove(l.filePath(date, true))
 }
 
+// UsesSystemS3 reports whether the archive is switched on and uses the
+// system S3.
+func (l *Logger) UsesSystemS3() bool {
+	if l == nil {
+		return false
+	}
+	s := l.archiver.current()
+	return s.Archive.Enabled && s.Archive.Source == ArchiveSourceSystem
+}
+
+// ArchiveTarget returns the connection the archive uses, prefix included;
+// ok is false when it has none.
+func (l *Logger) ArchiveTarget() (backup.S3Config, bool) {
+	if l == nil {
+		return backup.S3Config{}, false
+	}
+	return l.archiver.target(l.archiver.current())
+}
+
+// SystemS3Path returns the folder the archive writes to on the system S3,
+// e.g. "diarum/audit/"; ok is false while the system S3 is not configured.
+func (l *Logger) SystemS3Path() (path string, ok bool) {
+	if l == nil {
+		return "", false
+	}
+	target, ok := l.archiver.target(Settings{Archive: ArchiveSettings{Source: ArchiveSourceSystem}})
+	return archivePrefix(target), ok
+}
+
 // TestArchive checks that the bucket can be listed, written and cleaned up.
-func (l *Logger) TestArchive(ctx context.Context, cfg backup.S3Config) error {
+// For a custom source an empty secret means the stored one.
+func (l *Logger) TestArchive(ctx context.Context, source string, cfg backup.S3Config) error {
 	if l == nil {
 		return errors.New("audit logging is disabled")
+	}
+	if source == "" {
+		source = ArchiveSourceCustom
+	}
+	if source != ArchiveSourceSystem && source != ArchiveSourceCustom {
+		return errors.New("archive source must be system or custom")
 	}
 	if cfg.Secret == "" {
 		cfg.Secret = l.archiver.current().Archive.S3.Secret
 	}
-	cfg = cfg.Normalized()
-	if !cfg.Complete() {
+	target, ok := l.archiver.target(Settings{Archive: ArchiveSettings{Source: source, S3: cfg}})
+	if !ok {
+		if source == ArchiveSourceSystem {
+			return ErrSystemS3Unavailable
+		}
 		return errors.New("bucket, region, access key and secret are required")
 	}
-	store, err := l.archiver.factory(cfg)
+	store, err := l.archiver.factory(target)
 	if err != nil {
 		return err
 	}
-	settings := Settings{Archive: ArchiveSettings{S3: cfg}}
-	prefix := archivePrefix(settings)
+	prefix := archivePrefix(target)
 	if _, err := store.List(ctx, prefix); err != nil {
 		return fmt.Errorf("list: %w", err)
 	}

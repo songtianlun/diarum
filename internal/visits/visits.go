@@ -32,6 +32,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/songtianlun/diarum/internal/backup"
 	"github.com/songtianlun/diarum/internal/logger"
 
 	_ "modernc.org/sqlite"
@@ -126,6 +127,9 @@ type Options struct {
 	// SharedS3 returns the S3 connection configured for the system audit
 	// archive, which the visit archive can reuse.
 	SharedS3 SharedS3Func
+	// SystemS3 returns the system S3 connection (prefix included) used when
+	// the archive's source is S3SourceSystem.
+	SystemS3 backup.SystemS3Func
 	// NewObjectStore overrides how S3 is reached, for tests.
 	NewObjectStore ObjectStoreFactory
 	// Location names the archive days; defaults to time.Local.
@@ -204,7 +208,7 @@ func New(dataDir string, opts Options) (*Tracker, error) {
 	if t.schedulerDelay <= 0 {
 		t.schedulerDelay = startupDelay
 	}
-	t.archiver = newArchiver(t, opts.Settings, opts.SharedS3, opts.NewObjectStore)
+	t.archiver = newArchiver(t, opts.Settings, opts.SharedS3, opts.SystemS3, opts.NewObjectStore)
 	t.limiter = newLimiter()
 	go t.run()
 	return t, nil

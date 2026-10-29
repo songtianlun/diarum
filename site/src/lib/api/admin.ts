@@ -196,10 +196,14 @@ export interface AuditSettings {
 	retention_days: number;
 	archive: {
 		enabled: boolean;
+		source: S3Source;
 		s3: S3Config;
 		retention_days: number;
 	};
 	secret_set: boolean;
+	/** Whether the system S3 storage is configured, and where this archive writes there. */
+	system_s3_available: boolean;
+	system_s3_path: string;
 	state: ArchiveState;
 	server_timezone: string;
 	enabled: boolean;
@@ -316,8 +320,38 @@ export function saveAuditSettings(settings: Pick<AuditSettings, 'retention_days'
 	});
 }
 
-export function testAuditArchive(s3: S3Config): Promise<{ ok: boolean }> {
-	return request('/api/v1/admin/audit/settings/test', { method: 'POST', body: JSON.stringify(s3) });
+export function testAuditArchive(source: S3Source, s3: S3Config): Promise<{ ok: boolean }> {
+	return request('/api/v1/admin/audit/settings/test', { method: 'POST', body: JSON.stringify({ source, s3 }) });
+}
+
+/** Where an S3 connection comes from: the admin-managed system S3, or entered by hand. */
+export type S3Source = 'system' | 'custom';
+
+/** The system S3 storage (Admin → S3 storage). s3.prefix is the global prefix. */
+export interface SystemS3Settings {
+	s3: S3Config;
+	allow_user_backups: boolean;
+}
+
+export interface SystemS3Response extends SystemS3Settings {
+	secret_set: boolean;
+	configured: boolean;
+	/** Folder each use writes to, e.g. { audit: 'diarum/audit/' }. */
+	paths: { audit: string; visits: string; user_backups: string };
+	/** System features currently writing to it. */
+	used_by: ('audit' | 'visits')[];
+}
+
+export function getSystemS3(): Promise<SystemS3Response> {
+	return request<SystemS3Response>('/api/v1/admin/s3');
+}
+
+export function saveSystemS3(settings: SystemS3Settings): Promise<SystemS3Response> {
+	return request<SystemS3Response>('/api/v1/admin/s3', { method: 'PUT', body: JSON.stringify(settings) });
+}
+
+export function testSystemS3(settings: SystemS3Settings): Promise<{ ok: boolean }> {
+	return request('/api/v1/admin/s3/test', { method: 'POST', body: JSON.stringify(settings) });
 }
 
 export function listAuditFiles(): Promise<{ files: AuditFile[]; state: ArchiveState }> {

@@ -4,6 +4,7 @@ import { en } from './locales/en';
 import { zh } from './locales/zh';
 import { backupEn, backupZh } from './locales/backup';
 import { adminEn, adminZh } from './locales/admin';
+import { s3En, s3Zh } from './locales/s3';
 import { mediaLibEn, mediaLibZh } from './locales/mediaLib';
 import { visitsEn, visitsZh, visitsAdminEn, visitsAdminZh } from './locales/visits';
 import { daysEn, daysZh } from './locales/days';
@@ -26,8 +27,8 @@ const STORAGE_KEY = 'locale';
 type Dict = Record<string, unknown>;
 
 const dictionaries: Record<Locale, Dict> = {
-	en: { ...en, backup: backupEn, admin: { ...adminEn, visits: visitsAdminEn }, mediaLib: mediaLibEn, visits: visitsEn, days: daysEn },
-	zh: { ...zh, backup: backupZh, admin: { ...adminZh, visits: visitsAdminZh }, mediaLib: mediaLibZh, visits: visitsZh, days: daysZh }
+	en: { ...en, backup: backupEn, admin: { ...adminEn, visits: visitsAdminEn }, mediaLib: mediaLibEn, visits: visitsEn, days: daysEn, s3: s3En },
+	zh: { ...zh, backup: backupZh, admin: { ...adminZh, visits: visitsAdminZh }, mediaLib: mediaLibZh, visits: visitsZh, days: daysZh, s3: s3Zh }
 };
 
 /**

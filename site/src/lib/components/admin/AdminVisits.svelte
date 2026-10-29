@@ -28,6 +28,8 @@
 	import { getIntlLocale, t } from '$lib/i18n';
 	import VisitStats from '$lib/components/visits/VisitStats.svelte';
 	import RetentionInput from '$lib/components/visits/RetentionInput.svelte';
+	import S3SourceSelect from '$lib/components/storage/S3SourceSelect.svelte';
+	import S3Fields from '$lib/components/storage/S3Fields.svelte';
 	import { relativeTime, formatNumber, dayLabel } from '$lib/components/visits/visitFormat';
 
 	let response = $state<VisitSettingsResponse | null>(null);
@@ -246,7 +248,9 @@
 	let storage = $derived(overview?.storage);
 	let usage = $derived(storage && overview ? Math.min(100, (storage.records / Math.max(1, overview.max_records)) * 100) : 0);
 	let customComplete = $derived(!!form && !!(form.archive.s3.bucket && form.archive.s3.region && form.archive.s3.access_key && (form.archive.s3.secret || response?.secret_set)));
-	let canTest = $derived(!!form && (form.archive.source === 'audit' ? !!response?.shared_s3_available : customComplete));
+	let canTest = $derived(
+		!!form && (form.archive.source === 'system' ? !!response?.system_s3_available : form.archive.source === 'audit' ? !!response?.shared_s3_available : customComplete)
+	);
 	let visibleArchives = $derived(archiveFilter ? archives.filter((a) => a.day.includes(archiveFilter)) : archives);
 	let remoteOnly = $derived(archives.filter((a) => !a.local && !a.pulled).length);
 	let pulledDays = $derived(archives.filter((a) => a.pulled).length);
@@ -435,40 +439,29 @@
 					</label>
 
 					<div class="mt-4 space-y-4 {form.archive.enabled ? '' : 'opacity-60'}">
-						<fieldset>
-							<legend class="text-xs text-muted-foreground mb-1.5">{$t('admin.visits.sourceLabel')}</legend>
-							<div class="grid gap-2 sm:grid-cols-2">
-								<label class="flex items-start gap-2 p-3 rounded-lg border cursor-pointer transition-colors {form.archive.source === 'audit' ? 'border-primary/60 bg-primary/5' : 'border-border/60 hover:bg-muted/40'}">
-									<input type="radio" bind:group={form.archive.source} value="audit" class="mt-0.5" />
-									<span class="min-w-0">
-										<span class="block text-sm text-foreground">{$t('admin.visits.sourceShared')}</span>
-										<span class="block text-xs mt-0.5 {response.shared_s3_available ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-400'}">{response.shared_s3_available ? $t('admin.visits.sourceSharedOk', { bucket: response.shared_s3_bucket }) : $t('admin.visits.sourceSharedMissing')}</span>
-									</span>
-								</label>
-								<label class="flex items-start gap-2 p-3 rounded-lg border cursor-pointer transition-colors {form.archive.source === 'custom' ? 'border-primary/60 bg-primary/5' : 'border-border/60 hover:bg-muted/40'}">
-									<input type="radio" bind:group={form.archive.source} value="custom" class="mt-0.5" />
-									<span class="block text-sm text-foreground">{$t('admin.visits.sourceCustom')}</span>
-								</label>
-							</div>
-						</fieldset>
-
-						{#if form.archive.source === 'custom'}
-							<div class="grid gap-3 sm:grid-cols-2">
-								<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.visits.bucket')}</span><input bind:value={form.archive.s3.bucket} autocomplete="off" class="{input} mt-1 w-full" /></label>
-								<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.visits.region')}</span><input bind:value={form.archive.s3.region} autocomplete="off" placeholder="us-east-1" class="{input} mt-1 w-full" /></label>
-								<label class="block text-sm sm:col-span-2"><span class="text-muted-foreground text-xs">{$t('admin.visits.endpoint')}</span><input bind:value={form.archive.s3.endpoint} autocomplete="off" placeholder="https://s3.example.com" class="{input} mt-1 w-full" /></label>
-								<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.visits.accessKey')}</span><input bind:value={form.archive.s3.access_key} autocomplete="off" class="{input} mt-1 w-full font-mono" /></label>
-								<label class="block text-sm"><span class="text-muted-foreground text-xs">{$t('admin.visits.secret')}</span><input type="password" bind:value={form.archive.s3.secret} autocomplete="new-password" placeholder={response.secret_set ? $t('admin.visits.secretKeep') : ''} class="{input} mt-1 w-full font-mono" /></label>
-								<label class="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" bind:checked={form.archive.s3.force_path_style} class="rounded border-border" />{$t('admin.visits.pathStyle')}</label>
-							</div>
-						{/if}
+						<S3SourceSelect
+							id="visit-archive-source"
+							bind:source={form.archive.source}
+							available={response.system_s3_available}
+							path={response.system_s3_path}
+							missingText={$t('s3.systemMissingAdmin')}
+							legacy={{
+								value: 'audit',
+								label: $t('admin.visits.sourceShared'),
+								hint: response.shared_s3_available ? $t('admin.visits.sourceSharedOk', { bucket: response.shared_s3_bucket }) : $t('admin.visits.sourceSharedMissing')
+							}}
+						>
+							<S3Fields bind:s3={form.archive.s3} secretSet={response.secret_set} showPrefix={false} />
+						</S3SourceSelect>
 
 						<div class="grid gap-4 sm:grid-cols-2">
-							<label class="block text-sm">
-								<span class="text-muted-foreground text-xs">{$t('admin.visits.prefix')}</span>
-								<input bind:value={form.archive.prefix} autocomplete="off" placeholder="diarum-visits" class="{input} mt-1 w-full font-mono" />
-								<span class="mt-1 block text-[11px] text-muted-foreground break-all">{$t('admin.visits.layoutHint', { path: `${form.archive.prefix || 'diarum-visits'}/YYYY/YYYY-MM-DD.jsonl.gz` })}</span>
-							</label>
+							{#if form.archive.source !== 'system'}
+								<label class="block text-sm">
+									<span class="text-muted-foreground text-xs">{$t('admin.visits.prefix')}</span>
+									<input bind:value={form.archive.prefix} autocomplete="off" placeholder="diarum-visits" class="{input} mt-1 w-full font-mono" />
+									<span class="mt-1 block text-[11px] text-muted-foreground break-all">{$t('admin.visits.layoutHint', { path: `${form.archive.prefix || 'diarum-visits'}/YYYY/YYYY-MM-DD.jsonl.gz` })}</span>
+								</label>
+							{/if}
 							<div>
 								<label for="visit-archive-retention" class="text-xs text-muted-foreground">{$t('admin.visits.archiveRetention')}</label>
 								<div class="mt-1"><RetentionInput id="visit-archive-retention" bind:value={form.archive.retention_days} presets={[1825, 3650, 7300]} max={limits.archive_retention_max} /></div>

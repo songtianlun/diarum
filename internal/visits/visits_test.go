@@ -65,6 +65,7 @@ type fixture struct {
 	bucket   *backup.MemoryStore
 	settings *memSettings
 	shared   backup.S3Config
+	system   backup.S3Config
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -75,6 +76,7 @@ func newFixture(t *testing.T) *fixture {
 		Location: time.UTC,
 		Now:      f.clock.Now,
 		SharedS3: func() backup.S3Config { return f.shared },
+		SystemS3: func() (backup.S3Config, bool) { return f.system, f.system.Bucket != "" },
 		NewObjectStore: func(cfg backup.S3Config) (backup.ObjectStore, error) {
 			if cfg.Bucket == "fail" {
 				return nil, errors.New("connect failed")
@@ -368,7 +370,7 @@ func TestSettingsPersistAndValidate(t *testing.T) {
 		s.Archive.Prefix = "/a//b/"
 		s.Archive.Source = ""
 	})
-	if s.RetentionDays != 0 || s.Archive.Prefix != "a/b" || s.Archive.Source != S3SourceShared {
+	if s.RetentionDays != 0 || s.Archive.Prefix != "a/b" || s.Archive.Source != S3SourceSystem {
 		t.Fatalf("settings = %+v", s)
 	}
 	reopened, err := New(t.TempDir(), Options{Settings: f.settings})

@@ -4,7 +4,7 @@
  */
 export const backupEn = {
 	title: 'Automatic Backup',
-	description: 'Back up every diary, media file and AI conversation to your own S3-compatible storage, on demand or on a schedule. Backups are regular export archives, restored through the same import.',
+	description: 'Back up every diary, media file and AI conversation to the system S3 or your own S3-compatible storage, on demand or on a schedule. Backups are regular export archives, restored through the same import.',
 	enable: 'Enable backups',
 	enableDesc: 'Store full backups in an S3 bucket.',
 	destination: 'Destination',
@@ -95,7 +95,7 @@ export const backupEn = {
 
 export const backupZh: typeof backupEn = {
 	title: '自动备份',
-	description: '将所有日记、媒体文件和 AI 对话备份到你自己的 S3 兼容存储，可手动执行，也可按计划自动执行。备份就是标准的导出压缩包，通过同一套导入流程恢复。',
+	description: '将所有日记、媒体文件和 AI 对话备份到系统 S3 或你自己的 S3 兼容存储，可手动执行，也可按计划自动执行。备份就是标准的导出压缩包，通过同一套导入流程恢复。',
 	enable: '启用备份',
 	enableDesc: '将完整备份保存到 S3 存储桶。',
 	destination: '备份目的地',

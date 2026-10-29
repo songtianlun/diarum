@@ -25,6 +25,7 @@ const (
 	KeySecret         = "backup.s3.secret"
 	KeyForcePathStyle = "backup.s3.force_path_style"
 	KeyPrefix         = "backup.s3.prefix"
+	KeySource         = "backup.s3.source"
 	KeyAutoEnabled    = "backup.auto_enabled"
 	KeySchedule       = "backup.schedule"
 	KeyTimezone       = "backup.timezone"
@@ -38,6 +39,23 @@ const (
 	MinKeep         = 1
 	MaxKeep         = 100
 )
+
+// Where a destination's connection comes from: the system S3 an
+// administrator manages, or connection details entered by hand.
+const (
+	SourceSystem = "system"
+	SourceCustom = "custom"
+)
+
+// SystemS3Func returns the system S3 connection for one use, with Prefix set
+// to the folder that use writes under. ok is false when the system S3 is not
+// configured (or, for user backups, not offered to users).
+type SystemS3Func func() (cfg S3Config, ok bool)
+
+// JoinPrefix joins prefix segments into one normalized prefix.
+func JoinPrefix(parts ...string) string {
+	return NormalizePrefix(strings.Join(parts, "/"))
+}
 
 // S3Config is a backup destination.
 type S3Config struct {
@@ -82,7 +100,9 @@ func NormalizePrefix(prefix string) string {
 
 // Settings is a user's backup configuration.
 type Settings struct {
-	Enabled     bool     `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// Source is SourceSystem (the server's shared S3) or SourceCustom (S3).
+	Source      string   `json:"source"`
 	S3          S3Config `json:"s3"`
 	AutoEnabled bool     `json:"auto_enabled"`
 	Schedule    string   `json:"schedule"`
@@ -120,6 +140,7 @@ func LoadSettings(cfg *config.ConfigService, userID string) (Settings, error) {
 		ForcePathStyle: flag(KeyForcePathStyle),
 		Prefix:         str(KeyPrefix),
 	}.Normalized()
+	out.Source = NormalizeSource(str(KeySource), out.S3)
 	out.AutoEnabled = flag(KeyAutoEnabled)
 	out.Schedule = strings.TrimSpace(str(KeySchedule))
 	out.Timezone = strings.TrimSpace(str(KeyTimezone))
@@ -138,6 +159,7 @@ func LoadSettings(cfg *config.ConfigService, userID string) (Settings, error) {
 func (s Settings) Values() map[string]any {
 	return map[string]any{
 		KeyEnabled:        s.Enabled,
+		KeySource:         s.Source,
 		KeyBucket:         s.S3.Bucket,
 		KeyRegion:         s.S3.Region,
 		KeyEndpoint:       s.S3.Endpoint,
@@ -150,6 +172,19 @@ func (s Settings) Values() map[string]any {
 		KeyTimezone:       s.Timezone,
 		KeyKeep:           s.Keep,
 	}
+}
+
+// NormalizeSource maps a stored source to a known one. Settings saved before
+// sources existed have none: they keep their own bucket when one was entered.
+func NormalizeSource(source string, custom S3Config) string {
+	switch source = strings.TrimSpace(source); source {
+	case SourceSystem, SourceCustom:
+		return source
+	}
+	if custom.Bucket != "" {
+		return SourceCustom
+	}
+	return SourceSystem
 }
 
 // ClampKeep turns a stored retention count into a usable one.

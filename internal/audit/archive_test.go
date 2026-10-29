@@ -72,6 +72,7 @@ func enableArchive(t *testing.T, l *Logger) Settings {
 	t.Helper()
 	s := DefaultSettings()
 	s.Archive.Enabled = true
+	s.Archive.Source = ArchiveSourceCustom
 	s.Archive.S3 = s3Config()
 	got, err := l.UpdateSettings(s)
 	if err != nil {
@@ -236,7 +237,7 @@ func TestArchiveUploadsFinishedDaysAndAppliesRetention(t *testing.T) {
 	if err != nil || strings.Join(report.Archived, ",") != "2026-09-20,2026-09-27" {
 		t.Fatalf("archive = %+v (%v)", report, err)
 	}
-	obj, ok := bucket.Object(archiveKey(settings, "2026-09-27"))
+	obj, ok := bucket.Object(archiveKey(settings.Archive.S3, "2026-09-27"))
 	if !ok {
 		t.Fatal("not uploaded")
 	}
@@ -300,8 +301,8 @@ func TestPullAndRemovePulled(t *testing.T) {
 	}
 	settings := enableArchive(t, l)
 	line := `{"time":"2026-09-01T08:00:00Z","user_id":"u1","action":"diary.delete"}` + "\n"
-	bucket.Put(ctx, archiveKey(settings, "2026-09-01"), bytes.NewReader(gz(t, line)), "")
-	bucket.Put(ctx, archiveKey(settings, "2026-09-02"), strings.NewReader("not gzip"), "")
+	bucket.Put(ctx, archiveKey(settings.Archive.S3, "2026-09-01"), bytes.NewReader(gz(t, line)), "")
+	bucket.Put(ctx, archiveKey(settings.Archive.S3, "2026-09-02"), strings.NewReader("not gzip"), "")
 	writeDays(t, dir, false, "2026-09-28")
 
 	if _, err := l.Pull(ctx, "bad"); !errors.Is(err, ErrInvalidDate) {
@@ -357,7 +358,7 @@ func TestArchiveFactoryErrors(t *testing.T) {
 	if _, err := l.Pull(ctx, "2026-09-01"); !errors.Is(err, boom) {
 		t.Fatalf("pull = %v", err)
 	}
-	if err := l.TestArchive(ctx, s3Config()); !errors.Is(err, boom) {
+	if err := l.TestArchive(ctx, ArchiveSourceCustom, s3Config()); !errors.Is(err, boom) {
 		t.Fatalf("test = %v", err)
 	}
 }
@@ -365,10 +366,10 @@ func TestArchiveFactoryErrors(t *testing.T) {
 func TestTestArchive(t *testing.T) {
 	l, _, _, bucket, _ := archiveLogger(t)
 	ctx := context.Background()
-	if err := l.TestArchive(ctx, backup.S3Config{Bucket: "b"}); err == nil {
+	if err := l.TestArchive(ctx, ArchiveSourceCustom, backup.S3Config{Bucket: "b"}); err == nil {
 		t.Fatal("incomplete config accepted")
 	}
-	if err := l.TestArchive(ctx, s3Config()); err != nil {
+	if err := l.TestArchive(ctx, ArchiveSourceCustom, s3Config()); err != nil {
 		t.Fatal(err)
 	}
 	if len(bucket.Keys()) != 0 {
@@ -376,14 +377,14 @@ func TestTestArchive(t *testing.T) {
 	}
 	noPrefix := s3Config()
 	noPrefix.Prefix = " / "
-	if err := l.TestArchive(ctx, noPrefix); err != nil {
+	if err := l.TestArchive(ctx, ArchiveSourceCustom, noPrefix); err != nil {
 		t.Fatal(err)
 	}
 	// The stored secret is used when the form leaves it blank.
 	enableArchive(t, l)
 	cfg := s3Config()
 	cfg.Secret = ""
-	if err := l.TestArchive(ctx, cfg); err != nil {
+	if err := l.TestArchive(ctx, ArchiveSourceCustom, cfg); err != nil {
 		t.Fatal(err)
 	}
 	for name, fail := range map[string]func(){
@@ -393,7 +394,7 @@ func TestTestArchive(t *testing.T) {
 	} {
 		bucket.FailList, bucket.FailPut, bucket.FailDelete = nil, nil, nil
 		fail()
-		if err := l.TestArchive(ctx, s3Config()); err == nil || !strings.Contains(err.Error(), name) {
+		if err := l.TestArchive(ctx, ArchiveSourceCustom, s3Config()); err == nil || !strings.Contains(err.Error(), name) {
 			t.Fatalf("%s failure = %v", name, err)
 		}
 	}
@@ -453,6 +454,7 @@ func TestSchedulerRunsCleanupAndRetries(t *testing.T) {
 	writeDays(t, dir, false, "2000-01-01")
 	s := DefaultSettings()
 	s.Archive.Enabled = true
+	s.Archive.Source = ArchiveSourceCustom
 	s.Archive.S3 = s3Config()
 	if _, err := l.UpdateSettings(s); err != nil {
 		t.Fatal(err)

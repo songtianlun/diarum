@@ -26,6 +26,7 @@
 		type BackupSettings
 	} from '$lib/api/backup';
 	import { getImageUploadSettings } from '$lib/api/imageUpload';
+	import S3SourceSelect from '$lib/components/storage/S3SourceSelect.svelte';
 	import { getIntlLocale, t } from '$lib/i18n';
 
 	const POLL_MS = 2000;
@@ -54,6 +55,9 @@
 	let original: BackupSettings = structuredClone(defaultBackupSettings);
 	let serverZone = '';
 	let nextRun = '';
+	// Whether the administrator offers the system S3, and this user's folder there.
+	let systemAvailable = false;
+	let systemPath = '';
 
 	let saving = false;
 	let saveError = '';
@@ -91,7 +95,9 @@
 	onMount(async () => {
 		try {
 			const loaded = await getBackupSettings();
-			const { next_run, server_timezone, ...rest } = loaded;
+			const { next_run, server_timezone, system_s3_available, system_s3_path, ...rest } = loaded;
+			systemAvailable = system_s3_available;
+			systemPath = system_s3_path ?? '';
 			settings = structuredClone(rest);
 			original = structuredClone(rest);
 			serverZone = server_timezone;
@@ -208,7 +214,7 @@
 		testing = true;
 		testResult = null;
 		try {
-			testResult = await testBackupDestination(settings.s3);
+			testResult = await testBackupDestination(settings.source, settings.s3);
 		} catch (e) {
 			testResult = { success: false, message: e instanceof Error ? e.message : String(e) };
 		}
@@ -223,7 +229,9 @@
 			const keep = Math.round(Number(settings.keep));
 			settings.keep = Math.min(MAX_BACKUP_KEEP, Math.max(MIN_BACKUP_KEEP, Number.isFinite(keep) ? keep : MIN_BACKUP_KEEP));
 			const saved = await saveBackupSettings(settings);
-			const { next_run, server_timezone, ...rest } = saved;
+			const { next_run, server_timezone, system_s3_available, system_s3_path, ...rest } = saved;
+			systemAvailable = system_s3_available;
+			systemPath = system_s3_path ?? '';
 			settings = structuredClone(rest);
 			original = structuredClone(rest);
 			serverZone = server_timezone;
@@ -349,52 +357,54 @@
 		{#if settings.enabled}
 			<!-- Destination -->
 			<div class="mt-5 rounded-xl border border-border/50 p-4 space-y-4">
-				<div class="flex items-center justify-between gap-3 flex-wrap">
-					<div class="font-medium text-foreground text-sm">{$t('backup.destination')}</div>
-					<button type="button" on:click={copyFromImageUpload} class={smallButton}>{$t('backup.copyFromImageUpload')}</button>
-				</div>
-				{#if copyNote}
-					<div class="text-xs text-muted-foreground">{copyNote}</div>
-				{/if}
-				<div class="grid gap-4 md:grid-cols-2">
-					<div>
-						<label for="backup-bucket" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.bucket')}</label>
-						<input id="backup-bucket" type="text" bind:value={settings.s3.bucket} class={inputClass} autocomplete="off" />
+				<div class="font-medium text-foreground text-sm">{$t('backup.destination')}</div>
+				<S3SourceSelect id="backup-source" bind:source={settings.source} available={systemAvailable} path={systemPath} missingText={$t('s3.systemMissingUser')}>
+					<div class="space-y-4">
+						<div class="flex items-center justify-between gap-3 flex-wrap">
+							<div class="text-xs text-muted-foreground">{copyNote}</div>
+							<button type="button" on:click={copyFromImageUpload} class={smallButton}>{$t('backup.copyFromImageUpload')}</button>
+						</div>
+						<div class="grid gap-4 md:grid-cols-2">
+							<div>
+								<label for="backup-bucket" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.bucket')}</label>
+								<input id="backup-bucket" type="text" bind:value={settings.s3.bucket} class={inputClass} autocomplete="off" />
+							</div>
+							<div>
+								<label for="backup-region" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.region')}</label>
+								<input id="backup-region" type="text" bind:value={settings.s3.region} placeholder="us-east-1" class={inputClass} autocomplete="off" />
+							</div>
+							<div>
+								<label for="backup-endpoint" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.endpoint')}</label>
+								<input id="backup-endpoint" type="text" bind:value={settings.s3.endpoint} placeholder="https://s3.amazonaws.com" class={inputClass} autocomplete="off" />
+							</div>
+							<div class="flex items-end">
+								<label class="flex h-9 items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+									<input type="checkbox" bind:checked={settings.s3.force_path_style} class="h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))] cursor-pointer" />
+									{$t('backup.pathStyle')}
+								</label>
+							</div>
+							<div>
+								<label for="backup-access-key" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.accessKey')}</label>
+								<input id="backup-access-key" type="text" bind:value={settings.s3.access_key} class={inputClass} autocomplete="off" />
+							</div>
+							<div>
+								<label for="backup-secret" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.secret')}</label>
+								<input id="backup-secret" type="password" bind:value={settings.s3.secret} class={inputClass} autocomplete="new-password" />
+							</div>
+							<div class="md:col-span-2">
+								<label for="backup-prefix" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.prefix')}</label>
+								<input id="backup-prefix" type="text" bind:value={settings.s3.prefix} placeholder="diarum-backups" class={inputClass} autocomplete="off" />
+								<p class="text-xs text-muted-foreground mt-1 break-all">{$t('backup.prefixHint', { path: storagePath })}</p>
+							</div>
+						</div>
 					</div>
-					<div>
-						<label for="backup-region" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.region')}</label>
-						<input id="backup-region" type="text" bind:value={settings.s3.region} placeholder="us-east-1" class={inputClass} autocomplete="off" />
-					</div>
-					<div>
-						<label for="backup-endpoint" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.endpoint')}</label>
-						<input id="backup-endpoint" type="text" bind:value={settings.s3.endpoint} placeholder="https://s3.amazonaws.com" class={inputClass} autocomplete="off" />
-					</div>
-					<div class="flex items-end">
-						<label class="flex h-9 items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-							<input type="checkbox" bind:checked={settings.s3.force_path_style} class="h-4 w-4 shrink-0 rounded border-border accent-[hsl(var(--primary))] cursor-pointer" />
-							{$t('backup.pathStyle')}
-						</label>
-					</div>
-					<div>
-						<label for="backup-access-key" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.accessKey')}</label>
-						<input id="backup-access-key" type="text" bind:value={settings.s3.access_key} class={inputClass} autocomplete="off" />
-					</div>
-					<div>
-						<label for="backup-secret" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.secret')}</label>
-						<input id="backup-secret" type="password" bind:value={settings.s3.secret} class={inputClass} autocomplete="new-password" />
-					</div>
-					<div class="md:col-span-2">
-						<label for="backup-prefix" class="block text-sm font-medium text-foreground mb-1.5">{$t('backup.prefix')}</label>
-						<input id="backup-prefix" type="text" bind:value={settings.s3.prefix} placeholder="diarum-backups" class={inputClass} autocomplete="off" />
-						<p class="text-xs text-muted-foreground mt-1 break-all">{$t('backup.prefixHint', { path: storagePath })}</p>
-					</div>
-				</div>
+				</S3SourceSelect>
 				<div class="flex items-center justify-between gap-4 rounded-lg bg-muted/40 p-3">
 					<div class="text-sm text-muted-foreground">{$t('backup.testDesc')}</div>
 					<button
 						type="button"
 						on:click={handleTest}
-						disabled={testing || !settings.s3.bucket || !settings.s3.region || !settings.s3.access_key || !settings.s3.secret}
+						disabled={testing || (settings.source === 'system' ? !systemAvailable : !settings.s3.bucket || !settings.s3.region || !settings.s3.access_key || !settings.s3.secret)}
 						class="px-4 py-2 text-sm bg-background hover:bg-background/80 rounded-lg transition-colors disabled:opacity-50 shrink-0"
 					>
 						{testing ? $t('backup.testing') : $t('backup.test')}

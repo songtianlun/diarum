@@ -75,7 +75,10 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"backup.s3.secret":           {Type: "string", Default: "", Encrypted: true},
 	"backup.s3.force_path_style": {Type: "bool", Default: false, Encrypted: false},
 	"backup.s3.prefix":           {Type: "string", Default: "diarum-backups", Encrypted: false},
-	"backup.auto_enabled":        {Type: "bool", Default: false, Encrypted: false},
+	// "system" (the admin-managed system S3) or "custom" (the fields above);
+	// empty means settings from before sources existed, see backup.NormalizeSource
+	"backup.s3.source":    {Type: "string", Default: "", Encrypted: false},
+	"backup.auto_enabled": {Type: "bool", Default: false, Encrypted: false},
 	// Five-field cron expression, evaluated in backup.timezone (empty: server local time)
 	"backup.schedule": {Type: "string", Default: "0 2 * * *", Encrypted: false},
 	"backup.timezone": {Type: "string", Default: "", Encrypted: false},
