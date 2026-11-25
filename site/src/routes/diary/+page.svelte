@@ -4,9 +4,10 @@
 	import Calendar from '$lib/components/calendar/Calendar.svelte';
 	import OnThisDay from '$lib/components/memory/OnThisDay.svelte';
 	import HomeDays from '$lib/components/days/HomeDays.svelte';
+	import QuickDiaryComposer from '$lib/components/diary/QuickDiaryComposer.svelte';
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import { getDatesWithDiaries, getRecentDiaries, getDiaryStats, type CalendarDiaryMeta } from '$lib/api/diaries';
-	import { isAuthenticated } from '$lib/api/client';
+	import { isAuthenticated, type Diary } from '$lib/api/client';
 	import { getMonthRange, formatDisplayDate } from '$lib/utils/date';
 	import { t } from '$lib/i18n';
 
@@ -24,8 +25,8 @@
 	let yearViewActive = false;
 	let yearDiaryMeta: CalendarDiaryMeta[] = [];
 
-	async function loadDatesWithDiaries() {
-		loading = true;
+	async function loadDatesWithDiaries(silent = false) {
+		if (!silent) loading = true;
 		const range = getMonthRange(currentYear, currentMonth);
 		diaryMeta = await getDatesWithDiaries(range.start, range.end);
 		loading = false;
@@ -33,24 +34,43 @@
 	$: datesWithDiaries = diaryMeta.map(item => item.date);
 
 
-	async function loadRecentDiaries() {
-		recentLoading = true;
+	async function loadRecentDiaries(silent = false) {
+		if (!silent) recentLoading = true;
 		try {
 			recentDiaries = await getRecentDiaries(5);
 		} catch (e) {
-			recentDiaries = [];
+			if (!silent) recentDiaries = [];
 		}
 		recentLoading = false;
 	}
 
-	async function loadStats() {
-		statsLoading = true;
+	async function loadStats(silent = false) {
+		if (!silent) statsLoading = true;
 		stats = await getDiaryStats();
 		statsLoading = false;
 	}
 
+	function handleQuickAppended(diary: Diary) {
+		const appendedDate = (diary.date || '').slice(0, 10);
+		if (appendedDate && yearViewActive && appendedDate.startsWith(`${currentYear}-`)) {
+			if (!yearDiaryMeta.some((item) => item.date === appendedDate)) {
+				yearDiaryMeta = [
+					...yearDiaryMeta,
+					{ date: appendedDate, mood: diary.mood || '', weather: diary.weather || '' }
+				];
+			}
+		}
+		void loadDatesWithDiaries(true);
+		void loadRecentDiaries(true);
+		void loadStats(true);
+	}
+
 	function getPreview(content: string): string {
-		const text = content.replace(/<[^>]*>/g, '').trim();
+		const text = content
+			.replace(/<[^>]*>/g, ' ')
+			.replace(/&nbsp;|&#160;/gi, ' ')
+			.replace(/\s+/g, ' ')
+			.trim();
 		return text.length > 80 ? text.slice(0, 80) + '...' : text;
 	}
 
@@ -156,7 +176,7 @@
 						</div>
 					{:else}
 						<div class="animate-fade-in-only">
-							<Calendar bind:currentYear bind:currentMonth bind:yearViewActive bind:yearDiaryMeta {diaryMeta} on:monthchange={loadDatesWithDiaries} />
+							<Calendar bind:currentYear bind:currentMonth bind:yearViewActive bind:yearDiaryMeta {diaryMeta} on:monthchange={() => loadDatesWithDiaries()} />
 						</div>
 					{/if}
 				</div>
@@ -248,4 +268,7 @@
 
 	<!-- Footer -->
 	<Footer maxWidth="6xl" tagline={$t('diaryOverview.tagline')} />
+
+	<!-- Quick Diary Floating Button & Bubble Composer -->
+	<QuickDiaryComposer onAppended={handleQuickAppended} />
 </div>
