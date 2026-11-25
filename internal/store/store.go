@@ -1626,11 +1626,24 @@ func (s *Store) DeleteConversation(id, owner string) error {
 }
 
 func (s *Store) ListMessages(conversationID string, limit int) ([]*Message, error) {
-	query := `SELECT content, conversation, created, id, owner, referenced_diaries, role, updated FROM ai_messages WHERE conversation = ? ORDER BY created ASC`
+	var query string
 	args := []any{conversationID}
 	if limit > 0 {
-		query += ` LIMIT ?`
+		query = `SELECT content, conversation, created, id, owner, referenced_diaries, role, updated
+			FROM (
+				SELECT content, conversation, created, id, owner, referenced_diaries, role, updated, rowid
+				FROM ai_messages
+				WHERE conversation = ?
+				ORDER BY created DESC, rowid DESC
+				LIMIT ?
+			)
+			ORDER BY created ASC, rowid ASC`
 		args = append(args, limit)
+	} else {
+		query = `SELECT content, conversation, created, id, owner, referenced_diaries, role, updated
+			FROM ai_messages
+			WHERE conversation = ?
+			ORDER BY created ASC, rowid ASC`
 	}
 	rows, err := s.DB.Query(query, args...)
 	if err != nil {
@@ -1659,7 +1672,36 @@ func (s *Store) CreateMessage(owner, conversationID, role, content string, refer
 	if err != nil {
 		return nil, err
 	}
-	return s.InsertImportedMessage(owner, id, conversationID, role, content, referenced)
+	msg, err := s.InsertImportedMessage(owner, id, conversationID, role, content, referenced)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = s.DB.Exec(`UPDATE ai_conversations SET updated = ? WHERE id = ? AND owner = ?`, msg.Updated, conversationID, owner)
+	return msg, nil
+}
+
+// DeleteMessagesFrom removes the target message and every subsequent message in
+// the same conversation. Used to support regenerate and edit-and-resend flows.
+func (s *Store) DeleteMessagesFrom(owner, conversationID, messageID string) (int64, error) {
+	var created string
+	var rowID int64
+	err := s.DB.QueryRow(
+		`SELECT created, rowid FROM ai_messages WHERE id = ? AND conversation = ? AND owner = ?`,
+		messageID, conversationID, owner,
+	).Scan(&created, &rowID)
+	if err != nil {
+		return 0, err
+	}
+	result, err := s.DB.Exec(
+		`DELETE FROM ai_messages WHERE conversation = ? AND owner = ? AND (created > ? OR (created = ? AND rowid >= ?))`,
+		conversationID, owner, created, created, rowID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	affected, _ := result.RowsAffected()
+	_, _ = s.DB.Exec(`UPDATE ai_conversations SET updated = ? WHERE id = ? AND owner = ?`, nowString(), conversationID, owner)
+	return affected, nil
 }
 
 func (s *Store) InsertImportedMessage(owner, id, conversationID, role, content string, referenced []string) (*Message, error) {

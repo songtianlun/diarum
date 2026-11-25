@@ -162,7 +162,7 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		if err != nil {
 			return notFound("Conversation not found")
 		}
-		messages, err := s.ListMessages(conv.ID, 100)
+		messages, err := s.ListMessages(conv.ID, 500)
 		if err != nil {
 			return badRequest("Failed to fetch messages", err)
 		}
@@ -197,35 +197,109 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		return c.JSON(http.StatusOK, map[string]any{"id": conv.ID, "title": conv.Title, "updated": conv.Updated})
 	})
 
+	group.POST("/conversations/:id/title", func(c echo.Context) error {
+		userId := auth.CurrentUser(c).ID
+		conv, err := s.GetConversation(c.PathParam("id"), userId)
+		if err != nil {
+			return notFound("Conversation not found")
+		}
+		messages, err := s.ListMessages(conv.ID, 4)
+		if err != nil || len(messages) == 0 {
+			return badRequest("No messages available for title generation", err)
+		}
+		var firstUser, firstAssistant string
+		for _, m := range messages {
+			if m.Role == "user" && firstUser == "" {
+				firstUser = m.Content
+			} else if m.Role == "assistant" && firstAssistant == "" {
+				firstAssistant = m.Content
+			}
+		}
+		if firstUser == "" {
+			return badRequest("No user message found for title generation", nil)
+		}
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
+		defer cancel()
+		title, err := chatService.GenerateTitle(ctx, userId, firstUser, firstAssistant)
+		if err != nil || strings.TrimSpace(title) == "" {
+			return badRequest("Failed to generate title", err)
+		}
+		updated, err := s.UpdateConversationTitle(conv.ID, userId, title)
+		if err != nil {
+			return badRequest("Failed to save generated title", err)
+		}
+		return c.JSON(http.StatusOK, map[string]any{"id": updated.ID, "title": updated.Title, "updated": updated.Updated})
+	})
+
+	group.DELETE("/conversations/:id/messages/:messageId", func(c echo.Context) error {
+		userId := auth.CurrentUser(c).ID
+		convID := c.PathParam("id")
+		if _, err := s.GetConversation(convID, userId); err != nil {
+			return notFound("Conversation not found")
+		}
+		deleted, err := s.DeleteMessagesFrom(userId, convID, c.PathParam("messageId"))
+		if err != nil {
+			return notFound("Message not found")
+		}
+		return c.JSON(http.StatusOK, map[string]any{"success": true, "deleted": deleted})
+	})
+
 	group.POST("/chat", func(c echo.Context) error {
 		userId := auth.CurrentUser(c).ID
 		var body struct {
 			ConversationID string `json:"conversation_id"`
 			Content        string `json:"content"`
+			Scope          string `json:"scope"`
+			Regenerate     bool   `json:"regenerate"`
 		}
 		if err := c.Bind(&body); err != nil {
 			return badRequest("Invalid request body", err)
 		}
-		if body.ConversationID == "" || body.Content == "" {
+		if body.ConversationID == "" {
+			return badRequest("conversation_id is required", nil)
+		}
+		if !body.Regenerate && strings.TrimSpace(body.Content) == "" {
 			return badRequest("conversation_id and content are required", nil)
 		}
 		conv, err := s.GetConversation(body.ConversationID, userId)
 		if err != nil {
 			return notFound("Conversation not found")
 		}
-		messageCount, _ := chatService.GetConversationMessageCount(body.ConversationID)
-		isFirstMessage := messageCount == 0
-		currentTitle := conv.Title
-		userMsg, err := chatService.SaveMessage(userId, body.ConversationID, "user", body.Content, nil)
-		if err != nil {
-			logger.Error("[POST /api/v1/ai/chat] failed to save user message: %v", err)
+
+		var (
+			userMessageID  string
+			promptContent  = body.Content
+			isFirstMessage bool
+			currentTitle   = conv.Title
+		)
+
+		if body.Regenerate {
+			recent, err := s.ListMessages(body.ConversationID, 20)
+			if err != nil || len(recent) == 0 {
+				return badRequest("No message to regenerate", err)
+			}
+			last := recent[len(recent)-1]
+			if last.Role != "user" {
+				return badRequest("Last message must be a user message to regenerate", nil)
+			}
+			userMessageID = last.ID
+			promptContent = last.Content
 		} else {
-			logger.Info("[POST /api/v1/ai/chat] saved user message: %s", userMsg.ID)
+			messageCount, _ := chatService.GetConversationMessageCount(body.ConversationID)
+			isFirstMessage = messageCount == 0
+			userMsg, err := chatService.SaveMessage(userId, body.ConversationID, "user", body.Content, nil)
+			if err != nil {
+				logger.Error("[POST /api/v1/ai/chat] failed to save user message: %v", err)
+			} else {
+				userMessageID = userMsg.ID
+				logger.Info("[POST /api/v1/ai/chat] saved user message: %s", userMsg.ID)
+			}
 		}
 
 		c.Response().Header().Set("Content-Type", "text/event-stream")
 		c.Response().Header().Set("Cache-Control", "no-cache")
 		c.Response().Header().Set("Connection", "keep-alive")
+		c.Response().Header().Set("X-Accel-Buffering", "no")
 		c.Response().WriteHeader(http.StatusOK)
 		writer := &sseWriter{w: c.Response()}
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
@@ -233,33 +307,56 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 
 		var newTitle string
 		if isFirstMessage && currentTitle == "" {
-			title, err := chatService.GenerateTitleFromUserMessage(ctx, userId, body.Content)
+			title, err := chatService.GenerateTitleFromUserMessage(ctx, userId, promptContent)
 			if err == nil {
 				newTitle = title
 				if err := chatService.UpdateConversationTitle(body.ConversationID, title); err == nil {
-					titleData, _ := json.Marshal(map[string]any{"title": newTitle})
-					writer.Write([]byte("data: " + string(titleData) + "\n\n"))
+					titleData, _ := json.Marshal(map[string]any{"type": "title", "title": newTitle})
+					_, _ = writer.Write([]byte("data: " + string(titleData) + "\n\n"))
 					writer.Flush()
 				}
 			}
 		}
 
-		fullResponse, referencedDiaries, err := chatService.StreamChat(ctx, userId, body.ConversationID, body.Content, writer)
+		var references []chat.DiaryReference
+		fullResponse, referencedDiaries, err := chatService.StreamChatWithOptions(ctx, userId, body.ConversationID, promptContent, writer, chat.ChatOptions{
+			Scope:            body.Scope,
+			ExcludeMessageID: userMessageID,
+			ReferencesOut:    &references,
+		})
 		if err != nil {
+			// If the client cancelled mid-stream after partial text arrived, persist it.
+			if ctx.Err() == context.Canceled && strings.TrimSpace(fullResponse) != "" {
+				if _, saveErr := chatService.SaveMessage(userId, body.ConversationID, "assistant", fullResponse, referencedDiaries); saveErr != nil {
+					logger.Error("[POST /api/v1/ai/chat] failed to save partial assistant message: %v", saveErr)
+				}
+				return nil
+			}
 			logger.Error("[POST /api/v1/ai/chat] stream chat error: %v", err)
-			errData, _ := json.Marshal(map[string]string{"error": err.Error()})
-			writer.Write([]byte("data: " + string(errData) + "\n\n"))
+			errData, _ := json.Marshal(map[string]any{"type": "error", "error": err.Error()})
+			_, _ = writer.Write([]byte("data: " + string(errData) + "\n\n"))
 			writer.Flush()
 			return nil
 		}
+
+		var assistantMessageID string
 		assistantMsg, err := chatService.SaveMessage(userId, body.ConversationID, "assistant", fullResponse, referencedDiaries)
 		if err != nil {
 			logger.Error("[POST /api/v1/ai/chat] failed to save assistant message: %v", err)
 		} else {
+			assistantMessageID = assistantMsg.ID
 			logger.Info("[POST /api/v1/ai/chat] saved assistant message: %s", assistantMsg.ID)
 		}
-		doneData, _ := json.Marshal(map[string]any{"done": true, "referenced_diaries": referencedDiaries, "title": newTitle})
-		writer.Write([]byte("data: " + string(doneData) + "\n\n"))
+		doneData, _ := json.Marshal(map[string]any{
+			"type":               "done",
+			"done":               true,
+			"message_id":         assistantMessageID,
+			"user_message_id":    userMessageID,
+			"referenced_diaries": referencedDiaries,
+			"references":         references,
+			"title":              newTitle,
+		})
+		_, _ = writer.Write([]byte("data: " + string(doneData) + "\n\n"))
 		writer.Flush()
 		return nil
 	})

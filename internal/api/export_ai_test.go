@@ -329,8 +329,16 @@ func TestAIRoutesAndFetchModels(t *testing.T) {
 				t.Fatalf("decode ai request: %v", err)
 			}
 			if stream, _ := payload["stream"].(bool); stream {
+				hasToolResult := false
+				if msgs, ok := payload["messages"].([]any); ok {
+					for _, raw := range msgs {
+						if m, ok := raw.(map[string]any); ok && m["role"] == "tool" {
+							hasToolResult = true
+						}
+					}
+				}
 				tools, _ := payload["tools"].([]any)
-				if len(tools) > 0 {
+				if len(tools) > 0 && !hasToolResult {
 					return httpResponse(http.StatusOK, strings.Join([]string{
 						"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"search_diaries\",\"arguments\":\"{\\\"start_date\\\":\\\"2024-04-01\\\",\\\"end_date\\\":\\\"2024-04-01\\\",\\\"limit\\\":5}\"}}]}}]}",
 						"data: [DONE]",
@@ -342,7 +350,7 @@ func TestAIRoutesAndFetchModels(t *testing.T) {
 					"data: [DONE]",
 				}, "\n")), nil
 			}
-			return httpResponse(http.StatusOK, `{"choices":[{"message":{"content":"unused title"}}]}`), nil
+			return httpResponse(http.StatusOK, `{"choices":[{"message":{"content":"April Reflection"}}]}`), nil
 		default:
 			return httpResponse(http.StatusNotFound, "not found"), nil
 		}
@@ -436,6 +444,29 @@ func TestAIRoutesAndFetchModels(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /ai/conversations/:id status = %d body=%s", rec.Code, rec.Body.String())
 	}
+	convDetail := decodeJSONBody(t, rec)
+	msgs := convDetail["messages"].([]any)
+	assistantMsgID := msgs[1].(map[string]any)["id"].(string)
+
+	// Test AI title generation endpoint.
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/ai/conversations/"+convID+"/title", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /ai/conversations/:id/title status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if titlePayload := decodeJSONBody(t, rec); titlePayload["title"] != "April Reflection" {
+		t.Fatalf("generated title payload = %#v", titlePayload)
+	}
+
+	// Test deleting assistant message and regenerating on the existing user message.
+	rec = performRequest(t, e, http.MethodDelete, "/api/v1/ai/conversations/"+convID+"/messages/"+assistantMsgID, nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /ai/conversations/:id/messages/:messageId status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/ai/chat", strings.NewReader(`{"conversation_id":"`+convID+`","regenerate":true,"scope":"none"}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"done":true`) {
+		t.Fatalf("POST /ai/chat regenerate status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
 	rec = performRequest(t, e, http.MethodPut, "/api/v1/ai/conversations/"+convID, strings.NewReader(`{"title":"Renamed"}`), map[string]string{"Content-Type": "application/json"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT /ai/conversations/:id status = %d", rec.Code)
