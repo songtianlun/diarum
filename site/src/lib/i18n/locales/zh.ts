@@ -126,6 +126,24 @@ export const zh = {
 		noEntries: '还没有日记，今天就开始写吧！',
 		tagline: '你的私人日记'
 	},
+	quickWrite: {
+		fabLabel: '随手记',
+		fabTitle: '快速记录今天的一刻',
+		todayLabel: '今天',
+		placeholder: '记下此刻的想法，发送后自动追加到今天日记底部…',
+		send: '发送',
+		sending: '发送中…',
+		close: '关闭',
+		timestampOn: '已附带时间戳（点击关闭）',
+		timestampOff: '已关闭时间戳（点击开启）',
+		appended: '已追加到今日日记',
+		openToday: '查看今日日记',
+		shortcutHint: 'Enter 发送 · Shift+Enter 换行 · Esc 关闭',
+		mobileHint: '点击右侧按钮发送到今日日记',
+		unsyncedError: '今天的日记还有未同步的本地修改，请先确保网络畅通后重试。',
+		sendFailed: '发送失败，请重试',
+		chars: '{count} 字'
+	},
 	search: {
 		pageTitle: '搜索',
 		heading: '搜索日记',

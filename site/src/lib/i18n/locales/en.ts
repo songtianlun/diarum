@@ -136,6 +136,24 @@ export const en = {
 		noEntries: 'No entries yet. Start writing today!',
 		tagline: 'Your personal diary'
 	},
+	quickWrite: {
+		fabLabel: 'Quick note',
+		fabTitle: 'Quickly append a note to today’s diary',
+		todayLabel: 'Today',
+		placeholder: 'Jot down a thought — it will be appended to the bottom of today’s diary…',
+		send: 'Send',
+		sending: 'Sending…',
+		close: 'Close',
+		timestampOn: 'Timestamp included (click to turn off)',
+		timestampOff: 'Timestamp off (click to include)',
+		appended: 'Added to today’s diary',
+		openToday: 'Open today’s diary',
+		shortcutHint: 'Enter to send · Shift+Enter for newline · Esc to close',
+		mobileHint: 'Tap send to append to today’s diary',
+		unsyncedError: 'Today’s diary has unsynced local edits. Please reconnect and try again.',
+		sendFailed: 'Failed to send. Please try again.',
+		chars: '{count} chars'
+	},
 	search: {
 		pageTitle: 'Search',
 		heading: 'Search Diaries',

@@ -196,6 +196,43 @@ export async function saveDiary(diary: Partial<Diary>): Promise<boolean> {
 	}
 }
 
+export interface AppendDiaryNoteParams {
+	date: string;
+	content: string;
+	timestamp?: string;
+}
+
+/**
+ * Atomically append a quick note (with optional HH:MM:SS timestamp and smart
+ * dividers) to the bottom of the diary entry for `date`.
+ */
+export async function appendDiaryNote(params: AppendDiaryNoteParams): Promise<Diary> {
+	if (!pb.authStore.model?.id) {
+		throw new Error('Not authenticated');
+	}
+
+	const response = await fetch('/api/v1/diaries/append', {
+		method: 'POST',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			'Content-Type': 'application/json',
+			...deviceHeaders()
+		},
+		body: JSON.stringify({
+			date: params.date,
+			content: params.content,
+			timestamp: params.timestamp ?? ''
+		})
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || `HTTP ${response.status}`);
+	}
+
+	return (await response.json()) as Diary;
+}
+
 /**
  * Get dates with diaries in range
  */

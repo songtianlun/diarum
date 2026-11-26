@@ -24,6 +24,7 @@
 	import TiptapEditor from '$lib/components/editor/TiptapEditor.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import DiaryHistoryModal from '$lib/components/diary/DiaryHistoryModal.svelte';
+	import QuickDiaryComposer from '$lib/components/diary/QuickDiaryComposer.svelte';
 	import Win95Icon from './Win95Icon.svelte';
 	import Win95Tree from './Win95Tree.svelte';
 	import Win95DateNav from './Win95DateNav.svelte';
@@ -239,6 +240,20 @@
 		selectedWeather = diary.weather || '';
 		loading = false;
 		syncTreeEntry();
+	}
+
+	function handleQuickAppended(diary: Diary) {
+		const appendedDate = (diary.date || '').slice(0, 10);
+		if (appendedDate === date) {
+			handleRestored(diary);
+			return;
+		}
+		if (appendedDate && !entries.some((e) => e.date === appendedDate)) {
+			entries = [
+				...entries,
+				{ date: appendedDate, mood: diary.mood || '', weather: diary.weather || '' }
+			];
+		}
 	}
 
 	async function handleManualSave() {
@@ -931,6 +946,8 @@
 	visualStyle="win95"
 	onClose={() => (showShareModal = false)}
 />
+
+<QuickDiaryComposer onAppended={handleQuickAppended} fabBottomClass="bottom-12 sm:bottom-12" />
 
 <style>
 	/* ------------------------------------------------------------- desktop */

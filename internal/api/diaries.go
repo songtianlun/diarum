@@ -51,6 +51,40 @@ func RegisterDiaryRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middl
 		return c.JSON(http.StatusOK, diaryResponseWithImages(s, diary, body.Date))
 	})
 
+	group.POST("/append", func(c echo.Context) error {
+		user := auth.CurrentUser(c)
+		var body struct {
+			Date      string `json:"date"`
+			Content   string `json:"content"`
+			Timestamp string `json:"timestamp"`
+		}
+		if err := c.Bind(&body); err != nil {
+			return badRequest("Invalid request body", err)
+		}
+		body.Date = strings.TrimSpace(body.Date)
+		if body.Date == "" {
+			return badRequest("date is required", nil)
+		}
+		if _, err := time.Parse(dateLayout, body.Date); err != nil {
+			return badRequest("invalid date", err)
+		}
+		if strings.TrimSpace(body.Content) == "" {
+			return badRequest("content is required", nil)
+		}
+
+		before, diary, _, err := s.AppendDiary(user.ID, body.Date, func(existing string) string {
+			return appendQuickNoteHTML(existing, body.Content, body.Timestamp)
+		})
+		if err != nil {
+			return serverError("Failed to append diary", err)
+		}
+		recordDiarySave(c, user.ID, user.Username, audit.SourceWeb, before, diary)
+		if onDiaryChanged != nil {
+			onDiaryChanged(user.ID)
+		}
+		return c.JSON(http.StatusOK, diaryResponseWithImages(s, diary, body.Date))
+	})
+
 	group.GET("/by-date/:date", func(c echo.Context) error {
 		user := auth.CurrentUser(c)
 		dateStr := c.PathParam("date")
