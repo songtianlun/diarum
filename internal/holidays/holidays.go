@@ -34,7 +34,8 @@ const (
 
 	maxOverrideNameRunes = 40
 
-	SourceEmbedded = "embedded"
+	SourceEmbedded     = "embedded"
+	SourceManualImport = "manual_import"
 
 	defaultHTTPTimeout    = 10 * time.Second
 	maxPayloadBytes       = 512 * 1024
@@ -523,6 +524,46 @@ func (s *Service) RefreshYear(ctx context.Context, year int) (*YearResponse, err
 		lastErr = errors.New("no holiday source succeeded")
 	}
 	return nil, lastErr
+}
+
+// ImportYearJSON validates and stores a yearly holiday-cn JSON payload uploaded
+// manually by an administrator (for offline / air-gapped deployments).
+func (s *Service) ImportYearJSON(raw []byte) (*YearResponse, error) {
+	if s.store == nil {
+		return nil, errors.New("store unavailable")
+	}
+	if len(raw) == 0 || len(raw) > maxPayloadBytes {
+		return nil, fmt.Errorf("%w: payload empty or too large", ErrInvalidData)
+	}
+	var data YearData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidData, err)
+	}
+	if data.Year < MinYear || data.Year > MaxYear {
+		return nil, ErrInvalidYear
+	}
+	if err := ValidateYearData(data.Year, &data); err != nil {
+		return nil, err
+	}
+	normalized, err := json.Marshal(&data)
+	if err != nil {
+		return nil, err
+	}
+	nowStr := s.now().UTC().Format(time.RFC3339)
+	rec := &store.HolidayYearRecord{
+		Region:       RegionCN,
+		Year:         data.Year,
+		Payload:      string(normalized),
+		ETag:         "",
+		Source:       SourceManualImport,
+		NotPublished: false,
+		FetchedAt:    nowStr,
+		Updated:      nowStr,
+	}
+	if err := s.store.UpsertHolidayYear(rec); err != nil {
+		return nil, err
+	}
+	return s.applyOverrides(data.Year, buildResponse(data.Year, &data, SourceManualImport, nowStr))
 }
 
 // RefreshPolicyYears refreshes the current year and next year synchronously.

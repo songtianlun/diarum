@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -187,6 +188,69 @@ func RegisterAdminHolidayRoutes(e *echo.Echo, svc *holidays.Service, authMiddlew
 			"years":           status.Years,
 			"last_fetched_at": status.LastFetchedAt,
 			"overrides":       overrides,
+		})
+	})
+
+	// POST /api/v1/admin/holidays/cn/import — import a yearly holiday-cn JSON file offline.
+	group.POST("/cn/import", func(c echo.Context) error {
+		const maxImportBytes = 512 * 1024
+		var raw []byte
+
+		contentType := strings.ToLower(c.Request().Header.Get("Content-Type"))
+		if strings.HasPrefix(contentType, "multipart/form-data") {
+			fileHeader, err := c.FormFile("file")
+			if err != nil {
+				return badRequest("Missing JSON file", err)
+			}
+			f, err := fileHeader.Open()
+			if err != nil {
+				return badRequest("Failed to open uploaded file", err)
+			}
+			defer f.Close()
+			raw, err = io.ReadAll(io.LimitReader(f, maxImportBytes+1))
+			if err != nil {
+				return badRequest("Failed to read uploaded file", err)
+			}
+		} else {
+			var err error
+			raw, err = io.ReadAll(io.LimitReader(c.Request().Body, maxImportBytes+1))
+			if err != nil {
+				return badRequest("Failed to read request body", err)
+			}
+		}
+		if len(raw) > maxImportBytes {
+			return badRequest("JSON file is too large (max 512 KB)", nil)
+		}
+
+		imported, err := svc.ImportYearJSON(raw)
+		if err != nil {
+			if errors.Is(err, holidays.ErrInvalidData) || errors.Is(err, holidays.ErrInvalidYear) {
+				return badRequest(err.Error(), nil)
+			}
+			return serverError("Failed to import holiday JSON", err)
+		}
+		status, err := svc.Status()
+		if err != nil {
+			return serverError("Failed to read holiday status", err)
+		}
+		overrides, err := svc.ListOverrides(0)
+		if err != nil {
+			return serverError("Failed to list holiday overrides", err)
+		}
+		recordAudit(c, audit.ActionAdminHolidays, strconv.Itoa(imported.Year), map[string]any{
+			"op":   "import",
+			"year": imported.Year,
+			"days": len(imported.Days),
+		})
+		return c.JSON(http.StatusOK, map[string]any{
+			"imported": imported,
+			"overview": map[string]any{
+				"region":          status.Region,
+				"enabled":         status.Enabled,
+				"years":           status.Years,
+				"last_fetched_at": status.LastFetchedAt,
+				"overrides":       overrides,
+			},
 		})
 	})
 

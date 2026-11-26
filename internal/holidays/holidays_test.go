@@ -407,4 +407,32 @@ func TestGlobalToggleAndManualOverrides(t *testing.T) {
 	if nilSvc.needsEmbeddedRefresh(2026, &store.HolidayYearRecord{FetchedAt: now.UTC().Format(time.RFC3339)}, now) {
 		t.Fatal("expected fresh embedded record not to need refresh")
 	}
+
+	// ImportYearJSON validation & persistence
+	if _, err := nilSvc.ImportYearJSON([]byte(`{}`)); err == nil {
+		t.Fatal("nilSvc.ImportYearJSON should error")
+	}
+	if _, err := svc.ImportYearJSON(nil); !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("empty import err = %v", err)
+	}
+	if _, err := svc.ImportYearJSON([]byte(`{bad`)); !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("malformed import err = %v", err)
+	}
+	if _, err := svc.ImportYearJSON([]byte(`{"year":1999,"days":[{"name":"元旦","date":"1999-01-01","isOffDay":true}]}`)); !errors.Is(err, ErrInvalidYear) {
+		t.Fatalf("invalid year import err = %v", err)
+	}
+	if _, err := svc.ImportYearJSON([]byte(`{"year":2029,"days":[]}`)); !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("empty days import err = %v", err)
+	}
+	imported, err := svc.ImportYearJSON([]byte(`{"year":2029,"papers":["https://www.gov.cn/2029"],"days":[{"name":"元旦","date":"2029-01-01","isOffDay":true},{"name":"春节","date":"2029-02-10","isOffDay":false}]}`))
+	if err != nil {
+		t.Fatalf("ImportYearJSON(2029) err = %v", err)
+	}
+	if imported.Year != 2029 || imported.Source != SourceManualImport || len(imported.Days) != 2 {
+		t.Fatalf("unexpected imported response: %+v", imported)
+	}
+	got2029, err := svc.GetYear(context.Background(), 2029)
+	if err != nil || !got2029.Published || len(got2029.Days) != 2 {
+		t.Fatalf("GetYear(2029) after import = %+v, err=%v", got2029, err)
+	}
 }

@@ -9,6 +9,7 @@
 		getAdminCNHolidayYear,
 		setAdminCNHolidaysEnabled,
 		refreshAdminCNHolidays,
+		importAdminCNHolidayJSON,
 		upsertAdminCNHolidayOverride,
 		deleteAdminCNHolidayOverride,
 		type AdminCNHolidayOverview,
@@ -26,6 +27,8 @@
 	let error = $state('');
 	let toggling = $state(false);
 	let refreshing = $state(false);
+	let importing = $state(false);
+	let importInput = $state<HTMLInputElement | null>(null);
 	let message = $state<{ ok: boolean; text: string } | null>(null);
 
 	// Manual override form
@@ -138,6 +141,45 @@
 			flash(false, e instanceof Error ? e.message : $t('admin.holidays.refreshFailed'));
 		} finally {
 			refreshing = false;
+		}
+	}
+
+	async function handleImportFiles(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const files = Array.from(input.files ?? []);
+		input.value = '';
+		if (files.length === 0 || importing) return;
+
+		importing = true;
+		try {
+			const importedYears: number[] = [];
+			let lastDaysCount = 0;
+			let latestOverview: AdminCNHolidayOverview | null = null;
+			for (const file of files) {
+				if (file.size > 512 * 1024) {
+					throw new Error($t('admin.holidays.importTooLarge', { name: file.name }));
+				}
+				const res = await importAdminCNHolidayJSON(file);
+				importedYears.push(res.imported.year);
+				lastDaysCount = res.imported.days.length;
+				latestOverview = res.overview;
+			}
+			if (latestOverview) {
+				overview = latestOverview;
+			}
+			invalidateHolidayCache();
+			const targetYear = Math.max(...importedYears);
+			previewYear = targetYear;
+			await loadPreview(targetYear);
+			if (importedYears.length === 1) {
+				flash(true, $t('admin.holidays.importSuccessSingle', { year: importedYears[0], count: lastDaysCount }));
+			} else {
+				flash(true, $t('admin.holidays.importSuccessMulti', { years: importedYears.sort((a, b) => a - b).join(', ') }));
+			}
+		} catch (e) {
+			flash(false, e instanceof Error ? e.message : $t('admin.holidays.importFailed'));
+		} finally {
+			importing = false;
 		}
 	}
 
@@ -306,6 +348,41 @@
 				>
 					{refreshing ? $t('admin.holidays.refreshing') : $t('admin.holidays.refreshButton')}
 				</button>
+			</div>
+
+			<!-- Offline JSON Import -->
+			<div class="mt-4 rounded-lg bg-muted/40 border border-border/50 p-3.5 flex flex-wrap items-center justify-between gap-3">
+				<div class="min-w-0 flex-1 text-xs text-muted-foreground space-y-1">
+					<div class="font-medium text-foreground">{$t('admin.holidays.offlineTitle')}</div>
+					<p class="leading-relaxed">
+						{$t('admin.holidays.offlineDescPrefix')}
+						<a
+							href="https://github.com/NateScarlet/holiday-cn"
+							target="_blank"
+							rel="noopener noreferrer"
+							class="text-primary hover:underline font-mono"
+						>NateScarlet/holiday-cn</a>
+						{$t('admin.holidays.offlineDescSuffix')}
+					</p>
+				</div>
+				<div class="flex-shrink-0">
+					<input
+						bind:this={importInput}
+						type="file"
+						accept=".json,application/json"
+						multiple
+						onchange={handleImportFiles}
+						class="sr-only"
+					/>
+					<button
+						type="button"
+						disabled={importing}
+						onclick={() => importInput?.click()}
+						class="px-3 py-1.5 text-xs font-medium rounded-lg border border-border bg-background text-foreground hover:bg-muted/60 transition-colors disabled:opacity-50"
+					>
+						{importing ? $t('admin.holidays.importing') : $t('admin.holidays.importButton')}
+					</button>
+				</div>
 			</div>
 		</section>
 

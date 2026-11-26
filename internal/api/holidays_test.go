@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -259,5 +260,40 @@ func TestHolidayRoutes(t *testing.T) {
 	e2.ServeHTTP(failRec, req)
 	if failRec.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502 on failed refresh, got %d", failRec.Code)
+	}
+
+	// Admin offline JSON import (both multipart upload & raw JSON, plus validation)
+	if rec := doReq(userToken, http.MethodPost, "/api/v1/admin/holidays/cn/import", map[string]any{"year": 2030}); rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-admin import, got %d", rec.Code)
+	}
+	if rec := doReq(adminToken, http.MethodPost, "/api/v1/admin/holidays/cn/import", map[string]any{"year": 2030, "days": []any{}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid import payload, got %d", rec.Code)
+	}
+
+	var mpBuf bytes.Buffer
+	mw := multipart.NewWriter(&mpBuf)
+	fw, err := mw.CreateFormFile("file", "2030.json")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	_, _ = fw.Write([]byte(`{"year":2030,"papers":["https://www.gov.cn/2030"],"days":[{"name":"元旦","date":"2030-01-01","isOffDay":true}]}`))
+	_ = mw.Close()
+
+	mpReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/holidays/cn/import", &mpBuf)
+	mpReq.Header.Set("Authorization", "Bearer "+adminToken)
+	mpReq.Header.Set("Content-Type", mw.FormDataContentType())
+	mpRec := httptest.NewRecorder()
+	e.ServeHTTP(mpRec, mpReq)
+	if mpRec.Code != http.StatusOK {
+		t.Fatalf("multipart import status = %d, body = %s", mpRec.Code, mpRec.Body.String())
+	}
+	var importResp struct {
+		Imported holidays.YearResponse `json:"imported"`
+	}
+	if err := json.Unmarshal(mpRec.Body.Bytes(), &importResp); err != nil {
+		t.Fatalf("decode importResp: %v", err)
+	}
+	if importResp.Imported.Year != 2030 || len(importResp.Imported.Days) != 1 {
+		t.Fatalf("unexpected importResp: %+v", importResp)
 	}
 }

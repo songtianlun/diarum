@@ -168,3 +168,22 @@ export async function deleteAdminCNHolidayOverride(date: string): Promise<void> 
 		throw await parseError(response, 'Failed to delete holiday override');
 	}
 }
+
+export async function importAdminCNHolidayJSON(file: File): Promise<{
+	imported: CNHolidayYearResponse;
+	overview: AdminCNHolidayOverview;
+}> {
+	const formData = new FormData();
+	formData.append('file', file);
+	const response = await fetch('/api/v1/admin/holidays/cn/import', {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${pb.authStore.token}`
+		},
+		body: formData
+	});
+	if (!response.ok) {
+		throw await parseError(response, 'Failed to import holiday JSON');
+	}
+	return await response.json();
+}
