@@ -9,6 +9,7 @@
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import EntryNav from '$lib/components/ui/EntryNav.svelte';
 	import DiaryHistoryModal from '$lib/components/diary/DiaryHistoryModal.svelte';
+	import QuickDiaryComposer from '$lib/components/diary/QuickDiaryComposer.svelte';
 	import type { Diary } from '$lib/api/client';
 	import {
 		getDiaryByDate,
@@ -251,6 +252,17 @@
 		};
 		viewCache.set(restored.date, restored);
 		if (restored.date === date) view = restored;
+	}
+
+	function handleQuickAppended(diary: Diary) {
+		handleRestored(diary);
+		const appendedDate = (diary.date || '').slice(0, 10);
+		if (catalogLoaded && appendedDate && !catalogEntries.some((item) => item.date === appendedDate)) {
+			catalogEntries = [
+				...catalogEntries,
+				{ date: appendedDate, mood: diary.mood || '', weather: diary.weather || '' }
+			];
+		}
 	}
 
 	function handleMoodSelect(emoji: string) {
@@ -718,6 +730,8 @@
 	weather={view.weather}
 	onClose={() => (showShareModal = false)}
 />
+
+<QuickDiaryComposer onAppended={handleQuickAppended} />
 
 <style>
 	.book-screen {

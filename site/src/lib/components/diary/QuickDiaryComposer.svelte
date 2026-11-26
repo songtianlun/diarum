@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy, tick } from 'svelte';
+	import { onMount, onDestroy, tick, flushSync } from 'svelte';
 	import type { Diary } from '$lib/api/client';
 	import { appendDiaryNote } from '$lib/api/diaries';
 	import { formatShortDate, getToday } from '$lib/utils/date';
@@ -13,7 +13,13 @@
 		date: string;
 	}
 
-	let { onAppended }: { onAppended?: (diary: Diary) => void } = $props();
+	let {
+		onAppended,
+		fabBottomClass = 'bottom-[max(1.25rem,env(safe-area-inset-bottom))] sm:bottom-7'
+	}: {
+		onAppended?: (diary: Diary) => void;
+		fabBottomClass?: string;
+	} = $props();
 
 	const TIMESTAMP_PREF_KEY = 'diarum_quick_write_timestamp';
 
@@ -90,16 +96,47 @@
 		textareaEl.style.height = `${nextHeight}px`;
 	}
 
-	async function openComposer() {
+	function focusTextarea() {
+		if (!textareaEl) return;
+		textareaEl.focus({ preventScroll: true });
+		const len = textareaEl.value.length;
+		try {
+			textareaEl.setSelectionRange(len, len);
+		} catch {
+			// Ignore selection errors on unsupported environments.
+		}
+	}
+
+	function autofocusNode(node: HTMLTextAreaElement) {
+		node.focus({ preventScroll: true });
+		const len = node.value.length;
+		try {
+			node.setSelectionRange(len, len);
+		} catch {
+			// Ignore selection errors on unsupported environments.
+		}
+	}
+
+	function openComposer() {
 		errorMessage = '';
 		syncClock();
-		open = true;
+		// Flush synchronously inside the click/tap gesture so desktop and
+		// mobile browsers (including iOS Safari) immediately focus the input.
+		flushSync(() => {
+			open = true;
+		});
 		lockBodyScroll();
 		startClock();
 		updateViewportMetrics();
-		await tick();
 		resizeTextarea();
-		textareaEl?.focus();
+		focusTextarea();
+		// Re-assert focus on the next frame in case a previously focused
+		// editor (such as TipTap) runs deferred blur/selection handlers.
+		requestAnimationFrame(() => {
+			if (open && textareaEl && document.activeElement !== textareaEl) {
+				focusTextarea();
+			}
+		});
 	}
 
 	function closeComposer() {
@@ -157,13 +194,14 @@
 				}
 			];
 			draft = '';
+			sending = false;
 
 			await tick();
 			resizeTextarea();
 			if (feedEl) {
 				feedEl.scrollTop = feedEl.scrollHeight;
 			}
-			textareaEl?.focus();
+			focusTextarea();
 			onAppended?.(diary);
 		} catch (err) {
 			const msg = err instanceof Error && err.message ? err.message : '';
@@ -245,7 +283,7 @@
 		title={$t('quickWrite.fabTitle')}
 		aria-label={$t('quickWrite.fabTitle')}
 		aria-expanded={open}
-		class="fixed right-5 bottom-[max(1.25rem,env(safe-area-inset-bottom))] sm:right-7 sm:bottom-7 z-40
+		class="fixed right-5 {fabBottomClass} sm:right-7 z-40
 			inline-flex items-center gap-2 h-12 px-4 sm:px-5 rounded-full
 			bg-primary text-primary-foreground font-medium text-sm
 			shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30
@@ -379,17 +417,18 @@
 				>
 					<textarea
 						bind:this={textareaEl}
+						use:autofocusNode
 						bind:value={draft}
 						oninput={resizeTextarea}
 						onkeydown={handleKeydown}
 						oncompositionstart={() => (isComposing = true)}
 						oncompositionend={() => (isComposing = false)}
 						placeholder={$t('quickWrite.placeholder')}
-						disabled={sending}
+						readonly={sending}
 						rows="1"
 						class="flex-1 resize-none bg-transparent border-0 px-2 py-2.5 text-sm sm:text-[15px] leading-relaxed
 							text-foreground placeholder:text-muted-foreground/70
-							focus:outline-none disabled:opacity-60 max-h-[200px] overflow-y-auto"
+							focus:outline-none read-only:opacity-60 max-h-[200px] overflow-y-auto"
 					></textarea>
 
 					<button

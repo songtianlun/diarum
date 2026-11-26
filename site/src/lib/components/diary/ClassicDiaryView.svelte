@@ -10,6 +10,7 @@
 	import Footer from '$lib/components/ui/Footer.svelte';
 	import DiaryShareModal from '$lib/components/share/DiaryShareModal.svelte';
 	import DiaryHistoryModal from '$lib/components/diary/DiaryHistoryModal.svelte';
+	import QuickDiaryComposer from '$lib/components/diary/QuickDiaryComposer.svelte';
 	import type { Diary } from '$lib/api/client';
 	import { getDiaryByDate } from '$lib/api/diaries';
 	import { isAuthenticated } from '$lib/api/client';
@@ -179,6 +180,13 @@
 		selectedMood = diary.mood || '';
 		selectedWeather = diary.weather || '';
 		loading = false;
+	}
+
+	function handleQuickAppended(diary: Diary) {
+		const appendedDate = (diary.date || '').slice(0, 10);
+		if (appendedDate === date) {
+			handleRestored(diary);
+		}
 	}
 
 	async function handleManualSave() {
@@ -530,6 +538,8 @@
 	weather={selectedWeather}
 	onClose={() => showShareModal = false}
 />
+
+<QuickDiaryComposer onAppended={handleQuickAppended} />
 
 <style>
 	.emoji-option {
