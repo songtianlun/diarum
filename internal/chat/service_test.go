@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/store"
@@ -908,4 +909,108 @@ func TestHistoryLatestOrderAndContextBudget(t *testing.T) {
 	if !strings.Contains(formatted, "omitted to fit context budget") {
 		t.Fatalf("expected budget omission notice in formatted diaries, len=%d", len([]rune(formatted)))
 	}
+}
+
+func TestPrefetchGroundedContextAndToolsFallback(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewChatService(s, nil)
+	configureAISettings(t, s, user.ID)
+
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	twoDaysAgo := now.AddDate(0, 0, -2).Format("2006-01-02")
+	lastYearToday := now.AddDate(-1, 0, 0).Format("2006-01-02")
+
+	if _, err := s.InsertImportedDiary(user.ID, "d-recent", twoDaysAgo, "<p>Real recent entry</p>", "calm", "sunny"); err != nil {
+		t.Fatalf("InsertImportedDiary recent: %v", err)
+	}
+	if _, err := s.InsertImportedDiary(user.ID, "d-prev-year", lastYearToday, "<p>Last year memory</p>", "happy", "cloudy"); err != nil {
+		t.Fatalf("InsertImportedDiary prev year: %v", err)
+	}
+	if _, err := s.SaveDay(&store.Day{Owner: user.ID, Name: "Birthday", Date: "2000-01-01", Emoji: "🎂", Repeat: store.DayRepeatYear}); err != nil {
+		t.Fatalf("SaveDay: %v", err)
+	}
+
+	// 1. Weekly reflection prompt must prefetch real diaries in the past 7 days.
+	conv, _ := s.CreateConversation(user.ID, "weekly")
+	var capturedSystem string
+	callNum := 0
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		callNum++
+		var payload ChatRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if callNum == 1 {
+			if payload.ToolChoice != "auto" {
+				t.Fatalf("expected tool_choice=auto, got %q", payload.ToolChoice)
+			}
+			capturedSystem = payload.Messages[0].Content
+			// Simulate provider that rejects tools with HTTP 400 -> must auto-retry without tools!
+			return response(http.StatusBadRequest, `{"error":"tools are not supported by this model"}`), nil
+		}
+		if len(payload.Tools) != 0 {
+			t.Fatalf("fallback retry should omit tools, got %d", len(payload.Tools))
+		}
+		return response(http.StatusOK, "data: {\"choices\":[{\"delta\":{\"content\":\"Grounded summary\"}}]}\ndata: [DONE]\n"), nil
+	})
+
+	writer := &mockStreamWriter{}
+	var refs []DiaryReference
+	reply, refIDs, err := service.StreamChatWithOptions(context.Background(), user.ID, conv.ID, "请结合我最近 7 天的日记，总结这一周的情绪变化", writer, ChatOptions{
+		Scope:         "all",
+		ReferencesOut: &refs,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatWithOptions: %v", err)
+	}
+	if reply != "Grounded summary" || callNum != 2 {
+		t.Fatalf("reply=%q callNum=%d", reply, callNum)
+	}
+	if !strings.Contains(capturedSystem, "Real recent entry") || !strings.Contains(capturedSystem, "<retrieved_diaries") {
+		t.Fatalf("system prompt should contain prefetched real diary: %s", capturedSystem)
+	}
+	if len(refIDs) != 1 || refIDs[0] != "d-recent" || len(refs) != 1 {
+		t.Fatalf("expected prefetched ref d-recent, got ids=%v refs=%#v", refIDs, refs)
+	}
+	if !strings.Contains(writer.String(), `"type":"tool_start"`) || !strings.Contains(writer.String(), `"type":"tool_end"`) {
+		t.Fatalf("expected prefetch tool SSE events in output: %s", writer.String())
+	}
+
+	// 2. Test other prefetch branches (on this day, tracked days, scopes, empty result grounding).
+	resOnThisDay := service.prefetchGroundedContext(context.Background(), user.ID, "帮我看看那年今日写了什么", "all", &mockStreamWriter{})
+	if !resOnThisDay.didFetchDiaries || len(resOnThisDay.diaries) != 1 || resOnThisDay.diaries[0].ID != "d-prev-year" {
+		t.Fatalf("on-this-day prefetch = %#v", resOnThisDay)
+	}
+
+	resDays := service.prefetchGroundedContext(context.Background(), user.ID, "查看我的纪念日和里程碑", "all", &mockStreamWriter{})
+	if !strings.Contains(resDays.daysContext, "Birthday") {
+		t.Fatalf("days prefetch = %#v", resDays)
+	}
+
+	for _, tc := range []struct {
+		msg   string
+		scope string
+	}{
+		{"总结本月", "this_month"},
+		{"总结今年", "this_year"},
+		{"最近一个月发生了什么", "all"},
+		{"今年有什么变化", "all"},
+		{"昨天写了什么", "all"},
+		{"今天怎么样", "all"},
+		{"最近的状态如何", "all"},
+	} {
+		r := service.prefetchGroundedContext(context.Background(), user.ID, tc.msg, tc.scope, &mockStreamWriter{})
+		if !r.didFetchDiaries {
+			t.Fatalf("expected prefetch for msg=%q scope=%q", tc.msg, tc.scope)
+		}
+	}
+
+	// Empty prefetch prompt must explicitly say count="0" and forbid fabrication.
+	emptyPrompt := service.buildAgentSystemPromptWithContext("all", nil, "", true)
+	if !strings.Contains(emptyPrompt, `<retrieved_diaries count="0">`) || !strings.Contains(emptyPrompt, "NEVER invent") {
+		t.Fatalf("empty grounding prompt missing warning: %s", emptyPrompt)
+	}
+	_ = today
 }

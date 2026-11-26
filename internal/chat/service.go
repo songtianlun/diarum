@@ -115,10 +115,11 @@ type ChatOptions struct {
 
 // ChatRequest represents a request to the OpenAI-compatible chat API.
 type ChatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
-	Tools    []Tool        `json:"tools,omitempty"`
-	Stream   bool          `json:"stream"`
+	Model      string        `json:"model"`
+	Messages   []ChatMessage `json:"messages"`
+	Tools      []Tool        `json:"tools,omitempty"`
+	ToolChoice string        `json:"tool_choice,omitempty"`
+	Stream     bool          `json:"stream"`
 }
 
 // ChatStreamResponse represents a streaming response chunk.
@@ -195,7 +196,6 @@ func (s *ChatService) getTools() []Tool {
 							"description": "Maximum number of diary entries to return (default 10, max 50).",
 						},
 					},
-					"required": []string{},
 				},
 			},
 		},
@@ -245,7 +245,6 @@ func (s *ChatService) getTools() []Tool {
 							"description": "Maximum number of diary entries to return (default 15, max 50).",
 						},
 					},
-					"required": []string{},
 				},
 			},
 		},
@@ -276,9 +275,13 @@ func (s *ChatService) getTools() []Tool {
 				Name:        "get_days",
 				Description: "List the user's tracked important dates, countdowns, anniversaries, and their milestones.",
 				Parameters: map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{},
-					"required":   []string{},
+					"type": "object",
+					"properties": map[string]interface{}{
+						"include_milestones": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Whether to include milestones for each tracked day (default true).",
+						},
+					},
 				},
 			},
 		},
@@ -441,6 +444,10 @@ func (s *ChatService) buildAgentSystemPrompt() string {
 }
 
 func (s *ChatService) buildAgentSystemPromptWithScope(scope string) string {
+	return s.buildAgentSystemPromptWithContext(scope, nil, "", false)
+}
+
+func (s *ChatService) buildAgentSystemPromptWithContext(scope string, prefetchedDiaries []embedding.DiarySearchResult, prefetchedDays string, didPrefetchDiaries bool) string {
 	now := time.Now()
 	today := now.Format("2006-01-02")
 	weekday := now.Weekday().String()
@@ -461,7 +468,8 @@ The user selected General Chat mode without diary search. Answer directly, conci
 		scopeHint = fmt.Sprintf("\nContext scope preference: Focus on diary entries from this year (%s to %s) unless the user explicitly asks about another date.", yearStart, today)
 	}
 
-	return fmt.Sprintf(`You are a thoughtful, empathetic AI assistant for a personal diary application called Diarum.
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf(`You are a thoughtful, empathetic AI assistant for a personal diary application called Diarum.
 You help the user reflect on their diary entries, recall memories, spot mood/habit patterns, and organize their thoughts.
 
 Today's date is: %s (%s).%s
@@ -473,12 +481,226 @@ Available tools:
 - search_diaries_keyword: Exact text match across all diaries. Best for people's names, places, book/movie titles, or specific phrases.
 - get_days: List the user's countdowns, anniversaries, and milestones.
 
-Guidelines:
-- Use tools proactively whenever the user asks about their past, diaries, feelings, habits, people, or important dates.
-- You may call multiple tools or refine your search if the first query returns too few entries.
-- Always cite specific diary dates in YYYY-MM-DD format (e.g., 2026-10-15) when referencing entries, so the user can jump directly to them.
-- Be honest if no matching entries exist; never fabricate diary events.
-- Respond in the same language as the user with clear, readable Markdown.`, today, weekday, scopeHint)
+STRICT GROUNDING RULES (MUST FOLLOW):
+1. You ONLY know diary entries that explicitly appear inside <retrieved_diaries> below or inside a tool result returned during this conversation.
+2. NEVER invent, imagine, guess, or fabricate any diary entry, date, mood, weather, person, or event.
+3. If <retrieved_diaries> is empty or missing what the user asked for, call the appropriate tool first. If no matching entries exist after searching, honestly tell the user that no matching diary entries were found in Diarum—never make up fictional examples or summaries.
+4. Always cite specific real diary dates in YYYY-MM-DD format (e.g., 2026-10-15) when referencing entries.
+5. Respond in the same language as the user with clear, readable Markdown.`, today, weekday, scopeHint))
+
+	if didPrefetchDiaries {
+		sb.WriteString("\n\n<retrieved_diaries count=\"")
+		sb.WriteString(fmt.Sprintf("%d", len(prefetchedDiaries)))
+		sb.WriteString("\">\n")
+		if len(prefetchedDiaries) > 0 {
+			sb.WriteString(s.formatDiariesForContext(prefetchedDiaries))
+		} else {
+			sb.WriteString("No diary entries were found in the user's database for the automatically queried date range/topic. Call a tool with broader criteria if appropriate, or honestly tell the user no entries were found.\n")
+		}
+		sb.WriteString("</retrieved_diaries>")
+	}
+
+	if prefetchedDays != "" {
+		sb.WriteString("\n\n<tracked_days>\n")
+		sb.WriteString(prefetchedDays)
+		sb.WriteString("\n</tracked_days>")
+	}
+
+	return sb.String()
+}
+
+type prefetchResult struct {
+	diaries          []embedding.DiarySearchResult
+	daysContext      string
+	didFetchDiaries  bool
+}
+
+func containsAny(s string, patterns ...string) bool {
+	for _, p := range patterns {
+		if strings.Contains(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// prefetchGroundedContext automatically fetches real diaries/days for explicit
+// scopes and time/memory intents before calling the LLM, preventing models that
+// ignore or lack tool calling from hallucinating fictional diary entries.
+func (s *ChatService) prefetchGroundedContext(ctx context.Context, userID, message, scope string, writer StreamWriter) prefetchResult {
+	var res prefetchResult
+	if scope == "none" || s.store == nil {
+		return res
+	}
+
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	lower := strings.ToLower(message)
+
+	// 1. Check if the user asks about tracked days / anniversaries / milestones.
+	if containsAny(lower, "纪念日", "倒数日", "里程碑", "重要日子", "anniversar", "countdown", "milestone", "tracked day") {
+		toolID := "prefetch_days"
+		writeSSEEvent(writer, map[string]any{
+			"type": "tool_start",
+			"tool": map[string]any{"id": toolID, "name": "get_days"},
+		})
+		days, err := s.store.ListDays(userID)
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		} else {
+			milestones, _ := s.store.ListAllDayMilestones(userID)
+			res.daysContext = formatDaysForContext(days, milestones)
+		}
+		writeSSEEvent(writer, map[string]any{
+			"type": "tool_end",
+			"tool": map[string]any{"id": toolID, "name": "get_days", "count": len(days), "error": errMsg},
+		})
+	}
+
+	// 2. Determine diary retrieval strategy based on explicit scope or query intent.
+	var (
+		toolName   string
+		toolArgs   map[string]any
+		startDate  string
+		endDate    string
+		limit      int
+		onThisDay  bool
+		recentHint bool
+	)
+
+	switch {
+	case scope == "this_month":
+		toolName = "list_diaries"
+		startDate = now.Format("2006-01") + "-01"
+		endDate = today
+		limit = 31
+		toolArgs = map[string]any{"start_date": startDate, "end_date": endDate}
+
+	case scope == "this_year":
+		toolName = "list_diaries"
+		startDate = now.Format("2006") + "-01-01"
+		endDate = today
+		limit = 30
+		toolArgs = map[string]any{"start_date": startDate, "end_date": endDate}
+
+	case containsAny(lower, "那年今日", "去年今天", "往年", "过去同期", "on this day", "previous months or years", "earlier months or years"):
+		toolName = "search_diaries"
+		onThisDay = true
+		toolArgs = map[string]any{"query": now.Format("01-02")}
+
+	case containsAny(lower, "最近 7 天", "最近7天", "过去 7 天", "过去7天", "近7天", "近一周", "最近一周", "本周", "这周", "一周", "past 7 days", "last 7 days", "this week", "past week", "last week", "weekly"):
+		toolName = "list_diaries"
+		startDate = now.AddDate(0, 0, -7).Format("2006-01-02")
+		endDate = today
+		limit = 15
+		toolArgs = map[string]any{"start_date": startDate, "end_date": endDate}
+
+	case containsAny(lower, "最近一个月", "近一个月", "最近 30 天", "最近30天", "近30天", "本月", "这个月", "this month", "past month", "last month", "past 30 days", "monthly"):
+		toolName = "list_diaries"
+		startDate = now.AddDate(0, 0, -30).Format("2006-01-02")
+		endDate = today
+		limit = 31
+		toolArgs = map[string]any{"start_date": startDate, "end_date": endDate}
+
+	case containsAny(lower, "今年", "这一年", "this year", "yearly"):
+		toolName = "list_diaries"
+		startDate = now.Format("2006") + "-01-01"
+		endDate = today
+		limit = 30
+		toolArgs = map[string]any{"start_date": startDate, "end_date": endDate}
+
+	case containsAny(lower, "昨天", "昨日", "yesterday"):
+		toolName = "list_diaries"
+		y := now.AddDate(0, 0, -1).Format("2006-01-02")
+		startDate = y
+		endDate = y
+		limit = 5
+		toolArgs = map[string]any{"start_date": startDate, "end_date": endDate}
+
+	case containsAny(lower, "今天", "今日", "today"):
+		toolName = "list_diaries"
+		startDate = today
+		endDate = today
+		limit = 5
+		toolArgs = map[string]any{"start_date": startDate, "end_date": endDate}
+
+	case containsAny(lower, "最近", "近期", "recent", "lately"):
+		toolName = "list_diaries"
+		recentHint = true
+		startDate = now.AddDate(0, 0, -14).Format("2006-01-02")
+		endDate = today
+		limit = 15
+		toolArgs = map[string]any{"start_date": startDate, "end_date": endDate}
+	}
+
+	if toolName == "" {
+		return res
+	}
+
+	res.didFetchDiaries = true
+	toolID := "prefetch_diaries"
+	writeSSEEvent(writer, map[string]any{
+		"type": "tool_start",
+		"tool": map[string]any{"id": toolID, "name": toolName, "args": toolArgs},
+	})
+
+	var err error
+	if onThisDay {
+		monthDay := now.Format("01-02")
+		raw, qErr := s.store.ListDiariesByMonthDay(userID, monthDay, 1970, now.Year()-1, 20)
+		err = qErr
+		for _, d := range raw {
+			res.diaries = append(res.diaries, diaryToSearchResult(d))
+		}
+		// If nothing on exact MM-DD in earlier years, also check same day in earlier months this year.
+		if err == nil && len(res.diaries) == 0 {
+			for m := 1; m <= 6; m++ {
+				target := now.AddDate(0, -m, 0).Format("2006-01-02")
+				if d, dErr := s.store.GetDiaryByDate(userID, target+" 00:00:00.000Z", target+" 23:59:59.999Z"); dErr == nil && d != nil {
+					res.diaries = append(res.diaries, diaryToSearchResult(d))
+				}
+			}
+		}
+	} else {
+		raw, qErr := s.store.ListDiaries(userID, startDate+" 00:00:00.000Z", endDate+" 23:59:59.999Z", "-date", limit)
+		err = qErr
+		for _, d := range raw {
+			res.diaries = append(res.diaries, diaryToSearchResult(d))
+		}
+		// For broad "recent/近期" queries, if nothing in last 14 days, fall back to latest 10 entries.
+		if err == nil && recentHint && len(res.diaries) == 0 {
+			if latest, lErr := s.store.ListDiaries(userID, "", "", "-date", 10); lErr == nil {
+				for _, d := range latest {
+					res.diaries = append(res.diaries, diaryToSearchResult(d))
+				}
+			}
+		}
+	}
+
+	dates := make([]string, 0, len(res.diaries))
+	for _, d := range res.diaries {
+		if d.Date != "" {
+			dates = append(dates, d.Date)
+		}
+	}
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+
+	writeSSEEvent(writer, map[string]any{
+		"type": "tool_end",
+		"tool": map[string]any{
+			"id":    toolID,
+			"name":  toolName,
+			"count": len(res.diaries),
+			"dates": dates,
+			"error": errMsg,
+		},
+	})
+
+	return res
 }
 
 // GetConversationHistory retrieves recent message history for a conversation.
@@ -548,25 +770,6 @@ func (s *ChatService) StreamChatWithOptions(ctx context.Context, userID, convers
 		return "", nil, fmt.Errorf("chat model not configured")
 	}
 
-	systemPrompt := s.buildAgentSystemPromptWithScope(opts.Scope)
-	messages := []ChatMessage{
-		{Role: "system", Content: systemPrompt},
-	}
-
-	history, err := s.getConversationHistoryExcluding(conversationID, 24, opts.ExcludeMessageID)
-	if err != nil {
-		logger.Warn("[ChatService] failed to get conversation history: %v", err)
-	} else {
-		messages = append(messages, history...)
-	}
-
-	messages = append(messages, ChatMessage{Role: "user", Content: message})
-
-	var tools []Tool
-	if opts.Scope != "none" {
-		tools = s.getTools()
-	}
-
 	var (
 		fullResponse       strings.Builder
 		referencedDiaryIDs []string
@@ -587,6 +790,36 @@ func (s *ChatService) StreamChatWithOptions(ctx context.Context, userID, convers
 			Weather: d.Weather,
 			Preview: truncateString(strings.Join(strings.Fields(htmlToPlainText(d.Content)), " "), 120),
 		})
+	}
+
+	prefetched := s.prefetchGroundedContext(ctx, userID, message, opts.Scope, writer)
+	for _, d := range prefetched.diaries {
+		addRef(d)
+	}
+	if len(references) > 0 {
+		writeSSEEvent(writer, map[string]any{
+			"type":       "references",
+			"references": references,
+		})
+	}
+
+	systemPrompt := s.buildAgentSystemPromptWithContext(opts.Scope, prefetched.diaries, prefetched.daysContext, prefetched.didFetchDiaries)
+	messages := []ChatMessage{
+		{Role: "system", Content: systemPrompt},
+	}
+
+	history, err := s.getConversationHistoryExcluding(conversationID, 24, opts.ExcludeMessageID)
+	if err != nil {
+		logger.Warn("[ChatService] failed to get conversation history: %v", err)
+	} else {
+		messages = append(messages, history...)
+	}
+
+	messages = append(messages, ChatMessage{Role: "user", Content: message})
+
+	var tools []Tool
+	if opts.Scope != "none" {
+		tools = s.getTools()
 	}
 
 	for round := 0; round <= maxToolRounds; round++ {
@@ -902,6 +1135,9 @@ func (s *ChatService) callAPIWithTools(ctx context.Context, baseURL, apiKey, mod
 		Tools:    tools,
 		Stream:   true,
 	}
+	if len(tools) > 0 {
+		reqBody.ToolChoice = "auto"
+	}
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
@@ -928,7 +1164,15 @@ func (s *ChatService) callAPIWithTools(ctx context.Context, baseURL, apiKey, mod
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		bodyStr := string(body)
+		// Some OpenAI-compatible models/relays reject `tools` with 400/422.
+		// Fall back cleanly without tools so grounded pre-fetched context still works.
+		if len(tools) > 0 && (resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity) &&
+			containsAny(strings.ToLower(bodyStr), "tool", "function", "schema") {
+			logger.Warn("[ChatService] provider rejected tools (%d: %s), retrying without tools", resp.StatusCode, bodyStr)
+			return s.callAPIWithTools(ctx, baseURL, apiKey, model, messages, nil, writer)
+		}
+		return "", nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, bodyStr)
 	}
 
 	return s.processStreamResponseWithTools(resp.Body, writer)
