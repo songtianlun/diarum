@@ -167,9 +167,15 @@ jobs:
           done
 
       - name: Notify Keel
-        uses: fjogeleit/http-request-action@master
-        with:
-          url: 'https://keel.skybyte.me/v1/webhooks/native'
-          method: 'POST'
-          contentType: 'application/json'
-          data: '{"name": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}", "tag": "${{ needs.prepare.outputs.KEEL_TAG }}"}'
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          KEEL_TAG: ${{ needs.prepare.outputs.KEEL_TAG }}
+          KEEL_USER: ${{ secrets.KEEL_USER }}
+          KEEL_PASSWORD: ${{ secrets.KEEL_PASSWORD }}
+        run: |
+          jq -n --arg name "$IMAGE" --arg tag "$KEEL_TAG" '{name: $name, tag: $tag}' |
+            curl --fail-with-body --silent --show-error --retry 3 \
+              -u "$KEEL_USER:$KEEL_PASSWORD" \
+              -H 'Content-Type: application/json' \
+              --data @- \
+              https://keel.skybyte.me/v1/webhooks/native
