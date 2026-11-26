@@ -25,6 +25,7 @@ import (
 	"github.com/songtianlun/diarum/internal/backup"
 	"github.com/songtianlun/diarum/internal/config"
 	"github.com/songtianlun/diarum/internal/embedding"
+	"github.com/songtianlun/diarum/internal/holidays"
 	"github.com/songtianlun/diarum/internal/logger"
 	"github.com/songtianlun/diarum/internal/medialib"
 	"github.com/songtianlun/diarum/internal/static"
@@ -218,6 +219,10 @@ func run(args []string, stdout io.Writer) error {
 	api.RegisterDiaryRoutes(e, appStore, authMiddleware, onDiaryChanged)
 	api.RegisterMediaRoutes(e, appStore, authMiddleware)
 	api.RegisterDayRoutes(e, appStore, authMiddleware)
+	holidayService := holidays.NewService(appStore)
+	holidayService.StartScheduler(context.Background())
+	api.RegisterHolidayRoutes(e, holidayService, authMiddleware)
+	api.RegisterAdminHolidayRoutes(e, holidayService, authMiddleware)
 	mediaLibrary := medialib.New(appStore, auditLog)
 	appStore.MediaEvent = mediaLibrary.OnStoreEvent
 	api.RegisterMediaLibraryRoutes(e, appStore, authMiddleware, mediaLibrary)

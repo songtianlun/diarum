@@ -5,6 +5,7 @@
 	import { installUnauthorizedApiHandler } from '$lib/api/client';
 	import { initTheme } from '$lib/stores/theme';
 	import { initLocale } from '$lib/i18n';
+	import { initHolidaySettings } from '$lib/stores/holidays';
 	import GlobalLightbox from '$lib/components/ui/GlobalLightbox.svelte';
 
 	let { children }: { children: Snippet } = $props();
@@ -12,6 +13,7 @@
 	onMount(() => {
 		initTheme();
 		initLocale();
+		void initHolidaySettings();
 		return installUnauthorizedApiHandler(() => {
 			if (window.location.pathname !== '/login') {
 				goto('/login');

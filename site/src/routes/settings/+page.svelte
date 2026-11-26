@@ -23,8 +23,14 @@
 		MAX_DIARY_MAX_SNAPSHOTS,
 		type MemosSettings,
 		type ApiTokenStatus,
-		type GeneralSettings
+		type GeneralSettings,
+		type CNHolidayPreference
 	} from '$lib/api/settings';
+	import {
+		cnHolidaysGlobalEnabled,
+		initHolidaySettings,
+		setCNHolidayPreference
+	} from '$lib/stores/holidays';
 	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
@@ -111,8 +117,8 @@
 
 	let loading = true;
 
-	// General settings (homepage + visual style)
-	let generalSettings: GeneralSettings = { homepage: 'today', visual_style: 'classic', language: 'auto' };
+	// General settings (homepage + visual style + language + holidays)
+	let generalSettings: GeneralSettings = { homepage: 'today', visual_style: 'classic', language: 'auto', cn_holidays: 'auto' };
 	let originalGeneralSettings: GeneralSettings = { ...generalSettings };
 	let maxSnapshots = DEFAULT_DIARY_MAX_SNAPSHOTS;
 	let originalMaxSnapshots = DEFAULT_DIARY_MAX_SNAPSHOTS;
@@ -367,14 +373,21 @@
 		[generalSettings, maxSnapshots] = await Promise.all([getGeneralSettings(), getDiaryMaxSnapshots()]);
 		originalGeneralSettings = { ...generalSettings };
 		originalMaxSnapshots = maxSnapshots;
-		// Apply the persisted language preference so it takes effect immediately.
+		// Apply persisted preferences so they take effect immediately.
 		setLocalePreference(generalSettings.language);
+		void setCNHolidayPreference(generalSettings.cn_holidays, false);
+		void initHolidaySettings(true);
 	}
 
 	function selectLanguage(lang: LocalePreference) {
 		generalSettings = { ...generalSettings, language: lang };
 		// Apply instantly for live preview; Save persists it to the server.
 		setLocalePreference(lang);
+	}
+
+	function selectCNHolidays(pref: CNHolidayPreference) {
+		generalSettings = { ...generalSettings, cn_holidays: pref };
+		void setCNHolidayPreference(pref, false);
 	}
 
 	async function handleSaveGeneralSettings() {
@@ -385,6 +398,7 @@
 			maxSnapshots = sanitizeDiaryMaxSnapshots(maxSnapshots);
 			await saveGeneralSettings(generalSettings);
 			originalGeneralSettings = { ...generalSettings };
+			void setCNHolidayPreference(generalSettings.cn_holidays, false);
 			if (maxSnapshots !== originalMaxSnapshots) {
 				await saveDiaryMaxSnapshots(maxSnapshots);
 				originalMaxSnapshots = maxSnapshots;
@@ -809,6 +823,7 @@
 		generalSettings.homepage !== originalGeneralSettings.homepage ||
 		generalSettings.visual_style !== originalGeneralSettings.visual_style ||
 		generalSettings.language !== originalGeneralSettings.language ||
+		generalSettings.cn_holidays !== originalGeneralSettings.cn_holidays ||
 		maxSnapshots !== originalMaxSnapshots;
 
 	$: emojiSettingsChanged =
@@ -1336,6 +1351,37 @@
 							</button>
 						</div>
 					</div>
+
+					<!-- China mainland holidays & lieu workdays (visible only when enabled globally by admin) -->
+					{#if $cnHolidaysGlobalEnabled}
+						<div class="py-4 border-t border-border/50">
+							<div class="font-medium text-foreground mb-1">{$t('settings.general.cnHolidays')}</div>
+							<p class="text-sm text-muted-foreground mb-3">{$t('settings.general.cnHolidaysDesc')}</p>
+							<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+								{#each [
+									{ value: 'auto', label: $t('settings.general.cnHolidaysAuto'), desc: $t('settings.general.cnHolidaysAutoDesc') },
+									{ value: 'on', label: $t('settings.general.cnHolidaysOn'), desc: $t('settings.general.cnHolidaysOnDesc') },
+									{ value: 'off', label: $t('settings.general.cnHolidaysOff'), desc: $t('settings.general.cnHolidaysOffDesc') }
+								] as option}
+									<button
+										type="button"
+										on:click={() => selectCNHolidays(option.value as CNHolidayPreference)}
+										class="text-left p-3 rounded-lg border transition-colors {generalSettings.cn_holidays === option.value ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
+									>
+										<div class="flex items-center gap-2">
+											<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center {generalSettings.cn_holidays === option.value ? 'border-primary' : 'border-muted-foreground/40'}">
+												{#if generalSettings.cn_holidays === option.value}
+													<span class="block w-2 h-2 rounded-full bg-primary"></span>
+												{/if}
+											</span>
+											<span class="font-medium text-foreground text-sm">{option.label}</span>
+										</div>
+										<div class="text-xs text-muted-foreground mt-1 ml-6">{option.desc}</div>
+									</button>
+								{/each}
+							</div>
+						</div>
+					{/if}
 
 					<!-- Version history -->
 					<div class="py-4 border-t border-border/50">

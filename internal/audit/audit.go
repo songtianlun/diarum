@@ -59,6 +59,7 @@ const (
 	ActionAdminS3        = "admin.s3_settings"
 	ActionAdminVisitPull = "admin.visits_pull"
 	ActionAdminVisitDrop = "admin.visits_unload"
+	ActionAdminHolidays  = "admin.holidays_settings"
 )
 
 // Sources describe which entry point performed an action.

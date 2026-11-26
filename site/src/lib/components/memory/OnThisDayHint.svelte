@@ -2,6 +2,12 @@
 	import { getOnThisDay, type OnThisDayEntry } from '$lib/api/diaries';
 	import { formatDisplayDate } from '$lib/utils/date';
 	import { t } from '$lib/i18n';
+	import {
+		cnHolidaysEnabled,
+		holidayDaysByDate,
+		ensureHolidayYears,
+		getCNDayStatus
+	} from '$lib/stores/holidays';
 
 	/** The day being viewed. Changing it reloads the lookback. */
 	export let date: string;
@@ -16,6 +22,10 @@
 	$: if (date && date !== loadedDate && typeof window !== 'undefined') {
 		loadedDate = date;
 		void load(date);
+	}
+
+	$: if ($cnHolidaysEnabled && entries.length > 0) {
+		void ensureHolidayYears(entries.map((e) => Number(e.date.slice(0, 4))));
 	}
 
 	async function load(target: string) {
@@ -73,17 +83,27 @@
 		{#if expanded}
 			<div class="mt-2 space-y-2 animate-fade-in-only">
 				{#each entries as entry (entry.date)}
+					{@const dayStatus = $cnHolidaysEnabled ? getCNDayStatus(entry.date, $holidayDaysByDate) : null}
 					<a
 						href="/diary/{entry.date}"
 						class="block p-3 rounded-lg border border-border/30 bg-card/50 hover:bg-muted/50 transition-colors"
 					>
-						<div class="flex items-center gap-2 mb-1">
+						<div class="flex items-center gap-1.5 mb-1 flex-wrap">
 							<span class="text-xs font-medium text-primary flex-shrink-0">
 								{yearsAgoLabel(entry.yearsAgo)}
 							</span>
 							<span class="text-xs text-muted-foreground truncate">
 								· {formatDisplayDate(entry.date)}
 							</span>
+							{#if dayStatus?.kind === 'holiday' && dayStatus.name}
+								<span class="px-1.5 py-px rounded text-[10px] font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 flex-shrink-0">
+									{$t('calendar.holidayInlineOff', { name: dayStatus.name })}
+								</span>
+							{:else if dayStatus?.kind === 'workday_override' && dayStatus.name}
+								<span class="px-1.5 py-px rounded text-[10px] font-medium bg-slate-500/15 text-slate-600 dark:text-slate-300 flex-shrink-0">
+									{$t('calendar.holidayInlineWork', { name: dayStatus.name })}
+								</span>
+							{/if}
 							{#if entry.mood || entry.weather}
 								<span class="ml-auto flex items-center gap-1 flex-shrink-0 text-xs">
 									{#if entry.weather}
