@@ -1,5 +1,7 @@
 import { pb } from './client';
 
+export type ChatScope = 'all' | 'this_month' | 'this_year' | 'none';
+
 export interface Conversation {
 	id: string;
 	title: string;
@@ -8,11 +10,33 @@ export interface Conversation {
 	message_count?: number;
 }
 
+export interface DiaryReference {
+	id: string;
+	date: string;
+	mood?: string;
+	weather?: string;
+	preview?: string;
+}
+
+export interface ToolActivity {
+	id: string;
+	name: string;
+	args?: Record<string, unknown>;
+	status: 'running' | 'done' | 'error';
+	count?: number;
+	dates?: string[];
+	error?: string;
+}
+
 export interface Message {
 	id: string;
 	role: 'user' | 'assistant';
 	content: string;
+	thinking?: string;
+	thinkingDurationSec?: number;
+	tools?: ToolActivity[];
 	referenced_diaries?: string[];
+	references?: DiaryReference[];
 	created: string;
 }
 
@@ -21,14 +45,48 @@ export interface ConversationDetail {
 	messages: Message[];
 }
 
-/**
- * Get all conversations for the current user
- */
+export interface StreamToolPayload {
+	id: string;
+	name: string;
+	args?: Record<string, unknown>;
+	count?: number;
+	dates?: string[];
+	error?: string;
+}
+
+export interface StreamChunk {
+	type?: 'thinking' | 'tool_start' | 'tool_end' | 'content' | 'references' | 'title' | 'done' | 'error';
+	content?: string;
+	thinking?: string;
+	tool?: StreamToolPayload;
+	references?: DiaryReference[];
+	done?: boolean;
+	message_id?: string;
+	user_message_id?: string;
+	referenced_diaries?: string[];
+	error?: string;
+	title?: string;
+}
+
+export interface StreamChatOptions {
+	signal?: AbortSignal;
+	scope?: ChatScope;
+	regenerate?: boolean;
+}
+
+function authHeaders(json = false): Record<string, string> {
+	const headers: Record<string, string> = {
+		Authorization: `Bearer ${pb.authStore.token}`
+	};
+	if (json) {
+		headers['Content-Type'] = 'application/json';
+	}
+	return headers;
+}
+
 export async function getConversations(): Promise<Conversation[]> {
 	const response = await fetch('/api/v1/ai/conversations', {
-		headers: {
-			'Authorization': `Bearer ${pb.authStore.token}`
-		}
+		headers: authHeaders()
 	});
 
 	if (!response.ok) {
@@ -38,16 +96,10 @@ export async function getConversations(): Promise<Conversation[]> {
 	return await response.json();
 }
 
-/**
- * Create a new conversation
- */
 export async function createConversation(title?: string): Promise<Conversation> {
 	const response = await fetch('/api/v1/ai/conversations', {
 		method: 'POST',
-		headers: {
-			'Authorization': `Bearer ${pb.authStore.token}`,
-			'Content-Type': 'application/json'
-		},
+		headers: authHeaders(true),
 		body: JSON.stringify({ title: title || '' })
 	});
 
@@ -58,14 +110,9 @@ export async function createConversation(title?: string): Promise<Conversation> 
 	return await response.json();
 }
 
-/**
- * Get conversation with messages
- */
 export async function getConversation(id: string): Promise<ConversationDetail> {
-	const response = await fetch(`/api/v1/ai/conversations/${id}`, {
-		headers: {
-			'Authorization': `Bearer ${pb.authStore.token}`
-		}
+	const response = await fetch(`/api/v1/ai/conversations/${encodeURIComponent(id)}`, {
+		headers: authHeaders()
 	});
 
 	if (!response.ok) {
@@ -75,15 +122,10 @@ export async function getConversation(id: string): Promise<ConversationDetail> {
 	return await response.json();
 }
 
-/**
- * Delete a conversation
- */
 export async function deleteConversation(id: string): Promise<void> {
-	const response = await fetch(`/api/v1/ai/conversations/${id}`, {
+	const response = await fetch(`/api/v1/ai/conversations/${encodeURIComponent(id)}`, {
 		method: 'DELETE',
-		headers: {
-			'Authorization': `Bearer ${pb.authStore.token}`
-		}
+		headers: authHeaders()
 	});
 
 	if (!response.ok) {
@@ -91,16 +133,10 @@ export async function deleteConversation(id: string): Promise<void> {
 	}
 }
 
-/**
- * Update conversation title
- */
 export async function updateConversationTitle(id: string, title: string): Promise<Conversation> {
-	const response = await fetch(`/api/v1/ai/conversations/${id}`, {
+	const response = await fetch(`/api/v1/ai/conversations/${encodeURIComponent(id)}`, {
 		method: 'PUT',
-		headers: {
-			'Authorization': `Bearer ${pb.authStore.token}`,
-			'Content-Type': 'application/json'
-		},
+		headers: authHeaders(true),
 		body: JSON.stringify({ title })
 	});
 
@@ -111,35 +147,58 @@ export async function updateConversationTitle(id: string, title: string): Promis
 	return await response.json();
 }
 
-export interface StreamChunk {
-	content?: string;
-	done?: boolean;
-	referenced_diaries?: string[];
-	error?: string;
-	title?: string;
+export async function generateConversationTitle(id: string): Promise<Conversation | null> {
+	try {
+		const response = await fetch(`/api/v1/ai/conversations/${encodeURIComponent(id)}/title`, {
+			method: 'POST',
+			headers: authHeaders()
+		});
+		if (!response.ok) return null;
+		return await response.json();
+	} catch {
+		return null;
+	}
 }
 
-/**
- * Send a message and stream the response
- */
+export async function deleteMessagesFrom(conversationId: string, messageId: string): Promise<void> {
+	const response = await fetch(
+		`/api/v1/ai/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+		{
+			method: 'DELETE',
+			headers: authHeaders()
+		}
+	);
+	if (!response.ok) {
+		throw new Error('Failed to delete messages');
+	}
+}
+
 export async function* streamChat(
 	conversationId: string,
-	content: string
+	content: string,
+	options: StreamChatOptions = {}
 ): AsyncGenerator<StreamChunk> {
 	const response = await fetch('/api/v1/ai/chat', {
 		method: 'POST',
-		headers: {
-			'Authorization': `Bearer ${pb.authStore.token}`,
-			'Content-Type': 'application/json'
-		},
+		headers: authHeaders(true),
+		signal: options.signal,
 		body: JSON.stringify({
 			conversation_id: conversationId,
-			content
+			content,
+			scope: options.scope ?? 'all',
+			regenerate: Boolean(options.regenerate)
 		})
 	});
 
 	if (!response.ok) {
-		throw new Error('Failed to send message');
+		let errMessage = 'Failed to send message';
+		try {
+			const errBody = await response.json();
+			if (errBody?.message) errMessage = errBody.message;
+		} catch {
+			// Ignore JSON parse errors
+		}
+		throw new Error(errMessage);
 	}
 
 	if (!response.body) {
@@ -150,23 +209,29 @@ export async function* streamChat(
 	const decoder = new TextDecoder();
 	let buffer = '';
 
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) break;
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
 
-		buffer += decoder.decode(value, { stream: true });
-		const lines = buffer.split('\n');
-		buffer = lines.pop() || '';
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split('\n');
+			buffer = lines.pop() || '';
 
-		for (const line of lines) {
-			if (line.startsWith('data: ')) {
-				try {
-					const data = JSON.parse(line.slice(6));
-					yield data as StreamChunk;
-				} catch {
-					// Skip invalid JSON
+			for (const rawLine of lines) {
+				const line = rawLine.trimEnd();
+				if (line.startsWith('data:')) {
+					const payload = line.slice(5).trim();
+					if (!payload || payload === '[DONE]') continue;
+					try {
+						yield JSON.parse(payload) as StreamChunk;
+					} catch {
+						// Skip malformed chunk
+					}
 				}
 			}
 		}
+	} finally {
+		reader.releaseLock();
 	}
 }

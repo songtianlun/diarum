@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/songtianlun/diarum/internal/embedding"
 	"github.com/songtianlun/diarum/internal/store"
@@ -104,7 +105,7 @@ func TestSearchPromptsAndHelpers(t *testing.T) {
 	}
 
 	tools := service.getTools()
-	if len(tools) != 1 || tools[0].Function.Name != "search_diaries" {
+	if len(tools) != 5 || tools[0].Function.Name != "search_diaries" {
 		t.Fatalf("getTools = %#v", tools)
 	}
 
@@ -149,14 +150,23 @@ func TestSearchPromptsAndHelpers(t *testing.T) {
 		t.Fatal("GenerateTitleFromUserMessage should fail on blank message")
 	}
 
-	if got := extractTitleFromMessage("<p>Hello</p>\nworld and everyone reading this message today"); got != "Hello world and everyone reading this message..." {
+	if got := extractTitleFromMessage("<p>Hello</p>\nworld and everyone reading this message today"); got != "Hello world and everyone reading this..." {
 		t.Fatalf("extractTitleFromMessage = %q", got)
+	}
+	if got := extractTitleFromMessage("今天去了西湖散步，天气特别晴朗，还顺路喝了一杯很好喝的桂花拿铁，心情超级愉快的一天啊真的太棒了"); !strings.HasSuffix(got, "...") || strings.ContainsRune(got, '\uFFFD') {
+		t.Fatalf("extractTitleFromMessage chinese = %q", got)
 	}
 	if got := stripHTMLTags("<strong>Hello</strong> world"); got != "Hello world" {
 		t.Fatalf("stripHTMLTags = %q", got)
 	}
+	if got := htmlToPlainText("<p>Hello &amp; welcome</p><p>Line 2<br/>Line 3</p>"); got != "Hello & welcome\nLine 2\nLine 3" {
+		t.Fatalf("htmlToPlainText = %q", got)
+	}
 	if got := truncateString("abcdef", 3); got != "abc..." {
 		t.Fatalf("truncateString = %q, want abc...", got)
+	}
+	if got := truncateString("你好世界测试", 3); got != "你好世..." {
+		t.Fatalf("truncateString chinese = %q, want 你好世...", got)
 	}
 }
 
@@ -320,8 +330,15 @@ func TestStreamChatWithToolCall(t *testing.T) {
 				"data: [DONE]",
 			}, "\n")), nil
 		}
-		if len(payload.Tools) != 0 {
-			t.Fatal("second chat request should not include tools")
+		// Verify standard OpenAI assistant(tool_calls) + tool(tool_call_id) protocol.
+		hasToolMsg := false
+		for _, m := range payload.Messages {
+			if m.Role == "tool" && m.ToolCallID == "call_1" {
+				hasToolMsg = true
+			}
+		}
+		if !hasToolMsg {
+			t.Fatalf("second chat request missing standard tool result message: %#v", payload.Messages)
 		}
 		return response(http.StatusOK, strings.Join([]string{
 			"data: {\"choices\":[{\"delta\":{\"content\":\"Summary\"}}]}",
@@ -644,4 +661,356 @@ func TestChatServiceNew(t *testing.T) {
 	if service == nil {
 		t.Fatal("NewChatService should return non-nil")
 	}
+}
+
+func TestThinkingStreamAndThinkTagFilter(t *testing.T) {
+	service := &ChatService{}
+	writer := &mockStreamWriter{}
+
+	// Test explicit reasoning_content, reasoning, and chunked <think>...</think> tags.
+	stream := strings.Join([]string{
+		`data: {"choices":[{"delta":{"reasoning_content":"step 1 "}}]}`,
+		`data: {"choices":[{"delta":{"reasoning":"step 2"}}]}`,
+		`data: {"choices":[{"delta":{"content":"<thi"}}]}`,
+		`data: {"choices":[{"delta":{"content":"nk>inner thought</th"}}]}`,
+		`data: {"choices":[{"delta":{"content":"ink>Final answer"}}]}`,
+		`data: [DONE]`,
+	}, "\n")
+
+	fullResponse, _, err := service.processStreamResponseWithTools(strings.NewReader(stream), writer)
+	if err != nil {
+		t.Fatalf("processStreamResponseWithTools: %v", err)
+	}
+	if fullResponse != "Final answer" {
+		t.Fatalf("fullResponse = %q, want Final answer", fullResponse)
+	}
+	out := writer.String()
+	if !strings.Contains(out, `"thinking":"step 1 "`) || !strings.Contains(out, `"thinking":"step 2"`) || !strings.Contains(out, `"thinking":"inner thought"`) {
+		t.Fatalf("expected thinking events in stream output: %s", out)
+	}
+
+	// Verify flush handles dangling partial tag in both normal and think states.
+	f1 := &thinkTagFilter{}
+	c1, t1 := f1.push("hello <thi")
+	c2, t2 := f1.flush()
+	if c1+c2 != "hello <thi" || t1+t2 != "" {
+		t.Fatalf("normal flush = (%q,%q), (%q,%q)", c1, t1, c2, t2)
+	}
+	f2 := &thinkTagFilter{inThink: true}
+	_, tt1 := f2.push("thinking </th")
+	_, tt2 := f2.flush()
+	if tt1+tt2 != "thinking </th" {
+		t.Fatalf("think flush = %q", tt1+tt2)
+	}
+}
+
+func TestAllDiaryToolsAndScopes(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewChatService(s, nil)
+	configureAISettings(t, s, user.ID)
+
+	if _, err := s.InsertImportedDiary(user.ID, "d-jan", "2024-01-15", "<p>Visited Kyoto temple</p>", "happy", "sunny"); err != nil {
+		t.Fatalf("InsertImportedDiary jan: %v", err)
+	}
+	if _, err := s.InsertImportedDiary(user.ID, "d-feb", "2024-02-20", "<p>Rainy coding day</p>", "calm", "rainy"); err != nil {
+		t.Fatalf("InsertImportedDiary feb: %v", err)
+	}
+	day, err := s.SaveDay(&store.Day{Owner: user.ID, Name: "Anniversary", Date: "2020-05-20", Emoji: "🎉", Repeat: store.DayRepeatYear, Note: "Special day"})
+	if err != nil {
+		t.Fatalf("SaveDay: %v", err)
+	}
+	if _, err := s.SaveDayMilestone(&store.DayMilestone{Owner: user.ID, Day: day.ID, Name: "5 Years", Date: "2025-05-20", Note: "Big milestone"}); err != nil {
+		t.Fatalf("SaveDayMilestone: %v", err)
+	}
+
+	writer := &mockStreamWriter{}
+	// 1. get_diary found & not found & invalid args
+	res, diaries, err := service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c1", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "get_diary", Arguments: `{"date":"2024-01-15"}`},
+	}, writer)
+	if err != nil || len(diaries) != 1 || !strings.Contains(res, "Visited Kyoto temple") {
+		t.Fatalf("get_diary found = %q, %d, %v", res, len(diaries), err)
+	}
+	res, _, err = service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c2", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "get_diary", Arguments: `{"date":"2099-01-01"}`},
+	}, writer)
+	if err != nil || !strings.Contains(res, "No diary entry found") {
+		t.Fatalf("get_diary missing = %q, %v", res, err)
+	}
+	if _, _, err := service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c2b", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "get_diary", Arguments: `{"date":""}`},
+	}, writer); err == nil {
+		t.Fatal("get_diary empty date should error")
+	}
+
+	// 2. list_diaries with mood/weather filter
+	res, diaries, err = service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c3", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "list_diaries", Arguments: `{"start_date":"2024-01-01","end_date":"2024-12-31","mood":"calm","weather":"rainy","limit":10}`},
+	}, writer)
+	if err != nil || len(diaries) != 1 || diaries[0].ID != "d-feb" || !strings.Contains(res, "Rainy coding day") {
+		t.Fatalf("list_diaries filtered = %q, %#v, %v", res, diaries, err)
+	}
+
+	// 3. search_diaries_keyword
+	res, diaries, err = service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c4", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "search_diaries_keyword", Arguments: `{"query":"Kyoto"}`},
+	}, writer)
+	if err != nil || len(diaries) != 1 || diaries[0].ID != "d-jan" {
+		t.Fatalf("search_diaries_keyword = %q, %#v, %v", res, diaries, err)
+	}
+	if _, _, err := service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c4b", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "search_diaries_keyword", Arguments: `{"query":""}`},
+	}, writer); err == nil {
+		t.Fatal("search_diaries_keyword empty query should error")
+	}
+
+	// 4. get_days & empty days formatting
+	res, _, err = service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c5", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "get_days", Arguments: `{}`},
+	}, writer)
+	if err != nil || !strings.Contains(res, "Anniversary") || !strings.Contains(res, "5 Years") {
+		t.Fatalf("get_days = %q, %v", res, err)
+	}
+	if got := formatDaysForContext(nil, nil); !strings.Contains(got, "No tracked") {
+		t.Fatalf("formatDaysForContext empty = %q", got)
+	}
+
+	// 5. unknown tool & invalid JSON args
+	if _, _, err := service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c6", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "nonexistent", Arguments: `{}`},
+	}, writer); err == nil {
+		t.Fatal("unknown tool should error")
+	}
+	if _, _, err := service.executeToolCall(context.Background(), user.ID, ToolCall{
+		ID: "c7", Function: struct {
+			Name      string `json:"name,omitempty"`
+			Arguments string `json:"arguments,omitempty"`
+		}{Name: "search_diaries", Arguments: `{bad`},
+	}, writer); err == nil {
+		t.Fatal("invalid json args should error")
+	}
+
+	// 6. Scope prompts & scope=none skips tools
+	for _, scope := range []string{"this_month", "this_year", "none"} {
+		prompt := service.buildAgentSystemPromptWithScope(scope)
+		if prompt == "" {
+			t.Fatalf("empty prompt for scope %s", scope)
+		}
+	}
+
+	conv, _ := s.CreateConversation(user.ID, "scope test")
+	savedUser, _ := service.SaveMessage(user.ID, conv.ID, "user", "hi there", nil)
+
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		var payload ChatRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(payload.Tools) != 0 {
+			t.Fatalf("scope=none should not send tools, got %d", len(payload.Tools))
+		}
+		userMsgCount := 0
+		for _, m := range payload.Messages {
+			if m.Role == "user" && m.Content == "hi there" {
+				userMsgCount++
+			}
+		}
+		if userMsgCount != 1 {
+			t.Fatalf("expected user message once (deduped via ExcludeMessageID), got %d", userMsgCount)
+		}
+		return response(http.StatusOK, "data: {\"choices\":[{\"delta\":{\"content\":\"Hello back\"}}]}\ndata: [DONE]\n"), nil
+	})
+
+	var refs []DiaryReference
+	reply, _, err := service.StreamChatWithOptions(context.Background(), user.ID, conv.ID, "hi there", &mockStreamWriter{}, ChatOptions{
+		Scope:            "none",
+		ExcludeMessageID: savedUser.ID,
+		ReferencesOut:    &refs,
+	})
+	if err != nil || reply != "Hello back" {
+		t.Fatalf("StreamChatWithOptions scope=none = %q, %v", reply, err)
+	}
+}
+
+func TestHistoryLatestOrderAndContextBudget(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewChatService(s, nil)
+
+	conv, err := s.CreateConversation(user.ID, "long")
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	var thirdID string
+	for i := 1; i <= 5; i++ {
+		msg, err := service.SaveMessage(user.ID, conv.ID, "user", fmt.Sprintf("msg-%d", i), nil)
+		if err != nil {
+			t.Fatalf("SaveMessage %d: %v", i, err)
+		}
+		if i == 3 {
+			thirdID = msg.ID
+		}
+	}
+
+	// Requesting limit=2 must return the LATEST 2 messages (msg-4, msg-5) in chronological order.
+	history, err := service.GetConversationHistory(conv.ID, 2)
+	if err != nil {
+		t.Fatalf("GetConversationHistory: %v", err)
+	}
+	if len(history) != 2 || history[0].Content != "msg-4" || history[1].Content != "msg-5" {
+		t.Fatalf("expected [msg-4, msg-5], got %#v", history)
+	}
+
+	// DeleteMessagesFrom(thirdID) deletes msg-3, msg-4, msg-5.
+	deleted, err := s.DeleteMessagesFrom(user.ID, conv.ID, thirdID)
+	if err != nil || deleted != 3 {
+		t.Fatalf("DeleteMessagesFrom = %d, %v", deleted, err)
+	}
+	remaining, err := s.ListMessages(conv.ID, 0)
+	if err != nil || len(remaining) != 2 || remaining[1].Content != "msg-2" {
+		t.Fatalf("remaining after delete = %#v, %v", remaining, err)
+	}
+
+	// Verify context budget omits excess entries when huge diaries are formatted.
+	huge := make([]embedding.DiarySearchResult, 0, 30)
+	for i := 0; i < 30; i++ {
+		huge = append(huge, embedding.DiarySearchResult{
+			ID:      fmt.Sprintf("d-%d", i),
+			Date:    fmt.Sprintf("2024-03-%02d", (i%28)+1),
+			Content: strings.Repeat("长日记内容测试", 250),
+		})
+	}
+	formatted := service.formatDiariesForContext(huge)
+	if !strings.Contains(formatted, "omitted to fit context budget") {
+		t.Fatalf("expected budget omission notice in formatted diaries, len=%d", len([]rune(formatted)))
+	}
+}
+
+func TestPrefetchGroundedContextAndToolsFallback(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewChatService(s, nil)
+	configureAISettings(t, s, user.ID)
+
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	twoDaysAgo := now.AddDate(0, 0, -2).Format("2006-01-02")
+	lastYearToday := now.AddDate(-1, 0, 0).Format("2006-01-02")
+
+	if _, err := s.InsertImportedDiary(user.ID, "d-recent", twoDaysAgo, "<p>Real recent entry</p>", "calm", "sunny"); err != nil {
+		t.Fatalf("InsertImportedDiary recent: %v", err)
+	}
+	if _, err := s.InsertImportedDiary(user.ID, "d-prev-year", lastYearToday, "<p>Last year memory</p>", "happy", "cloudy"); err != nil {
+		t.Fatalf("InsertImportedDiary prev year: %v", err)
+	}
+	if _, err := s.SaveDay(&store.Day{Owner: user.ID, Name: "Birthday", Date: "2000-01-01", Emoji: "🎂", Repeat: store.DayRepeatYear}); err != nil {
+		t.Fatalf("SaveDay: %v", err)
+	}
+
+	// 1. Weekly reflection prompt must prefetch real diaries in the past 7 days.
+	conv, _ := s.CreateConversation(user.ID, "weekly")
+	var capturedSystem string
+	callNum := 0
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		callNum++
+		var payload ChatRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if callNum == 1 {
+			if payload.ToolChoice != "auto" {
+				t.Fatalf("expected tool_choice=auto, got %q", payload.ToolChoice)
+			}
+			capturedSystem = payload.Messages[0].Content
+			// Simulate provider that rejects tools with HTTP 400 -> must auto-retry without tools!
+			return response(http.StatusBadRequest, `{"error":"tools are not supported by this model"}`), nil
+		}
+		if len(payload.Tools) != 0 {
+			t.Fatalf("fallback retry should omit tools, got %d", len(payload.Tools))
+		}
+		return response(http.StatusOK, "data: {\"choices\":[{\"delta\":{\"content\":\"Grounded summary\"}}]}\ndata: [DONE]\n"), nil
+	})
+
+	writer := &mockStreamWriter{}
+	var refs []DiaryReference
+	reply, refIDs, err := service.StreamChatWithOptions(context.Background(), user.ID, conv.ID, "请结合我最近 7 天的日记，总结这一周的情绪变化", writer, ChatOptions{
+		Scope:         "all",
+		ReferencesOut: &refs,
+	})
+	if err != nil {
+		t.Fatalf("StreamChatWithOptions: %v", err)
+	}
+	if reply != "Grounded summary" || callNum != 2 {
+		t.Fatalf("reply=%q callNum=%d", reply, callNum)
+	}
+	if !strings.Contains(capturedSystem, "Real recent entry") || !strings.Contains(capturedSystem, "<retrieved_diaries") {
+		t.Fatalf("system prompt should contain prefetched real diary: %s", capturedSystem)
+	}
+	if len(refIDs) != 1 || refIDs[0] != "d-recent" || len(refs) != 1 {
+		t.Fatalf("expected prefetched ref d-recent, got ids=%v refs=%#v", refIDs, refs)
+	}
+	if !strings.Contains(writer.String(), `"type":"tool_start"`) || !strings.Contains(writer.String(), `"type":"tool_end"`) {
+		t.Fatalf("expected prefetch tool SSE events in output: %s", writer.String())
+	}
+
+	// 2. Test other prefetch branches (on this day, tracked days, scopes, empty result grounding).
+	resOnThisDay := service.prefetchGroundedContext(context.Background(), user.ID, "帮我看看那年今日写了什么", "all", &mockStreamWriter{})
+	if !resOnThisDay.didFetchDiaries || len(resOnThisDay.diaries) != 1 || resOnThisDay.diaries[0].ID != "d-prev-year" {
+		t.Fatalf("on-this-day prefetch = %#v", resOnThisDay)
+	}
+
+	resDays := service.prefetchGroundedContext(context.Background(), user.ID, "查看我的纪念日和里程碑", "all", &mockStreamWriter{})
+	if !strings.Contains(resDays.daysContext, "Birthday") {
+		t.Fatalf("days prefetch = %#v", resDays)
+	}
+
+	for _, tc := range []struct {
+		msg   string
+		scope string
+	}{
+		{"总结本月", "this_month"},
+		{"总结今年", "this_year"},
+		{"最近一个月发生了什么", "all"},
+		{"今年有什么变化", "all"},
+		{"昨天写了什么", "all"},
+		{"今天怎么样", "all"},
+		{"最近的状态如何", "all"},
+	} {
+		r := service.prefetchGroundedContext(context.Background(), user.ID, tc.msg, tc.scope, &mockStreamWriter{})
+		if !r.didFetchDiaries {
+			t.Fatalf("expected prefetch for msg=%q scope=%q", tc.msg, tc.scope)
+		}
+	}
+
+	// Empty prefetch prompt must explicitly say count="0" and forbid fabrication.
+	emptyPrompt := service.buildAgentSystemPromptWithContext("all", nil, "", true)
+	if !strings.Contains(emptyPrompt, `<retrieved_diaries count="0">`) || !strings.Contains(emptyPrompt, "NEVER invent") {
+		t.Fatalf("empty grounding prompt missing warning: %s", emptyPrompt)
+	}
+	_ = today
 }
