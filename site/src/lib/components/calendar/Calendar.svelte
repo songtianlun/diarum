@@ -5,13 +5,11 @@
 	import { getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { t, ta } from '$lib/i18n';
 	import {
-		cnHolidaysGlobalEnabled,
 		cnHolidaysEnabled,
 		holidayDaysByDate,
 		ensureHolidayYears,
 		getCNDayStatus,
 		initHolidaySettings,
-		toggleCNHolidays,
 		type CNDayStatus
 	} from '$lib/stores/holidays';
 
@@ -29,7 +27,6 @@
 	let transitionDirection: 'forward' | 'backward' = 'forward';
 	let yearGridEl: HTMLDivElement;
 	let wheelCooldown = false;
-	let togglingHolidays = false;
 
 	$: weekDays = $ta('calendar.weekdaysShort');
 	$: weekDaysShort = $ta('calendar.weekdaysShort').map((d) => d.charAt(0));
@@ -51,18 +48,6 @@
 			years.add(d.getFullYear());
 		}
 		void ensureHolidayYears(Array.from(years));
-	}
-
-	async function handleHolidayToggle() {
-		if (togglingHolidays) return;
-		togglingHolidays = true;
-		try {
-			await toggleCNHolidays();
-		} catch (e) {
-			console.error('Failed to toggle CN holidays:', e);
-		} finally {
-			togglingHolidays = false;
-		}
 	}
 
 	function getDayTooltip(dateStr: string, status: CNDayStatus | null): string {
@@ -254,7 +239,7 @@
 					</svg>
 				</button>
 
-				<div class="flex items-center gap-2 sm:gap-3">
+				<div class="flex items-center gap-3">
 					<h2 class="text-lg font-semibold text-foreground flex items-center gap-1.5">
 						<span>{monthNames[currentMonth - 1]}</span>
 						<button
@@ -271,18 +256,6 @@
 					>
 						{$t('calendar.today')}
 					</button>
-					{#if $cnHolidaysGlobalEnabled}
-						<button
-							type="button"
-							on:click={handleHolidayToggle}
-							disabled={togglingHolidays}
-							aria-pressed={$cnHolidaysEnabled}
-							title={$t('calendar.holidayToggleTitle')}
-							class="holiday-toggle {$cnHolidaysEnabled ? 'holiday-toggle-active' : ''}"
-						>
-							{$t('calendar.holidayToggleShort')}
-						</button>
-					{/if}
 				</div>
 
 				<button
@@ -385,7 +358,7 @@
 					</svg>
 				</button>
 
-				<div class="flex items-center gap-2 sm:gap-3">
+				<div class="flex items-center gap-3">
 					<h2 class="text-lg font-semibold text-foreground">{currentYear}</h2>
 					<button
 						on:click={goToCurrentYear}
@@ -393,18 +366,6 @@
 					>
 						{$t('calendar.thisYearButton')}
 					</button>
-					{#if $cnHolidaysGlobalEnabled}
-						<button
-							type="button"
-							on:click={handleHolidayToggle}
-							disabled={togglingHolidays}
-							aria-pressed={$cnHolidaysEnabled}
-							title={$t('calendar.holidayToggleTitle')}
-							class="holiday-toggle {$cnHolidaysEnabled ? 'holiday-toggle-active' : ''}"
-						>
-							{$t('calendar.holidayToggleShort')}
-						</button>
-					{/if}
 				</div>
 
 				<button
@@ -749,35 +710,6 @@
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--muted) 75%, transparent);
 		backdrop-filter: blur(2px);
-	}
-
-	.holiday-toggle {
-		padding: 0.2rem 0.5rem;
-		font-size: 0.75rem;
-		font-weight: 500;
-		line-height: 1.25;
-		border-radius: 0.375rem;
-		border: 1px solid hsl(var(--border) / 0.7);
-		color: hsl(var(--muted-foreground));
-		background: transparent;
-		transition: all 0.2s ease;
-	}
-
-	.holiday-toggle:hover:not(:disabled) {
-		background: hsl(var(--muted) / 0.5);
-		color: hsl(var(--foreground));
-	}
-
-	.holiday-toggle-active {
-		border-color: rgb(244 63 94 / 0.35);
-		background: rgb(244 63 94 / 0.08);
-		color: rgb(225 29 72);
-	}
-
-	:global(.dark) .holiday-toggle-active {
-		border-color: rgb(251 113 133 / 0.35);
-		background: rgb(244 63 94 / 0.16);
-		color: rgb(251 113 133);
 	}
 
 	.holiday-badge {

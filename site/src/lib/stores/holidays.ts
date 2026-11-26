@@ -156,13 +156,6 @@ export async function setCNHolidayPreference(
 	}
 }
 
-export async function toggleCNHolidays(): Promise<void> {
-	if (!get(cnHolidaysGlobalEnabled)) return;
-	const currentlyEnabled = get(cnHolidaysEnabled);
-	const next: CNHolidayPreference = currentlyEnabled ? 'off' : 'on';
-	await setCNHolidayPreference(next, true);
-}
-
 export async function ensureHolidayYears(years: number[]): Promise<void> {
 	if (!browser || !get(isAuthenticated) || !get(cnHolidaysEnabled)) return;
 

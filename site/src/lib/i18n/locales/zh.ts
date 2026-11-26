@@ -242,8 +242,6 @@ export const zh = {
 		scrollToSwitchYear: '滚动切换年份',
 		weatherLabel: '天气：{value}',
 		moodLabel: '心情：{value}',
-		holidayToggleTitle: '显示/隐藏中国大陆节假日与调休',
-		holidayToggleShort: '休/班',
 		holidayBadgeOff: '休',
 		holidayBadgeWork: '班',
 		holidayTooltipOff: '{name}（休）',

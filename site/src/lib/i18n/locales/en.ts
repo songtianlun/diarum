@@ -252,8 +252,6 @@ export const en = {
 		scrollToSwitchYear: 'Scroll to switch year',
 		weatherLabel: 'Weather: {value}',
 		moodLabel: 'Mood: {value}',
-		holidayToggleTitle: 'Toggle China mainland holidays & lieu workdays',
-		holidayToggleShort: '休/班',
 		holidayBadgeOff: '休',
 		holidayBadgeWork: '班',
 		holidayTooltipOff: '{name} (Holiday)',
