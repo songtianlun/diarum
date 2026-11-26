@@ -4,6 +4,12 @@
 	import { getOnThisDay, type OnThisDayEntry } from '$lib/api/diaries';
 	import { getToday, formatDisplayDate } from '$lib/utils/date';
 	import { t } from '$lib/i18n';
+	import {
+		cnHolidaysEnabled,
+		holidayDaysByDate,
+		ensureHolidayYears,
+		getCNDayStatus
+	} from '$lib/stores/holidays';
 
 	/** The day to look back from. Defaults to today. */
 	export let date: string = getToday();
@@ -17,6 +23,9 @@
 	let touchX: number | null = null;
 
 	$: current = entries[index];
+	$: if ($cnHolidaysEnabled && entries.length > 0) {
+		void ensureHolidayYears(entries.map((e) => Number(e.date.slice(0, 4))));
+	}
 
 	function step(delta: number) {
 		if (entries.length < 2) return;
@@ -77,19 +86,29 @@
 		{:else if current}
 			<div class="grid animate-fade-in-only" role="group" on:touchstart|passive={onTouchStart} on:touchend={onTouchEnd}>
 				{#key current.date}
+					{@const dayStatus = $cnHolidaysEnabled ? getCNDayStatus(current.date, $holidayDaysByDate) : null}
 					<a
 						href="/diary/{current.date}"
 						class="[grid-area:1/1] block p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/30"
 						in:fade={{ duration: 180 }}
 						out:fade={{ duration: 120 }}
 					>
-						<div class="flex items-center gap-2 mb-1">
+						<div class="flex items-center gap-1.5 mb-1 flex-wrap">
 							<span class="text-xs font-medium text-primary flex-shrink-0">
 								{yearsAgoLabel(current.yearsAgo)}
 							</span>
 							<span class="text-xs text-muted-foreground truncate">
 								· {formatDisplayDate(current.date)}
 							</span>
+							{#if dayStatus?.kind === 'holiday' && dayStatus.name}
+								<span class="px-1.5 py-px rounded text-[10px] font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400 flex-shrink-0">
+									{$t('calendar.holidayInlineOff', { name: dayStatus.name })}
+								</span>
+							{:else if dayStatus?.kind === 'workday_override' && dayStatus.name}
+								<span class="px-1.5 py-px rounded text-[10px] font-medium bg-slate-500/15 text-slate-600 dark:text-slate-300 flex-shrink-0">
+									{$t('calendar.holidayInlineWork', { name: dayStatus.name })}
+								</span>
+							{/if}
 							{#if current.mood || current.weather}
 								<span class="ml-auto flex items-center gap-1 flex-shrink-0 text-xs">
 									{#if current.weather}

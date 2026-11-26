@@ -1,9 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { tick } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { formatDate, getCalendarDays, getToday, getYearRange } from '$lib/utils/date';
 	import { getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { t, ta } from '$lib/i18n';
+	import {
+		cnHolidaysEnabled,
+		holidayDaysByDate,
+		ensureHolidayYears,
+		getCNDayStatus,
+		initHolidaySettings,
+		toggleCNHolidays,
+		type CNDayStatus
+	} from '$lib/stores/holidays';
 
 	export let currentYear: number;
 	export let currentMonth: number;
@@ -19,6 +28,7 @@
 	let transitionDirection: 'forward' | 'backward' = 'forward';
 	let yearGridEl: HTMLDivElement;
 	let wheelCooldown = false;
+	let togglingHolidays = false;
 
 	$: weekDays = $ta('calendar.weekdaysShort');
 	$: weekDaysShort = $ta('calendar.weekdaysShort').map((d) => d.charAt(0));
@@ -29,6 +39,46 @@
 	$: todayStr = getToday();
 	$: metaByDate = new Map(diaryMeta.map(item => [item.date, item]));
 	$: yearMetaByDate = new Map(yearDiaryMeta.map(item => [item.date, item]));
+
+	onMount(() => {
+		void initHolidaySettings();
+	});
+
+	$: if ($cnHolidaysEnabled) {
+		const years = new Set<number>([currentYear]);
+		for (const d of calendarDays) {
+			years.add(d.getFullYear());
+		}
+		void ensureHolidayYears(Array.from(years));
+	}
+
+	async function handleHolidayToggle() {
+		if (togglingHolidays) return;
+		togglingHolidays = true;
+		try {
+			await toggleCNHolidays();
+		} catch (e) {
+			console.error('Failed to toggle CN holidays:', e);
+		} finally {
+			togglingHolidays = false;
+		}
+	}
+
+	function getDayHoliday(dateStr: string): CNDayStatus | null {
+		if (!$cnHolidaysEnabled) return null;
+		return getCNDayStatus(dateStr, $holidayDaysByDate);
+	}
+
+	function getDayTooltip(dateStr: string, status: CNDayStatus | null): string {
+		if (!status || !status.name) return dateStr;
+		if (status.kind === 'holiday') {
+			return `${dateStr} · ${$t('calendar.holidayTooltipOff', { name: status.name })}`;
+		}
+		if (status.kind === 'workday_override') {
+			return `${dateStr} · ${$t('calendar.holidayTooltipWork', { name: status.name })}`;
+		}
+		return dateStr;
+	}
 
 	function isCurrentMonth(date: Date): boolean {
 		return date.getMonth() === currentMonth - 1;
@@ -208,7 +258,7 @@
 					</svg>
 				</button>
 
-				<div class="flex items-center gap-3">
+				<div class="flex items-center gap-2 sm:gap-3">
 					<h2 class="text-lg font-semibold text-foreground flex items-center gap-1.5">
 						<span>{monthNames[currentMonth - 1]}</span>
 						<button
@@ -225,6 +275,16 @@
 					>
 						{$t('calendar.today')}
 					</button>
+					<button
+						type="button"
+						on:click={handleHolidayToggle}
+						disabled={togglingHolidays}
+						aria-pressed={$cnHolidaysEnabled}
+						title={$t('calendar.holidayToggleTitle')}
+						class="holiday-toggle {$cnHolidaysEnabled ? 'holiday-toggle-active' : ''}"
+					>
+						{$t('calendar.holidayToggleShort')}
+					</button>
 				</div>
 
 				<button
@@ -240,30 +300,61 @@
 
 			<!-- Week Days -->
 			<div class="grid grid-cols-7 gap-2 mb-2">
-				{#each weekDays as day}
-					<div class="text-center font-medium text-muted-foreground text-sm py-2">{day}</div>
+				{#each weekDays as day, idx}
+					<div
+						class="text-center font-medium text-sm py-2
+							{$cnHolidaysEnabled && (idx === 0 || idx === 6) ? 'text-rose-500/80 dark:text-rose-400/80' : 'text-muted-foreground'}"
+					>
+						{day}
+					</div>
 				{/each}
 			</div>
 
 			<!-- Calendar Days -->
 			<div class="grid grid-cols-7 gap-2">
 				{#each calendarDays as date, i}
+					{@const dateStr = formatDate(date)}
+					{@const inMonth = isCurrentMonth(date)}
+					{@const meta = getDateMeta(date)}
+					{@const holiday = getDayHoliday(dateStr)}
+					{@const hasBadge = !!holiday?.badge}
+					{@const showHolidayName = holiday?.kind === 'holiday' && holiday.isFirstHolidayDay && !!holiday.shortName}
 					<button
 						on:click={() => handleDateClick(date)}
+						title={getDayTooltip(dateStr, holiday)}
 						class="day aspect-square rounded-lg transition-all duration-200 flex flex-col items-center justify-center relative
-							   {isCurrentMonth(date) ? 'text-foreground' : 'text-muted-foreground/40'}
+							   {!inMonth ? 'text-muted-foreground/40' : holiday?.kind === 'holiday' ? 'text-rose-600 dark:text-rose-400 font-medium' : holiday?.kind === 'weekend' ? 'text-rose-500/80 dark:text-rose-400/80' : 'text-foreground'}
 							   {isToday(date) ? 'bg-primary/10 ring-2 ring-primary font-semibold' : ''}
 							   {hasDiary(date) && !isToday(date) ? 'bg-amber-500/10 dark:bg-amber-500/20' : ''}
 							   {!isToday(date) && !hasDiary(date) ? 'hover:bg-muted/50' : ''}
 							   {hasDiary(date) && !isToday(date) ? 'hover:bg-amber-500/20 dark:hover:bg-amber-500/30' : ''}"
 						style="animation-delay: {i * 10}ms"
 					>
-						<span class="text-sm">{date.getDate()}</span>
+						{#if hasBadge}
+							<span
+								class="holiday-badge {holiday?.kind === 'holiday' ? 'holiday-badge-off' : 'holiday-badge-work'}"
+								class:opacity-50={!inMonth}
+							>
+								{holiday?.kind === 'holiday' ? $t('calendar.holidayBadgeOff') : $t('calendar.holidayBadgeWork')}
+							</span>
+						{/if}
+
+						<span class="text-sm leading-none">{date.getDate()}</span>
+
+						{#if showHolidayName}
+							<span
+								class="holiday-name hidden sm:block"
+								class:opacity-50={!inMonth}
+							>
+								{holiday?.shortName}
+							</span>
+						{/if}
 
 						{#if hasDiary(date)}
-							{@const meta = getDateMeta(date)}
 							{#if meta?.weather || meta?.mood}
-								<div class="absolute inset-x-0 top-1.5 flex items-center justify-center gap-1 text-[11px] leading-none">
+								<div
+									class="absolute top-1 flex items-center gap-0.5 text-[11px] leading-none {hasBadge ? 'left-1 justify-start' : 'inset-x-0 justify-center'}"
+								>
 									{#if meta?.weather}
 										<span class="emoji-chip" title={$t('calendar.weatherLabel', { value: meta.weather })}>{meta.weather}</span>
 									{/if}
@@ -272,7 +363,9 @@
 									{/if}
 								</div>
 							{:else}
-								<span class="absolute bottom-1 w-1 h-1 bg-amber-500 rounded-full"></span>
+								<span
+									class="absolute w-1 h-1 bg-amber-500 rounded-full {showHolidayName ? 'bottom-1 left-1.5 sm:left-1.5' : 'bottom-1'}"
+								></span>
 							{/if}
 						{/if}
 					</button>
@@ -294,13 +387,23 @@
 					</svg>
 				</button>
 
-				<div class="flex items-center gap-3">
+				<div class="flex items-center gap-2 sm:gap-3">
 					<h2 class="text-lg font-semibold text-foreground">{currentYear}</h2>
 					<button
 						on:click={goToCurrentYear}
 						class="px-3 py-1 text-sm bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-all duration-200"
 					>
 						{$t('calendar.thisYearButton')}
+					</button>
+					<button
+						type="button"
+						on:click={handleHolidayToggle}
+						disabled={togglingHolidays}
+						aria-pressed={$cnHolidaysEnabled}
+						title={$t('calendar.holidayToggleTitle')}
+						class="holiday-toggle {$cnHolidaysEnabled ? 'holiday-toggle-active' : ''}"
+					>
+						{$t('calendar.holidayToggleShort')}
 					</button>
 				</div>
 
@@ -349,11 +452,16 @@
 										{#if day === null}
 											<div class="mini-day-empty"></div>
 										{:else}
+											{@const miniDateStr = `${currentYear}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`}
+											{@const miniHoliday = getDayHoliday(miniDateStr)}
 											<!-- svelte-ignore a11y-click-events-have-key-events -->
 											<div
 												class="mini-day"
 												class:mini-day-today={isTodayMini(monthIdx, day)}
 												class:mini-day-has-diary={yearHasDiary(monthIdx, day)}
+												class:mini-day-holiday={miniHoliday?.kind === 'holiday'}
+												class:mini-day-workday-override={miniHoliday?.kind === 'workday_override'}
+												title={getDayTooltip(miniDateStr, miniHoliday)}
 												on:click|stopPropagation={(e) => handleMiniDayClick(e, monthIdx, day)}
 												role="button"
 												tabindex="-1"
@@ -641,5 +749,124 @@
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--muted) 75%, transparent);
 		backdrop-filter: blur(2px);
+	}
+
+	.holiday-toggle {
+		padding: 0.2rem 0.5rem;
+		font-size: 0.75rem;
+		font-weight: 500;
+		line-height: 1.25;
+		border-radius: 0.375rem;
+		border: 1px solid hsl(var(--border) / 0.7);
+		color: hsl(var(--muted-foreground));
+		background: transparent;
+		transition: all 0.2s ease;
+	}
+
+	.holiday-toggle:hover:not(:disabled) {
+		background: hsl(var(--muted) / 0.5);
+		color: hsl(var(--foreground));
+	}
+
+	.holiday-toggle-active {
+		border-color: rgb(244 63 94 / 0.35);
+		background: rgb(244 63 94 / 0.08);
+		color: rgb(225 29 72);
+	}
+
+	:global(.dark) .holiday-toggle-active {
+		border-color: rgb(251 113 133 / 0.35);
+		background: rgb(244 63 94 / 0.16);
+		color: rgb(251 113 133);
+	}
+
+	.holiday-badge {
+		position: absolute;
+		top: 0.25rem;
+		right: 0.25rem;
+		font-size: 0.5625rem;
+		font-weight: 600;
+		line-height: 1;
+		padding: 0.125rem 0.2rem;
+		border-radius: 0.25rem;
+		pointer-events: none;
+		user-select: none;
+	}
+
+	.holiday-badge-off {
+		color: rgb(225 29 72);
+		background: rgb(244 63 94 / 0.12);
+	}
+
+	:global(.dark) .holiday-badge-off {
+		color: rgb(253 164 175);
+		background: rgb(244 63 94 / 0.22);
+	}
+
+	.holiday-badge-work {
+		color: rgb(71 85 105);
+		background: rgb(100 116 139 / 0.14);
+	}
+
+	:global(.dark) .holiday-badge-work {
+		color: rgb(203 213 225);
+		background: rgb(148 163 184 / 0.2);
+	}
+
+	.holiday-name {
+		position: absolute;
+		bottom: 0.2rem;
+		left: 0.15rem;
+		right: 0.15rem;
+		text-align: center;
+		font-size: 0.625rem;
+		line-height: 1.1;
+		color: rgb(225 29 72 / 0.85);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		pointer-events: none;
+		user-select: none;
+	}
+
+	:global(.dark) .holiday-name {
+		color: rgb(251 113 133 / 0.9);
+	}
+
+	@media (max-width: 640px) {
+		.holiday-badge {
+			top: 0.125rem;
+			right: 0.125rem;
+			font-size: 0.5rem;
+			padding: 0.08rem 0.14rem;
+		}
+	}
+
+	.mini-day-holiday .mini-day-number {
+		color: rgb(225 29 72);
+		font-weight: 600;
+	}
+
+	:global(.dark) .mini-day-holiday .mini-day-number {
+		color: rgb(251 113 133);
+	}
+
+	.mini-day-holiday:not(.mini-day-today):not(.mini-day-has-diary) {
+		background: rgb(244 63 94 / 0.08);
+	}
+
+	.mini-day-workday-override::after {
+		content: '';
+		position: absolute;
+		bottom: 1px;
+		left: 28%;
+		right: 28%;
+		height: 1.5px;
+		border-radius: 999px;
+		background: rgb(100 116 139 / 0.75);
+	}
+
+	:global(.dark) .mini-day-workday-override::after {
+		background: rgb(148 163 184 / 0.85);
 	}
 </style>

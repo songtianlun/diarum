@@ -28,17 +28,20 @@ export interface MemosSettings {
 export type HomepagePreference = 'today' | 'overview';
 export type VisualStylePreference = 'classic' | 'immersive' | 'win95';
 export type LanguagePreference = 'auto' | 'en' | 'zh';
+export type CNHolidayPreference = 'auto' | 'on' | 'off';
 
 export interface GeneralSettings {
 	homepage: HomepagePreference;
 	visual_style: VisualStylePreference;
 	language: LanguagePreference;
+	cn_holidays: CNHolidayPreference;
 }
 
 const DEFAULT_GENERAL_SETTINGS: GeneralSettings = {
 	homepage: 'today',
 	visual_style: 'classic',
-	language: 'auto'
+	language: 'auto',
+	cn_holidays: 'auto'
 };
 
 function sanitizeHomepage(value: unknown): HomepagePreference {
@@ -51,6 +54,12 @@ function sanitizeVisualStyle(value: unknown): VisualStylePreference {
 
 function sanitizeLanguage(value: unknown): LanguagePreference {
 	return value === 'en' || value === 'zh' ? value : 'auto';
+}
+
+export function sanitizeCNHolidays(value: unknown): CNHolidayPreference {
+	if (value === 'on' || value === true) return 'on';
+	if (value === 'off' || value === false) return 'off';
+	return 'auto';
 }
 
 async function getSettingValue(key: string): Promise<unknown> {
@@ -217,8 +226,7 @@ export async function getGeneralSettings(): Promise<GeneralSettings> {
 			getSettingValue('general.visual_style')
 		]);
 
-		// Language is a newer key that may not exist yet on older installs;
-		// fetch it defensively so its absence never breaks the other settings.
+		// Newer keys may not exist yet on older installs; fetch defensively.
 		let language: unknown = 'auto';
 		try {
 			language = await getSettingValue('general.language');
@@ -226,10 +234,18 @@ export async function getGeneralSettings(): Promise<GeneralSettings> {
 			language = 'auto';
 		}
 
+		let cnHolidays: unknown = 'auto';
+		try {
+			cnHolidays = await getSettingValue('calendar.cn_holidays');
+		} catch {
+			cnHolidays = 'auto';
+		}
+
 		return {
 			homepage: sanitizeHomepage(homepage),
 			visual_style: sanitizeVisualStyle(visualStyle),
-			language: sanitizeLanguage(language)
+			language: sanitizeLanguage(language),
+			cn_holidays: sanitizeCNHolidays(cnHolidays)
 		};
 	} catch (error) {
 		console.error('Error fetching general settings:', error);
@@ -248,7 +264,8 @@ export async function saveGeneralSettings(settings: GeneralSettings): Promise<{ 
 			settings: {
 				'general.homepage': sanitizeHomepage(settings.homepage),
 				'general.visual_style': sanitizeVisualStyle(settings.visual_style),
-				'general.language': sanitizeLanguage(settings.language)
+				'general.language': sanitizeLanguage(settings.language),
+				'calendar.cn_holidays': sanitizeCNHolidays(settings.cn_holidays)
 			}
 		})
 	});
@@ -259,6 +276,30 @@ export async function saveGeneralSettings(settings: GeneralSettings): Promise<{ 
 	}
 
 	return await response.json();
+}
+
+export async function getCNHolidayPreference(): Promise<CNHolidayPreference> {
+	try {
+		return sanitizeCNHolidays(await getSettingValue('calendar.cn_holidays'));
+	} catch {
+		return 'auto';
+	}
+}
+
+export async function saveCNHolidayPreference(pref: CNHolidayPreference): Promise<void> {
+	const response = await fetch('/api/v1/settings/calendar.cn_holidays', {
+		method: 'PUT',
+		headers: {
+			'Authorization': `Bearer ${pb.authStore.token}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ value: sanitizeCNHolidays(pref) })
+	});
+
+	if (!response.ok) {
+		const data = await response.json().catch(() => ({}));
+		throw new Error(data.message || 'Failed to save holiday setting');
+	}
 }
 
 export async function getMemosSettings(): Promise<MemosSettings> {

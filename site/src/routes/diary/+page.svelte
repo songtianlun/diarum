@@ -10,6 +10,13 @@
 	import { isAuthenticated, type Diary } from '$lib/api/client';
 	import { getMonthRange, formatDisplayDate } from '$lib/utils/date';
 	import { t } from '$lib/i18n';
+	import {
+		cnHolidaysEnabled,
+		holidayDaysByDate,
+		ensureHolidayYears,
+		getCNDayStatus,
+		initHolidaySettings
+	} from '$lib/stores/holidays';
 
 	let currentYear = new Date().getFullYear();
 	let currentMonth = new Date().getMonth() + 1;
@@ -79,11 +86,17 @@
 			goto('/login');
 			return;
 		}
+		void initHolidaySettings();
 		loadDatesWithDiaries();
 		loadRecentDiaries();
 		loadStats();
 		mounted = true;
 	});
+
+	$: if ($cnHolidaysEnabled && recentDiaries.length > 0) {
+		const years = recentDiaries.map((d) => Number(d.date.slice(0, 4)));
+		void ensureHolidayYears(years);
+	}
 
 	$: {
 		if (mounted && (currentYear !== prevYear || currentMonth !== prevMonth)) {
@@ -239,12 +252,22 @@
 					{:else if recentDiaries.length > 0}
 						<div class="space-y-2 overflow-y-auto flex-1 animate-fade-in-only">
 							{#each recentDiaries as diary}
+								{@const dayStatus = $cnHolidaysEnabled ? getCNDayStatus(diary.date, $holidayDaysByDate) : null}
 								<a
 									href="/diary/{diary.date}"
 									class="block p-3 rounded-lg hover:bg-muted/50 transition-colors border border-border/30"
 								>
-									<div class="text-xs text-muted-foreground mb-1">
-										{formatDisplayDate(diary.date)}
+									<div class="flex items-center gap-1.5 text-xs text-muted-foreground mb-1 flex-wrap">
+										<span>{formatDisplayDate(diary.date)}</span>
+										{#if dayStatus?.kind === 'holiday' && dayStatus.name}
+											<span class="px-1.5 py-px rounded text-[10px] font-medium bg-rose-500/10 text-rose-600 dark:text-rose-400">
+												{$t('calendar.holidayInlineOff', { name: dayStatus.name })}
+											</span>
+										{:else if dayStatus?.kind === 'workday_override' && dayStatus.name}
+											<span class="px-1.5 py-px rounded text-[10px] font-medium bg-slate-500/15 text-slate-600 dark:text-slate-300">
+												{$t('calendar.holidayInlineWork', { name: dayStatus.name })}
+											</span>
+										{/if}
 									</div>
 									<div class="text-sm text-foreground line-clamp-2">
 										{getPreview(diary.content)}

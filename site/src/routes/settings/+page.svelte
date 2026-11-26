@@ -23,8 +23,18 @@
 		MAX_DIARY_MAX_SNAPSHOTS,
 		type MemosSettings,
 		type ApiTokenStatus,
-		type GeneralSettings
+		type GeneralSettings,
+		type CNHolidayPreference
 	} from '$lib/api/settings';
+	import {
+		getCNHolidayStatus,
+		refreshCNHolidays,
+		type CNHolidayStatus
+	} from '$lib/api/holidays';
+	import {
+		invalidateHolidayCache,
+		setCNHolidayPreference
+	} from '$lib/stores/holidays';
 	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
@@ -111,9 +121,12 @@
 
 	let loading = true;
 
-	// General settings (homepage + visual style)
-	let generalSettings: GeneralSettings = { homepage: 'today', visual_style: 'classic', language: 'auto' };
+	// General settings (homepage + visual style + language + holidays)
+	let generalSettings: GeneralSettings = { homepage: 'today', visual_style: 'classic', language: 'auto', cn_holidays: 'auto' };
 	let originalGeneralSettings: GeneralSettings = { ...generalSettings };
+	let holidayStatus: CNHolidayStatus | null = null;
+	let holidayRefreshing = false;
+	let holidayMessage: { ok: boolean; text: string } | null = null;
 	let maxSnapshots = DEFAULT_DIARY_MAX_SNAPSHOTS;
 	let originalMaxSnapshots = DEFAULT_DIARY_MAX_SNAPSHOTS;
 	let generalSaving = false;
@@ -367,14 +380,69 @@
 		[generalSettings, maxSnapshots] = await Promise.all([getGeneralSettings(), getDiaryMaxSnapshots()]);
 		originalGeneralSettings = { ...generalSettings };
 		originalMaxSnapshots = maxSnapshots;
-		// Apply the persisted language preference so it takes effect immediately.
+		// Apply persisted preferences so they take effect immediately.
 		setLocalePreference(generalSettings.language);
+		void setCNHolidayPreference(generalSettings.cn_holidays, false);
+		void loadHolidayStatusLocal();
+	}
+
+	async function loadHolidayStatusLocal() {
+		try {
+			holidayStatus = await getCNHolidayStatus();
+		} catch {
+			holidayStatus = null;
+		}
 	}
 
 	function selectLanguage(lang: LocalePreference) {
 		generalSettings = { ...generalSettings, language: lang };
 		// Apply instantly for live preview; Save persists it to the server.
 		setLocalePreference(lang);
+	}
+
+	function selectCNHolidays(pref: CNHolidayPreference) {
+		generalSettings = { ...generalSettings, cn_holidays: pref };
+		void setCNHolidayPreference(pref, false);
+	}
+
+	function formatHolidayRange(status: CNHolidayStatus | null): string {
+		if (!status) return '';
+		const published = status.years.filter((y) => y.published).map((y) => y.year);
+		if (published.length === 0) return '';
+		const min = published[0];
+		const max = published[published.length - 1];
+		return min === max ? `${min}` : `${min}–${max}`;
+	}
+
+	function formatSyncTime(iso?: string): string {
+		if (!iso) return '';
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return iso;
+		return d.toLocaleString(getIntlLocale(), {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
+	}
+
+	async function handleRefreshHolidays() {
+		if (holidayRefreshing) return;
+		holidayRefreshing = true;
+		holidayMessage = null;
+		try {
+			holidayStatus = await refreshCNHolidays();
+			invalidateHolidayCache();
+			holidayMessage = { ok: true, text: $t('settings.general.cnHolidaysRefreshSuccess') };
+		} catch {
+			holidayMessage = { ok: false, text: $t('settings.general.cnHolidaysRefreshFailed') };
+		} finally {
+			holidayRefreshing = false;
+			setTimeout(() => {
+				holidayMessage = null;
+			}, 4000);
+		}
 	}
 
 	async function handleSaveGeneralSettings() {
@@ -385,6 +453,7 @@
 			maxSnapshots = sanitizeDiaryMaxSnapshots(maxSnapshots);
 			await saveGeneralSettings(generalSettings);
 			originalGeneralSettings = { ...generalSettings };
+			void setCNHolidayPreference(generalSettings.cn_holidays, false);
 			if (maxSnapshots !== originalMaxSnapshots) {
 				await saveDiaryMaxSnapshots(maxSnapshots);
 				originalMaxSnapshots = maxSnapshots;
@@ -809,6 +878,7 @@
 		generalSettings.homepage !== originalGeneralSettings.homepage ||
 		generalSettings.visual_style !== originalGeneralSettings.visual_style ||
 		generalSettings.language !== originalGeneralSettings.language ||
+		generalSettings.cn_holidays !== originalGeneralSettings.cn_holidays ||
 		maxSnapshots !== originalMaxSnapshots;
 
 	$: emojiSettingsChanged =
@@ -1335,6 +1405,63 @@
 								<div class="text-xs text-muted-foreground mt-1 ml-6">{$t('settings.general.visualStyleWin95Desc')}</div>
 							</button>
 						</div>
+					</div>
+
+					<!-- China mainland holidays & lieu workdays -->
+					<div class="py-4 border-t border-border/50">
+						<div class="font-medium text-foreground mb-1">{$t('settings.general.cnHolidays')}</div>
+						<p class="text-sm text-muted-foreground mb-3">{$t('settings.general.cnHolidaysDesc')}</p>
+						<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+							{#each [
+								{ value: 'auto', label: $t('settings.general.cnHolidaysAuto'), desc: $t('settings.general.cnHolidaysAutoDesc') },
+								{ value: 'on', label: $t('settings.general.cnHolidaysOn'), desc: $t('settings.general.cnHolidaysOnDesc') },
+								{ value: 'off', label: $t('settings.general.cnHolidaysOff'), desc: $t('settings.general.cnHolidaysOffDesc') }
+							] as option}
+								<button
+									type="button"
+									on:click={() => selectCNHolidays(option.value as CNHolidayPreference)}
+									class="text-left p-3 rounded-lg border transition-colors {generalSettings.cn_holidays === option.value ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/50'}"
+								>
+									<div class="flex items-center gap-2">
+										<span class="w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center {generalSettings.cn_holidays === option.value ? 'border-primary' : 'border-muted-foreground/40'}">
+											{#if generalSettings.cn_holidays === option.value}
+												<span class="block w-2 h-2 rounded-full bg-primary"></span>
+											{/if}
+										</span>
+										<span class="font-medium text-foreground text-sm">{option.label}</span>
+									</div>
+									<div class="text-xs text-muted-foreground mt-1 ml-6">{option.desc}</div>
+								</button>
+							{/each}
+						</div>
+
+						<div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+							<div class="flex flex-wrap items-center gap-2">
+								{#if formatHolidayRange(holidayStatus)}
+									<span>{$t('settings.general.cnHolidaysCachedRange', { range: formatHolidayRange(holidayStatus) })}</span>
+									<span>·</span>
+								{/if}
+								{#if holidayStatus?.last_fetched_at}
+									<span>{$t('settings.general.cnHolidaysLastSync', { time: formatSyncTime(holidayStatus.last_fetched_at) })}</span>
+								{:else}
+									<span>{$t('settings.general.cnHolidaysBuiltInOnly')}</span>
+								{/if}
+							</div>
+							<button
+								type="button"
+								on:click={handleRefreshHolidays}
+								disabled={holidayRefreshing}
+								class="px-2.5 py-1 rounded-md border border-border/60 text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+							>
+								{holidayRefreshing ? $t('settings.general.cnHolidaysRefreshing') : $t('settings.general.cnHolidaysRefresh')}
+							</button>
+						</div>
+
+						{#if holidayMessage}
+							<div class="mt-2 text-xs {holidayMessage.ok ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}">
+								{holidayMessage.text}
+							</div>
+						{/if}
 					</div>
 
 					<!-- Version history -->

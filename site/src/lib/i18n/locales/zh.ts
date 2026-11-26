@@ -241,7 +241,15 @@ export const zh = {
 		selectMonth: '选择月份',
 		scrollToSwitchYear: '滚动切换年份',
 		weatherLabel: '天气：{value}',
-		moodLabel: '心情：{value}'
+		moodLabel: '心情：{value}',
+		holidayToggleTitle: '显示/隐藏中国大陆节假日与调休',
+		holidayToggleShort: '休/班',
+		holidayBadgeOff: '休',
+		holidayBadgeWork: '班',
+		holidayTooltipOff: '{name}（休）',
+		holidayTooltipWork: '{name}调休（班）',
+		holidayInlineOff: '{name} · 休',
+		holidayInlineWork: '{name}调休 · 班'
 	},
 	datePicker: {
 		jumpToYear: '跳转到年份',
@@ -332,7 +340,22 @@ export const zh = {
 			visualStyleWin95Desc: '复古桌面与记事本界面',
 			historySnapshots: '历史版本',
 			historySnapshotsDesc: '每篇日记最多保留的历史版本数量（{min}–{max}），超出时自动移除最早的版本。',
-			historySnapshotsUnit: '个版本 / 每篇'
+			historySnapshotsUnit: '个版本 / 每篇',
+			cnHolidays: '中国大陆节假日与调休',
+			cnHolidaysDesc: '在日历、那年今日与最近日记中显示中国大陆法定节假日（休）和调休补班（班），数据自动跟随国务院公告更新。',
+			cnHolidaysAuto: '自动',
+			cnHolidaysAutoDesc: '中文界面下默认开启（默认）',
+			cnHolidaysOn: '开启',
+			cnHolidaysOnDesc: '始终显示节假日与调休',
+			cnHolidaysOff: '关闭',
+			cnHolidaysOffDesc: '隐藏所有节假日与调休标记',
+			cnHolidaysCachedRange: '已覆盖 {range} 年数据',
+			cnHolidaysLastSync: '最近同步：{time}',
+			cnHolidaysBuiltInOnly: '当前使用内置基线数据',
+			cnHolidaysRefresh: '检查更新',
+			cnHolidaysRefreshing: '同步中…',
+			cnHolidaysRefreshSuccess: '节假日数据已同步最新政策',
+			cnHolidaysRefreshFailed: '同步失败，将继续使用本地缓存数据'
 		}
 	},
 	win95: {

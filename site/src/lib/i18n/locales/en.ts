@@ -251,7 +251,15 @@ export const en = {
 		selectMonth: 'Select month',
 		scrollToSwitchYear: 'Scroll to switch year',
 		weatherLabel: 'Weather: {value}',
-		moodLabel: 'Mood: {value}'
+		moodLabel: 'Mood: {value}',
+		holidayToggleTitle: 'Toggle China mainland holidays & lieu workdays',
+		holidayToggleShort: '休/班',
+		holidayBadgeOff: '休',
+		holidayBadgeWork: '班',
+		holidayTooltipOff: '{name} (Holiday)',
+		holidayTooltipWork: '{name} (Lieu Workday)',
+		holidayInlineOff: '{name} · Off',
+		holidayInlineWork: '{name} · Work'
 	},
 	datePicker: {
 		jumpToYear: 'Jump to a year',
@@ -342,7 +350,22 @@ export const en = {
 			visualStyleWin95Desc: 'Retro desktop & Notepad skin',
 			historySnapshots: 'Version history',
 			historySnapshotsDesc: 'How many earlier versions to keep for each diary entry ({min}–{max}). The oldest are removed first.',
-			historySnapshotsUnit: 'versions per entry'
+			historySnapshotsUnit: 'versions per entry',
+			cnHolidays: 'China Mainland Holidays & Lieu Days',
+			cnHolidaysDesc: 'Show China statutory holidays (休) and adjusted workdays (班) on the calendar, On This Day, and recent entries. Syncs automatically with official announcements.',
+			cnHolidaysAuto: 'Automatic',
+			cnHolidaysAutoDesc: 'Enabled automatically in Chinese UI (default)',
+			cnHolidaysOn: 'On',
+			cnHolidaysOnDesc: 'Always show holidays and lieu days',
+			cnHolidaysOff: 'Off',
+			cnHolidaysOffDesc: 'Hide all holiday and lieu-day badges',
+			cnHolidaysCachedRange: 'Covers {range}',
+			cnHolidaysLastSync: 'Last synced: {time}',
+			cnHolidaysBuiltInOnly: 'Using built-in baseline data',
+			cnHolidaysRefresh: 'Check updates',
+			cnHolidaysRefreshing: 'Syncing...',
+			cnHolidaysRefreshSuccess: 'Holiday data synced with latest schedule',
+			cnHolidaysRefreshFailed: 'Sync failed; continuing with local cached data'
 		}
 	},
 	win95: {

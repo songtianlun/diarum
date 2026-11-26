@@ -101,6 +101,8 @@ var ConfigRegistry = map[string]ConfigMeta{
 	"general.visual_style": {Type: "string", Default: "classic", Encrypted: false},
 	// language: "auto" (follow browser), "en" or "zh"
 	"general.language": {Type: "string", Default: "auto", Encrypted: false},
+	// cn_holidays: "auto" (enabled in Chinese locale), "on", or "off"
+	"calendar.cn_holidays": {Type: "string", Default: "auto", Encrypted: false},
 }
 
 // GetConfigMeta returns the metadata for a configuration key

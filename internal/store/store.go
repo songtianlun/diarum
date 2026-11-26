@@ -414,7 +414,10 @@ func createSchema(db *sql.DB) error {
 	if err := migrateMediaSchema(db); err != nil {
 		return err
 	}
-	return migrateDaysSchema(db)
+	if err := migrateDaysSchema(db); err != nil {
+		return err
+	}
+	return migrateHolidaySchema(db)
 }
 
 func migrateLegacyData(db *sql.DB, oldPath string) error {
