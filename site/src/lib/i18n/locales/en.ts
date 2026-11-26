@@ -358,14 +358,7 @@ export const en = {
 			cnHolidaysOn: 'On',
 			cnHolidaysOnDesc: 'Always show holidays and lieu days',
 			cnHolidaysOff: 'Off',
-			cnHolidaysOffDesc: 'Hide all holiday and lieu-day badges',
-			cnHolidaysCachedRange: 'Covers {range}',
-			cnHolidaysLastSync: 'Last synced: {time}',
-			cnHolidaysBuiltInOnly: 'Using built-in baseline data',
-			cnHolidaysRefresh: 'Check updates',
-			cnHolidaysRefreshing: 'Syncing...',
-			cnHolidaysRefreshSuccess: 'Holiday data synced with latest schedule',
-			cnHolidaysRefreshFailed: 'Sync failed; continuing with local cached data'
+			cnHolidaysOffDesc: 'Hide all holiday and lieu-day badges'
 		}
 	},
 	win95: {

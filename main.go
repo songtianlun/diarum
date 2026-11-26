@@ -222,6 +222,7 @@ func run(args []string, stdout io.Writer) error {
 	holidayService := holidays.NewService(appStore)
 	holidayService.StartScheduler(context.Background())
 	api.RegisterHolidayRoutes(e, holidayService, authMiddleware)
+	api.RegisterAdminHolidayRoutes(e, holidayService, authMiddleware)
 	mediaLibrary := medialib.New(appStore, auditLog)
 	appStore.MediaEvent = mediaLibrary.OnStoreEvent
 	api.RegisterMediaLibraryRoutes(e, appStore, authMiddleware, mediaLibrary)

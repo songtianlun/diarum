@@ -17,19 +17,46 @@ type HolidayYearRecord struct {
 	Updated      string
 }
 
+// HolidayOverrideRecord stores an admin-configured manual holiday or lieu-day override.
+type HolidayOverrideRecord struct {
+	Region   string
+	Date     string
+	Year     int
+	Name     string
+	IsOffDay bool
+	Updated  string
+}
+
 func migrateHolidaySchema(db *sql.DB) error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS holiday_years (
-		region TEXT NOT NULL,
-		year INTEGER NOT NULL,
-		payload TEXT DEFAULT '' NOT NULL,
-		etag TEXT DEFAULT '' NOT NULL,
-		source TEXT DEFAULT '' NOT NULL,
-		not_published BOOLEAN DEFAULT FALSE NOT NULL,
-		fetched_at TEXT DEFAULT '' NOT NULL,
-		updated TEXT DEFAULT '' NOT NULL,
-		PRIMARY KEY (region, year)
-	)`)
-	return err
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS holiday_years (
+			region TEXT NOT NULL,
+			year INTEGER NOT NULL,
+			payload TEXT DEFAULT '' NOT NULL,
+			etag TEXT DEFAULT '' NOT NULL,
+			source TEXT DEFAULT '' NOT NULL,
+			not_published BOOLEAN DEFAULT FALSE NOT NULL,
+			fetched_at TEXT DEFAULT '' NOT NULL,
+			updated TEXT DEFAULT '' NOT NULL,
+			PRIMARY KEY (region, year)
+		)`,
+		`CREATE TABLE IF NOT EXISTS holiday_overrides (
+			region TEXT NOT NULL,
+			date TEXT NOT NULL,
+			year INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			is_off_day BOOLEAN DEFAULT TRUE NOT NULL,
+			updated TEXT DEFAULT '' NOT NULL,
+			PRIMARY KEY (region, date)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_holiday_overrides_region_year ON holiday_overrides(region, year)`,
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetHolidayYear loads a cached holiday year record. Returns ErrNotFound when absent.
@@ -113,6 +140,93 @@ func (s *Store) ListHolidayYears(region string) ([]HolidayYearRecord, error) {
 			&rec.Source,
 			&rec.NotPublished,
 			&rec.FetchedAt,
+			&rec.Updated,
+		); err != nil {
+			return nil, err
+		}
+		records = append(records, rec)
+	}
+	return records, rows.Err()
+}
+
+// UpsertHolidayOverride creates or updates a manual holiday/workday override.
+func (s *Store) UpsertHolidayOverride(rec *HolidayOverrideRecord) error {
+	now := nowString()
+	updated := rec.Updated
+	if updated == "" {
+		updated = now
+	}
+	_, err := s.DB.Exec(
+		`INSERT INTO holiday_overrides(region, date, year, name, is_off_day, updated)
+		 VALUES(?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(region, date) DO UPDATE SET
+			year = excluded.year,
+			name = excluded.name,
+			is_off_day = excluded.is_off_day,
+			updated = excluded.updated`,
+		rec.Region,
+		rec.Date,
+		rec.Year,
+		rec.Name,
+		rec.IsOffDay,
+		updated,
+	)
+	return err
+}
+
+// DeleteHolidayOverride deletes a manual holiday/workday override by date.
+func (s *Store) DeleteHolidayOverride(region, date string) error {
+	res, err := s.DB.Exec(
+		`DELETE FROM holiday_overrides WHERE region = ? AND date = ?`,
+		region, date,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ListHolidayOverrides returns manual overrides for a region.
+// When year > 0, only overrides for that year are returned.
+func (s *Store) ListHolidayOverrides(region string, year int) ([]HolidayOverrideRecord, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if year > 0 {
+		rows, err = s.DB.Query(
+			`SELECT region, date, year, name, is_off_day, updated
+			 FROM holiday_overrides
+			 WHERE region = ? AND year = ?
+			 ORDER BY date ASC`,
+			region, year,
+		)
+	} else {
+		rows, err = s.DB.Query(
+			`SELECT region, date, year, name, is_off_day, updated
+			 FROM holiday_overrides
+			 WHERE region = ?
+			 ORDER BY date ASC`,
+			region,
+		)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []HolidayOverrideRecord
+	for rows.Next() {
+		var rec HolidayOverrideRecord
+		if err := rows.Scan(
+			&rec.Region,
+			&rec.Date,
+			&rec.Year,
+			&rec.Name,
+			&rec.IsOffDay,
 			&rec.Updated,
 		); err != nil {
 			return nil, err

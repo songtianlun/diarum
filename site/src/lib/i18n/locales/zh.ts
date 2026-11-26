@@ -348,14 +348,7 @@ export const zh = {
 			cnHolidaysOn: '开启',
 			cnHolidaysOnDesc: '始终显示节假日与调休',
 			cnHolidaysOff: '关闭',
-			cnHolidaysOffDesc: '隐藏所有节假日与调休标记',
-			cnHolidaysCachedRange: '已覆盖 {range} 年数据',
-			cnHolidaysLastSync: '最近同步：{time}',
-			cnHolidaysBuiltInOnly: '当前使用内置基线数据',
-			cnHolidaysRefresh: '检查更新',
-			cnHolidaysRefreshing: '同步中…',
-			cnHolidaysRefreshSuccess: '节假日数据已同步最新政策',
-			cnHolidaysRefreshFailed: '同步失败，将继续使用本地缓存数据'
+			cnHolidaysOffDesc: '隐藏所有节假日与调休标记'
 		}
 	},
 	win95: {

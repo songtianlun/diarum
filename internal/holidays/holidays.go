@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/songtianlun/diarum/internal/logger"
 	"github.com/songtianlun/diarum/internal/store"
@@ -25,8 +26,13 @@ var embeddedFS embed.FS
 const (
 	RegionCN = "cn"
 
+	// SettingCNEnabledKey stores the global admin switch for China mainland holidays.
+	SettingCNEnabledKey = "holidays.cn.enabled"
+
 	MinYear = 2000
 	MaxYear = 2100
+
+	maxOverrideNameRunes = 40
 
 	SourceEmbedded = "embedded"
 
@@ -43,6 +49,8 @@ const (
 var (
 	ErrInvalidYear = errors.New("year out of range")
 	ErrInvalidData = errors.New("invalid holiday data")
+	ErrInvalidDate = errors.New("invalid date")
+	ErrInvalidName = errors.New("invalid holiday name")
 )
 
 // DefaultSources lists holiday-cn mirrors in fallback order.
@@ -57,6 +65,7 @@ type Day struct {
 	Name     string `json:"name"`
 	Date     string `json:"date"`
 	IsOffDay bool   `json:"isOffDay"`
+	Custom   bool   `json:"custom,omitempty"`
 }
 
 // YearData matches the NateScarlet/holiday-cn yearly JSON schema.
@@ -90,6 +99,7 @@ type YearSummary struct {
 // StatusResponse summarizes China holiday data status.
 type StatusResponse struct {
 	Region        string        `json:"region"`
+	Enabled       bool          `json:"enabled"`
 	Years         []YearSummary `json:"years"`
 	LastFetchedAt string        `json:"last_fetched_at,omitempty"`
 }
@@ -218,9 +228,104 @@ func ValidateYearData(expectedYear int, data *YearData) error {
 	return nil
 }
 
-// GetYear returns China mainland holiday data for the requested year.
-// It always serves immediately from SQLite cache or embedded baseline,
-// triggering an asynchronous background refresh if the cached entry is stale.
+// Enabled reports whether an administrator has turned on China mainland holidays globally.
+func (s *Service) Enabled() bool {
+	if s == nil || s.store == nil {
+		return false
+	}
+	raw, ok, err := s.store.GetSystemSetting(SettingCNEnabledKey)
+	if err != nil || !ok {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(raw), "true")
+}
+
+// SetEnabled persists the global admin switch for China mainland holidays.
+func (s *Service) SetEnabled(enabled bool) error {
+	if s.store == nil {
+		return errors.New("store unavailable")
+	}
+	val := "false"
+	if enabled {
+		val = "true"
+	}
+	return s.store.SetSystemSetting(SettingCNEnabledKey, val)
+}
+
+// SetOverride adds or updates an admin manual holiday/workday override for a single date.
+func (s *Service) SetOverride(date, name string, isOffDay bool) (*Day, error) {
+	if s.store == nil {
+		return nil, errors.New("store unavailable")
+	}
+	date = strings.TrimSpace(date)
+	parsed, err := time.Parse("2006-01-02", date)
+	if err != nil || parsed.Format("2006-01-02") != date {
+		return nil, ErrInvalidDate
+	}
+	year := parsed.Year()
+	if year < MinYear || year > MaxYear {
+		return nil, ErrInvalidYear
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || utf8.RuneCountInString(name) > maxOverrideNameRunes {
+		return nil, ErrInvalidName
+	}
+
+	rec := &store.HolidayOverrideRecord{
+		Region:   RegionCN,
+		Date:     date,
+		Year:     year,
+		Name:     name,
+		IsOffDay: isOffDay,
+	}
+	if err := s.store.UpsertHolidayOverride(rec); err != nil {
+		return nil, err
+	}
+	return &Day{
+		Name:     name,
+		Date:     date,
+		IsOffDay: isOffDay,
+		Custom:   true,
+	}, nil
+}
+
+// DeleteOverride removes a manual override by date.
+func (s *Service) DeleteOverride(date string) error {
+	if s.store == nil {
+		return errors.New("store unavailable")
+	}
+	date = strings.TrimSpace(date)
+	parsed, err := time.Parse("2006-01-02", date)
+	if err != nil || parsed.Format("2006-01-02") != date {
+		return ErrInvalidDate
+	}
+	return s.store.DeleteHolidayOverride(RegionCN, date)
+}
+
+// ListOverrides returns admin manual overrides. Pass year == 0 for all years.
+func (s *Service) ListOverrides(year int) ([]Day, error) {
+	if s.store == nil {
+		return []Day{}, nil
+	}
+	records, err := s.store.ListHolidayOverrides(RegionCN, year)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Day, 0, len(records))
+	for _, r := range records {
+		out = append(out, Day{
+			Name:     r.Name,
+			Date:     r.Date,
+			IsOffDay: r.IsOffDay,
+			Custom:   true,
+		})
+	}
+	return out, nil
+}
+
+// GetYear returns China mainland holiday data for the requested year, merged with
+// any admin manual overrides. It serves immediately from SQLite cache or embedded
+// baseline and triggers an asynchronous background refresh if stale.
 func (s *Service) GetYear(ctx context.Context, year int) (*YearResponse, error) {
 	if year < MinYear || year > MaxYear {
 		return nil, ErrInvalidYear
@@ -236,50 +341,75 @@ func (s *Service) GetYear(ctx context.Context, year int) (*YearResponse, error) 
 		}
 	}
 
+	var resp *YearResponse
 	if rec != nil && !rec.NotPublished && rec.Payload != "" {
 		var data YearData
 		if err := json.Unmarshal([]byte(rec.Payload), &data); err == nil && ValidateYearData(year, &data) == nil {
-			if s.needsRefresh(year, rec, now) {
+			if s.Enabled() && s.needsRefresh(year, rec, now) {
 				s.triggerBackgroundRefresh(year)
 			}
-			return buildResponse(year, &data, rec.Source, rec.FetchedAt), nil
+			resp = buildResponse(year, &data, rec.Source, rec.FetchedAt)
 		}
 	}
 
-	if emb, ok := s.embedded[year]; ok {
-		if s.needsEmbeddedRefresh(year, rec, now) {
-			s.triggerBackgroundRefresh(year)
+	if resp == nil {
+		if emb, ok := s.embedded[year]; ok {
+			if s.Enabled() && s.needsEmbeddedRefresh(year, rec, now) {
+				s.triggerBackgroundRefresh(year)
+			}
+			resp = buildResponse(year, &emb, SourceEmbedded, "")
+		} else if rec != nil && rec.NotPublished {
+			if s.Enabled() && s.needsNotPublishedRetry(rec, now) {
+				s.triggerBackgroundRefresh(year)
+			}
+			resp = &YearResponse{
+				Region:    RegionCN,
+				Year:      year,
+				Published: false,
+				Days:      []Day{},
+				Papers:    []string{},
+				Source:    rec.Source,
+				FetchedAt: rec.FetchedAt,
+			}
+		} else {
+			if s.Enabled() && year >= 2007 && year <= now.Year()+2 {
+				s.triggerBackgroundRefresh(year)
+			}
+			resp = &YearResponse{
+				Region:    RegionCN,
+				Year:      year,
+				Published: false,
+				Days:      []Day{},
+				Papers:    []string{},
+				Source:    "",
+			}
 		}
-		return buildResponse(year, &emb, SourceEmbedded, ""), nil
 	}
 
-	if rec != nil && rec.NotPublished {
-		if s.needsNotPublishedRetry(rec, now) {
-			s.triggerBackgroundRefresh(year)
-		}
-		return &YearResponse{
-			Region:    RegionCN,
-			Year:      year,
-			Published: false,
-			Days:      []Day{},
-			Papers:    []string{},
-			Source:    rec.Source,
-			FetchedAt: rec.FetchedAt,
-		}, nil
-	}
+	return s.applyOverrides(year, resp)
+}
 
-	// Year is neither in DB nor embedded: trigger background fetch for plausible years.
-	if year >= 2007 && year <= now.Year()+2 {
-		s.triggerBackgroundRefresh(year)
+func (s *Service) applyOverrides(year int, resp *YearResponse) (*YearResponse, error) {
+	overrides, err := s.ListOverrides(year)
+	if err != nil || len(overrides) == 0 {
+		return resp, err
 	}
-	return &YearResponse{
-		Region:    RegionCN,
-		Year:      year,
-		Published: false,
-		Days:      []Day{},
-		Papers:    []string{},
-		Source:    "",
-	}, nil
+	byDate := make(map[string]Day, len(resp.Days)+len(overrides))
+	for _, d := range resp.Days {
+		byDate[d.Date] = d
+	}
+	for _, ov := range overrides {
+		byDate[ov.Date] = ov
+	}
+	merged := make([]Day, 0, len(byDate))
+	for _, d := range byDate {
+		merged = append(merged, d)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Date < merged[j].Date
+	})
+	resp.Days = merged
+	return resp, nil
 }
 
 // RefreshYear synchronously fetches the latest data for a single year from mirrors.
@@ -482,6 +612,7 @@ func (s *Service) Status() (*StatusResponse, error) {
 
 	return &StatusResponse{
 		Region:        RegionCN,
+		Enabled:       s.Enabled(),
 		Years:         years,
 		LastFetchedAt: lastFetched,
 	}, nil
@@ -518,6 +649,9 @@ func (s *Service) runScheduler(ctx context.Context) {
 }
 
 func (s *Service) syncDuePolicyYears(ctx context.Context) {
+	if !s.Enabled() {
+		return
+	}
 	now := s.now()
 	for _, y := range []int{now.Year(), now.Year() + 1} {
 		var rec *store.HolidayYearRecord

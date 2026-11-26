@@ -15,10 +15,11 @@
 	import AdminArchive from '$lib/components/admin/AdminArchive.svelte';
 	import AdminVisits from '$lib/components/admin/AdminVisits.svelte';
 	import AdminStorage from '$lib/components/admin/AdminStorage.svelte';
+	import AdminHolidays from '$lib/components/admin/AdminHolidays.svelte';
 	import { t } from '$lib/i18n';
 
-	type Tab = 'overview' | 'users' | 'audit' | 'archive' | 'visits' | 'storage';
-	const TABS: Tab[] = ['overview', 'users', 'audit', 'archive', 'visits', 'storage'];
+	type Tab = 'overview' | 'users' | 'audit' | 'archive' | 'visits' | 'storage' | 'holidays';
+	const TABS: Tab[] = ['overview', 'users', 'audit', 'archive', 'visits', 'storage', 'holidays'];
 
 	let me = $state<User | null>(null);
 	let status = $state<'loading' | 'ok' | 'forbidden' | 'error'>('loading');
@@ -137,8 +138,10 @@
 					<AdminArchive onview={(day) => openAudit({ day })} />
 				{:else if tab === 'visits'}
 					<AdminVisits />
-				{:else}
+				{:else if tab === 'storage'}
 					<AdminStorage />
+				{:else}
+					<AdminHolidays />
 				{/if}
 			{/if}
 		</main>

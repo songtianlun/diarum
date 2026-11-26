@@ -61,3 +61,68 @@ func TestHolidayYearCRUD(t *testing.T) {
 		t.Fatalf("unexpected list: %+v", list)
 	}
 }
+
+func TestHolidayOverrideCRUD(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.DeleteHolidayOverride("cn", "2026-03-08"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DeleteHolidayOverride missing err = %v, want ErrNotFound", err)
+	}
+
+	if err := s.UpsertHolidayOverride(&HolidayOverrideRecord{
+		Region:   "cn",
+		Date:     "2026-03-08",
+		Year:     2026,
+		Name:     "公司团建假",
+		IsOffDay: true,
+	}); err != nil {
+		t.Fatalf("UpsertHolidayOverride insert: %v", err)
+	}
+	if err := s.UpsertHolidayOverride(&HolidayOverrideRecord{
+		Region:   "cn",
+		Date:     "2027-06-01",
+		Year:     2027,
+		Name:     "调休补班",
+		IsOffDay: false,
+	}); err != nil {
+		t.Fatalf("UpsertHolidayOverride insert 2027: %v", err)
+	}
+	// Update existing date
+	if err := s.UpsertHolidayOverride(&HolidayOverrideRecord{
+		Region:   "cn",
+		Date:     "2026-03-08",
+		Year:     2026,
+		Name:     "妇女节放假",
+		IsOffDay: true,
+	}); err != nil {
+		t.Fatalf("UpsertHolidayOverride update: %v", err)
+	}
+
+	all, err := s.ListHolidayOverrides("cn", 0)
+	if err != nil {
+		t.Fatalf("ListHolidayOverrides all: %v", err)
+	}
+	if len(all) != 2 || all[0].Name != "妇女节放假" || all[1].IsOffDay {
+		t.Fatalf("unexpected all overrides: %+v", all)
+	}
+
+	only2026, err := s.ListHolidayOverrides("cn", 2026)
+	if err != nil {
+		t.Fatalf("ListHolidayOverrides 2026: %v", err)
+	}
+	if len(only2026) != 1 || only2026[0].Date != "2026-03-08" {
+		t.Fatalf("unexpected 2026 overrides: %+v", only2026)
+	}
+
+	if err := s.DeleteHolidayOverride("cn", "2026-03-08"); err != nil {
+		t.Fatalf("DeleteHolidayOverride: %v", err)
+	}
+	remaining, err := s.ListHolidayOverrides("cn", 0)
+	if err != nil || len(remaining) != 1 {
+		t.Fatalf("unexpected remaining overrides: %+v, err=%v", remaining, err)
+	}
+}

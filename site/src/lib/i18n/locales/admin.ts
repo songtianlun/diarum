@@ -5,7 +5,7 @@
 export const adminEn = {
 	pageTitle: 'Admin Console',
 	title: 'Admin Console',
-	tabs: { overview: 'Overview', users: 'Users', audit: 'Audit log', archive: 'Archive & retention', visits: 'Visitor statistics', storage: 'S3 storage' },
+	tabs: { overview: 'Overview', users: 'Users', audit: 'Audit log', archive: 'Archive & retention', visits: 'Visitor statistics', storage: 'S3 storage', holidays: 'Holidays' },
 	refresh: 'Refresh',
 	retry: 'Retry',
 	prev: 'Previous',
@@ -210,7 +210,8 @@ export const adminEn = {
 			admin_visits_settings: 'Changed visitor statistics settings',
 			admin_s3_settings: 'Changed system S3 storage',
 			admin_visits_pull: 'Pulled visit archives',
-			admin_visits_unload: 'Unloaded pulled visits'
+			admin_visits_unload: 'Unloaded pulled visits',
+			admin_holidays_settings: 'Changed holiday settings'
 		}
 	},
 	archive: {
@@ -270,13 +271,55 @@ export const adminEn = {
 			kept: '{count} day(s) kept until archived',
 			nothing: 'Nothing to do'
 		}
+	},
+	holidays: {
+		heading: 'China Mainland Holidays & Lieu Days',
+		description: 'Control global availability, sync official State Council schedules, and define custom rest days or lieu workdays.',
+		statusOn: 'Enabled',
+		statusOff: 'Disabled',
+		globalSwitch: 'Enable China mainland holidays',
+		globalSwitchDesc: 'When enabled, users see the holiday toggle on the calendar and can configure display options in Settings.',
+		enabledSaved: 'Holiday feature enabled for all users.',
+		disabledSaved: 'Holiday feature disabled globally.',
+		toggleFailed: 'Failed to update holiday switch.',
+		coveredYears: 'Covers {range}',
+		lastSynced: 'Last synced: {time}',
+		builtInBaseline: 'Using built-in baseline data',
+		syncNote: 'Official schedules sync automatically in the background (daily during Oct–Dec policy release window).',
+		refreshButton: 'Sync official data',
+		refreshing: 'Syncing…',
+		refreshSuccess: 'Synced latest official holiday schedules.',
+		refreshFailed: 'Failed to sync official schedules.',
+		overridesHeading: 'Custom rest days & lieu workdays',
+		overridesDesc: 'Manually mark any date as a rest day (休) or adjusted workday (班). Custom entries override official data and are preserved across refreshes.',
+		fieldDate: 'Date',
+		fieldName: 'Label',
+		fieldNamePlaceholder: 'e.g. Company holiday, New Year Eve',
+		fieldType: 'Day type',
+		typeOff: 'Rest day (休)',
+		typeWork: 'Workday (班)',
+		overridesEmpty: 'No custom dates configured yet.',
+		overrideSaved: 'Saved custom holiday rule for {date}.',
+		overrideSaveFailed: 'Failed to save custom date.',
+		overrideDeleted: 'Removed custom rule for {date}.',
+		overrideDeleteFailed: 'Failed to delete custom rule.',
+		edit: 'Edit',
+		delete: 'Delete',
+		previewHeading: 'Effective yearly schedule',
+		previewDesc: 'Merged view of official schedule and custom overrides.',
+		selectYear: 'Select year',
+		policySource: 'Official notice',
+		policyLink: 'State Council Notice #{n}',
+		customTag: 'Custom',
+		overrideAction: 'Override',
+		previewEmpty: 'No holiday or lieu-day entries for this year.'
 	}
 };
 
 export const adminZh: typeof adminEn = {
 	pageTitle: '系统后台',
 	title: '系统后台',
-	tabs: { overview: '概览', users: '用户', audit: '审计日志', archive: '归档与保留', visits: '访客统计', storage: 'S3 存储' },
+	tabs: { overview: '概览', users: '用户', audit: '审计日志', archive: '归档与保留', visits: '访客统计', storage: 'S3 存储', holidays: '节假日' },
 	refresh: '刷新',
 	retry: '重试',
 	prev: '上一页',
@@ -481,7 +524,8 @@ export const adminZh: typeof adminEn = {
 			admin_visits_settings: '修改访客统计设置',
 			admin_s3_settings: '修改系统 S3 存储',
 			admin_visits_pull: '拉取访客归档',
-			admin_visits_unload: '卸载访客记录'
+			admin_visits_unload: '卸载访客记录',
+			admin_holidays_settings: '修改节假日配置'
 		}
 	},
 	archive: {
@@ -541,5 +585,47 @@ export const adminZh: typeof adminEn = {
 			kept: '{count} 天待归档暂留',
 			nothing: '无需处理'
 		}
+	},
+	holidays: {
+		heading: '中国大陆节假日与调休',
+		description: '统一管理节假日与调休功能的全局开关、官方政策数据同步以及自定义休息日设定。',
+		statusOn: '已启用',
+		statusOff: '已关闭',
+		globalSwitch: '全局启用中国大陆节假日与调休',
+		globalSwitchDesc: '开启后，用户才能在日历顶栏与通用设置中看到相关开关并自行配置显示。',
+		enabledSaved: '已全局启用节假日与调休功能。',
+		disabledSaved: '已全局关闭节假日与调休功能。',
+		toggleFailed: '更新全局开关失败。',
+		coveredYears: '已覆盖 {range} 年数据',
+		lastSynced: '最近同步：{time}',
+		builtInBaseline: '当前使用内置基线数据',
+		syncNote: '后台会自动跟随国务院公告同步（10–12 月新政发布期每 24 小时检查一次）。',
+		refreshButton: '同步官方数据',
+		refreshing: '同步中…',
+		refreshSuccess: '已同步最新官方节假日与调休数据。',
+		refreshFailed: '同步官方数据失败，将继续保留本地缓存。',
+		overridesHeading: '手动设定休息日与调休',
+		overridesDesc: '可手动将任意日期设为休息日（休）或调休上班（班）。手动设定会覆盖官方数据，且刷新官方数据时不会被覆盖。',
+		fieldDate: '日期',
+		fieldName: '名称',
+		fieldNamePlaceholder: '例如：公司年会假、除夕、补班',
+		fieldType: '类型',
+		typeOff: '休息日（休）',
+		typeWork: '调休上班（班）',
+		overridesEmpty: '暂无手动设定的日期。',
+		overrideSaved: '已保存 {date} 的手动设定。',
+		overrideSaveFailed: '保存手动设定失败。',
+		overrideDeleted: '已移除 {date} 的手动设定。',
+		overrideDeleteFailed: '删除手动设定失败。',
+		edit: '编辑',
+		delete: '删除',
+		previewHeading: '年度生效安排预览',
+		previewDesc: '展示官方安排与手动设定合并后的实际生效列表。',
+		selectYear: '选择年份',
+		policySource: '政策来源',
+		policyLink: '国务院公告 #{n}',
+		customTag: '自定义',
+		overrideAction: '覆盖',
+		previewEmpty: '该年份暂无节假日或调休记录。'
 	}
 };

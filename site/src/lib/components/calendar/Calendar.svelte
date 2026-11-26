@@ -5,6 +5,7 @@
 	import { getDatesWithDiaries, type CalendarDiaryMeta } from '$lib/api/diaries';
 	import { t, ta } from '$lib/i18n';
 	import {
+		cnHolidaysGlobalEnabled,
 		cnHolidaysEnabled,
 		holidayDaysByDate,
 		ensureHolidayYears,
@@ -41,7 +42,7 @@
 	$: yearMetaByDate = new Map(yearDiaryMeta.map(item => [item.date, item]));
 
 	onMount(() => {
-		void initHolidaySettings();
+		void initHolidaySettings(true);
 	});
 
 	$: if ($cnHolidaysEnabled) {
@@ -62,11 +63,6 @@
 		} finally {
 			togglingHolidays = false;
 		}
-	}
-
-	function getDayHoliday(dateStr: string): CNDayStatus | null {
-		if (!$cnHolidaysEnabled) return null;
-		return getCNDayStatus(dateStr, $holidayDaysByDate);
 	}
 
 	function getDayTooltip(dateStr: string, status: CNDayStatus | null): string {
@@ -275,16 +271,18 @@
 					>
 						{$t('calendar.today')}
 					</button>
-					<button
-						type="button"
-						on:click={handleHolidayToggle}
-						disabled={togglingHolidays}
-						aria-pressed={$cnHolidaysEnabled}
-						title={$t('calendar.holidayToggleTitle')}
-						class="holiday-toggle {$cnHolidaysEnabled ? 'holiday-toggle-active' : ''}"
-					>
-						{$t('calendar.holidayToggleShort')}
-					</button>
+					{#if $cnHolidaysGlobalEnabled}
+						<button
+							type="button"
+							on:click={handleHolidayToggle}
+							disabled={togglingHolidays}
+							aria-pressed={$cnHolidaysEnabled}
+							title={$t('calendar.holidayToggleTitle')}
+							class="holiday-toggle {$cnHolidaysEnabled ? 'holiday-toggle-active' : ''}"
+						>
+							{$t('calendar.holidayToggleShort')}
+						</button>
+					{/if}
 				</div>
 
 				<button
@@ -316,7 +314,7 @@
 					{@const dateStr = formatDate(date)}
 					{@const inMonth = isCurrentMonth(date)}
 					{@const meta = getDateMeta(date)}
-					{@const holiday = getDayHoliday(dateStr)}
+					{@const holiday = $cnHolidaysEnabled ? getCNDayStatus(dateStr, $holidayDaysByDate) : null}
 					{@const hasBadge = !!holiday?.badge}
 					{@const showHolidayName = holiday?.kind === 'holiday' && holiday.isFirstHolidayDay && !!holiday.shortName}
 					<button
@@ -395,16 +393,18 @@
 					>
 						{$t('calendar.thisYearButton')}
 					</button>
-					<button
-						type="button"
-						on:click={handleHolidayToggle}
-						disabled={togglingHolidays}
-						aria-pressed={$cnHolidaysEnabled}
-						title={$t('calendar.holidayToggleTitle')}
-						class="holiday-toggle {$cnHolidaysEnabled ? 'holiday-toggle-active' : ''}"
-					>
-						{$t('calendar.holidayToggleShort')}
-					</button>
+					{#if $cnHolidaysGlobalEnabled}
+						<button
+							type="button"
+							on:click={handleHolidayToggle}
+							disabled={togglingHolidays}
+							aria-pressed={$cnHolidaysEnabled}
+							title={$t('calendar.holidayToggleTitle')}
+							class="holiday-toggle {$cnHolidaysEnabled ? 'holiday-toggle-active' : ''}"
+						>
+							{$t('calendar.holidayToggleShort')}
+						</button>
+					{/if}
 				</div>
 
 				<button
@@ -453,7 +453,7 @@
 											<div class="mini-day-empty"></div>
 										{:else}
 											{@const miniDateStr = `${currentYear}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`}
-											{@const miniHoliday = getDayHoliday(miniDateStr)}
+											{@const miniHoliday = $cnHolidaysEnabled ? getCNDayStatus(miniDateStr, $holidayDaysByDate) : null}
 											<!-- svelte-ignore a11y-click-events-have-key-events -->
 											<div
 												class="mini-day"

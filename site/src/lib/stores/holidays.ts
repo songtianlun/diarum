@@ -4,6 +4,7 @@ import { locale } from '$lib/i18n';
 import { isAuthenticated } from '$lib/api/client';
 import {
 	fetchCNHolidays,
+	getCNHolidayFeatureStatus,
 	type CNHolidayDay,
 	type CNHolidayPreference,
 	type CNHolidayYearResponse
@@ -16,8 +17,8 @@ import {
 import { getPreviousDay, parseDate } from '$lib/utils/date';
 
 const PREF_STORAGE_KEY = 'diarum.calendar.cn_holidays';
-const CACHE_STORAGE_PREFIX = 'diarum.holidays.cn.v1.';
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_STORAGE_PREFIX = 'diarum.holidays.cn.v2.';
+const CACHE_TTL_MS = 10 * 60 * 1000; // Short local TTL so admin manual overrides propagate quickly
 
 interface CachedYearEntry {
 	savedAt: number;
@@ -31,6 +32,7 @@ export interface CNDayStatus {
 	shortName?: string;
 	isOffDay: boolean;
 	isFirstHolidayDay: boolean;
+	custom?: boolean;
 }
 
 function readStoredPref(): CNHolidayPreference {
@@ -38,15 +40,20 @@ function readStoredPref(): CNHolidayPreference {
 	return sanitizeCNHolidays(localStorage.getItem(PREF_STORAGE_KEY));
 }
 
+/** Whether an admin has globally enabled China mainland holidays for this server. */
+export const cnHolidaysGlobalEnabled = writable<boolean>(false);
+
+/** Per-user preference ('auto' follows zh locale when globally enabled). */
 export const cnHolidayPreference = writable<CNHolidayPreference>(readStoredPref());
 
 /**
  * Whether China mainland holiday & lieu-day badges are currently active.
- * In 'auto' mode, defaults to enabled under Chinese locale ('zh').
+ * Always false unless globally enabled by an administrator.
  */
 export const cnHolidaysEnabled = derived(
-	[cnHolidayPreference, locale],
-	([$pref, $locale]) => {
+	[cnHolidaysGlobalEnabled, cnHolidayPreference, locale],
+	([$globalEnabled, $pref, $locale]) => {
+		if (!$globalEnabled) return false;
 		if ($pref === 'on') return true;
 		if ($pref === 'off') return false;
 		return $locale === 'zh';
@@ -57,7 +64,8 @@ export const holidayDaysByDate = writable<Record<string, CNHolidayDay>>({});
 
 const loadedYears = new Set<number>();
 const inFlightYears = new Set<number>();
-let prefInitialized = false;
+let initPromise: Promise<void> | null = null;
+let initialized = false;
 
 function readYearFromStorage(year: number): CachedYearEntry | null {
 	if (!browser) return null;
@@ -101,17 +109,36 @@ function mergeYearData(year: number, data: CNHolidayYearResponse): void {
 }
 
 export async function initHolidaySettings(force = false): Promise<void> {
-	if (!browser) return;
-	if (!get(isAuthenticated)) return;
-	if (prefInitialized && !force) return;
-	prefInitialized = true;
+	if (!browser || !get(isAuthenticated)) return;
+	if (initialized && !force) return;
+	if (initPromise && !force) return initPromise;
 
-	try {
-		const pref = await getCNHolidayPreference();
-		cnHolidayPreference.set(pref);
-		localStorage.setItem(PREF_STORAGE_KEY, pref);
-	} catch {
-		prefInitialized = false;
+	initPromise = (async () => {
+		try {
+			const status = await getCNHolidayFeatureStatus();
+			cnHolidaysGlobalEnabled.set(!!status.enabled);
+			if (status.enabled) {
+				const pref = await getCNHolidayPreference();
+				cnHolidayPreference.set(pref);
+				localStorage.setItem(PREF_STORAGE_KEY, pref);
+			}
+			initialized = true;
+		} catch {
+			// Leave conservative default (false) on failure so it can retry
+		} finally {
+			initPromise = null;
+		}
+	})();
+
+	return initPromise;
+}
+
+export function setCNHolidaysGlobalEnabledLocal(enabled: boolean): void {
+	cnHolidaysGlobalEnabled.set(enabled);
+	initialized = true;
+	if (!enabled) {
+		holidayDaysByDate.set({});
+		loadedYears.clear();
 	}
 }
 
@@ -130,6 +157,7 @@ export async function setCNHolidayPreference(
 }
 
 export async function toggleCNHolidays(): Promise<void> {
+	if (!get(cnHolidaysGlobalEnabled)) return;
 	const currentlyEnabled = get(cnHolidaysEnabled);
 	const next: CNHolidayPreference = currentlyEnabled ? 'off' : 'on';
 	await setCNHolidayPreference(next, true);
@@ -138,7 +166,6 @@ export async function toggleCNHolidays(): Promise<void> {
 export async function ensureHolidayYears(years: number[]): Promise<void> {
 	if (!browser || !get(isAuthenticated) || !get(cnHolidaysEnabled)) return;
 
-	const currentYear = new Date().getFullYear();
 	const toFetch: number[] = [];
 
 	for (const y of years) {
@@ -148,9 +175,7 @@ export async function ensureHolidayYears(years: number[]): Promise<void> {
 		const cached = readYearFromStorage(y);
 		if (cached) {
 			mergeYearData(y, cached.data);
-			const isHistorical = y < currentYear && cached.data.published;
-			const isFresh = Date.now() - cached.savedAt < CACHE_TTL_MS;
-			if (isHistorical || isFresh) {
+			if (Date.now() - cached.savedAt < CACHE_TTL_MS) {
 				loadedYears.add(y);
 				continue;
 			}
@@ -165,9 +190,13 @@ export async function ensureHolidayYears(years: number[]): Promise<void> {
 		inFlightYears.add(y);
 	}
 	try {
-		const result = await fetchCNHolidays(uniqueFetch);
+		const res = await fetchCNHolidays(uniqueFetch);
+		if (!res.enabled) {
+			setCNHolidaysGlobalEnabledLocal(false);
+			return;
+		}
 		for (const y of uniqueFetch) {
-			const data = result[y];
+			const data = res.years[y];
 			if (data) {
 				mergeYearData(y, data);
 				writeYearToStorage(y, data);
@@ -227,7 +256,8 @@ export function getCNDayStatus(
 				name: special.name,
 				shortName: getHolidayShortName(special.name),
 				isOffDay: true,
-				isFirstHolidayDay
+				isFirstHolidayDay,
+				custom: special.custom
 			};
 		}
 		return {
@@ -236,7 +266,8 @@ export function getCNDayStatus(
 			name: special.name,
 			shortName: getHolidayShortName(special.name),
 			isOffDay: false,
-			isFirstHolidayDay: false
+			isFirstHolidayDay: false,
+			custom: special.custom
 		};
 	}
 

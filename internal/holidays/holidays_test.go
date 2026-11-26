@@ -222,6 +222,16 @@ func TestRefreshPolicyYearsAndScheduler(t *testing.T) {
 		TickInterval: 20 * time.Millisecond,
 	})
 
+	if svc.Enabled() {
+		t.Fatal("expected holidays disabled by default")
+	}
+	if err := svc.SetEnabled(true); err != nil {
+		t.Fatalf("SetEnabled(true) err = %v", err)
+	}
+	if !svc.Enabled() {
+		t.Fatal("expected holidays enabled after SetEnabled(true)")
+	}
+
 	status, err := svc.RefreshPolicyYears(context.Background())
 	if err != nil {
 		t.Fatalf("RefreshPolicyYears err = %v", err)
@@ -286,5 +296,115 @@ func TestRefreshPolicyYearsAndScheduler(t *testing.T) {
 	}
 	if failSvc.needsEmbeddedRefresh(2020, nil, now) {
 		t.Fatal("expected historical embedded year not to need refresh")
+	}
+}
+
+func TestGlobalToggleAndManualOverrides(t *testing.T) {
+	s := openTestStore(t)
+	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	svc := NewService(s, Options{
+		Now:     func() time.Time { return now },
+		Sources: []string{"http://127.0.0.1:1/%d.json"},
+	})
+
+	if svc.Enabled() {
+		t.Fatal("expected default Enabled() == false")
+	}
+	if err := svc.SetEnabled(true); err != nil {
+		t.Fatalf("SetEnabled(true): %v", err)
+	}
+	if !svc.Enabled() {
+		t.Fatal("expected Enabled() == true")
+	}
+
+	// Validation checks
+	if _, err := svc.SetOverride("bad-date", "测试", true); !errors.Is(err, ErrInvalidDate) {
+		t.Fatalf("bad date err = %v", err)
+	}
+	if _, err := svc.SetOverride("1999-01-01", "测试", true); !errors.Is(err, ErrInvalidYear) {
+		t.Fatalf("bad year err = %v", err)
+	}
+	if _, err := svc.SetOverride("2026-08-08", "   ", true); !errors.Is(err, ErrInvalidName) {
+		t.Fatalf("empty name err = %v", err)
+	}
+	if err := svc.DeleteOverride("not-a-date"); !errors.Is(err, ErrInvalidDate) {
+		t.Fatalf("bad delete date err = %v", err)
+	}
+
+	// Add a brand new rest day & override an official statutory day
+	added, err := svc.SetOverride("2026-07-01", "公司周年假", true)
+	if err != nil || !added.Custom || !added.IsOffDay {
+		t.Fatalf("SetOverride add = %+v, err=%v", added, err)
+	}
+	replaced, err := svc.SetOverride("2026-01-01", "自定义元旦", false)
+	if err != nil || !replaced.Custom || replaced.IsOffDay {
+		t.Fatalf("SetOverride replace = %+v, err=%v", replaced, err)
+	}
+
+	// Verify GetYear merges custom overrides onto embedded baseline
+	res, err := svc.GetYear(context.Background(), 2026)
+	if err != nil {
+		t.Fatalf("GetYear(2026): %v", err)
+	}
+	foundAdded := false
+	foundReplaced := false
+	for _, d := range res.Days {
+		if d.Date == "2026-07-01" && d.Name == "公司周年假" && d.IsOffDay && d.Custom {
+			foundAdded = true
+		}
+		if d.Date == "2026-01-01" && d.Name == "自定义元旦" && !d.IsOffDay && d.Custom {
+			foundReplaced = true
+		}
+	}
+	if !foundAdded || !foundReplaced {
+		t.Fatalf("expected merged overrides in 2026, added=%v replaced=%v", foundAdded, foundReplaced)
+	}
+
+	// Delete override restores official day
+	if err := svc.DeleteOverride("2026-01-01"); err != nil {
+		t.Fatalf("DeleteOverride: %v", err)
+	}
+	list, err := svc.ListOverrides(0)
+	if err != nil || len(list) != 1 || list[0].Date != "2026-07-01" {
+		t.Fatalf("ListOverrides = %+v, err=%v", list, err)
+	}
+
+	// Disable again and verify scheduler skips external calls when disabled
+	if err := svc.SetEnabled(false); err != nil {
+		t.Fatalf("SetEnabled(false): %v", err)
+	}
+	if svc.Enabled() {
+		t.Fatal("expected Enabled() == false")
+	}
+	svc.syncDuePolicyYears(context.Background())
+
+	// Enable with failing mirror and verify syncDuePolicyYears handles error gracefully
+	if err := svc.SetEnabled(true); err != nil {
+		t.Fatalf("SetEnabled(true): %v", err)
+	}
+	svc.syncDuePolicyYears(context.Background())
+
+	// Nil-store defensive branches
+	nilSvc := NewService(nil)
+	if nilSvc.Enabled() {
+		t.Fatal("nilSvc.Enabled() should be false")
+	}
+	if err := nilSvc.SetEnabled(true); err == nil {
+		t.Fatal("nilSvc.SetEnabled should error")
+	}
+	if _, err := nilSvc.SetOverride("2026-07-01", "x", true); err == nil {
+		t.Fatal("nilSvc.SetOverride should error")
+	}
+	if err := nilSvc.DeleteOverride("2026-07-01"); err == nil {
+		t.Fatal("nilSvc.DeleteOverride should error")
+	}
+	if list, err := nilSvc.ListOverrides(0); err != nil || len(list) != 0 {
+		t.Fatalf("nilSvc.ListOverrides = %+v, %v", list, err)
+	}
+	if !nilSvc.needsNotPublishedRetry(&store.HolidayYearRecord{FetchedAt: now.Add(-25 * time.Hour).UTC().Format(time.RFC3339)}, now) {
+		t.Fatal("expected expired not_published record to retry")
+	}
+	if nilSvc.needsEmbeddedRefresh(2026, &store.HolidayYearRecord{FetchedAt: now.UTC().Format(time.RFC3339)}, now) {
+		t.Fatal("expected fresh embedded record not to need refresh")
 	}
 }
