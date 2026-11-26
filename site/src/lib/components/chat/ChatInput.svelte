@@ -5,6 +5,7 @@
 
 	export let disabled = false;
 	export let streaming = false;
+	export let stopping = false;
 	export let scope: ChatScope = 'all';
 	export let placeholder = '';
 
@@ -34,7 +35,9 @@
 
 	async function handleSubmit() {
 		if (streaming) {
-			dispatch('stop');
+			if (!stopping) {
+				dispatch('stop');
+			}
 			return;
 		}
 		const trimmed = content.trim();
@@ -121,15 +124,25 @@
 				{#if streaming}
 					<button
 						type="button"
-						on:click={() => dispatch('stop')}
-						title={$t('assistant.stop')}
-						aria-label={$t('assistant.stop')}
+						disabled={stopping}
+						on:click={() => { if (!stopping) dispatch('stop'); }}
+						title={stopping ? $t('assistant.stopping') : $t('assistant.stop')}
+						aria-label={stopping ? $t('assistant.stopping') : $t('assistant.stop')}
 						class="h-8 px-3 rounded-xl bg-foreground text-background
 							hover:opacity-90 active:scale-95 transition-all duration-150
-							flex items-center gap-1.5 text-xs font-medium shadow-sm"
+							disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100
+							flex items-center gap-1.5 text-xs font-medium shadow-sm whitespace-nowrap"
 					>
-						<span class="w-2.5 h-2.5 rounded-[2px] bg-current"></span>
-						<span class="hidden sm:inline">{$t('assistant.stop')}</span>
+						{#if stopping}
+							<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+								<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+								<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+							</svg>
+							<span>{$t('assistant.stopping')}</span>
+						{:else}
+							<span class="w-2.5 h-2.5 rounded-[2px] bg-current"></span>
+							<span>{$t('assistant.stop')}</span>
+						{/if}
 					</button>
 				{:else}
 					<button

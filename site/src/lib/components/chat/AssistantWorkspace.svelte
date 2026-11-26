@@ -12,6 +12,7 @@
 		generateConversationTitle,
 		getConversation,
 		getConversations,
+		stopConversationStream,
 		streamChat,
 		updateConversationTitle,
 		type ChatScope,
@@ -43,11 +44,15 @@
 
 	let scope: ChatScope = 'all';
 	let isStreaming = false;
+	let isStopping = false;
 	let streamMessage: Message | null = null;
 	let activeAbort: AbortController | null = null;
+	let activeStreamConvId: string | null = null;
 	let activeStreamToken = 0;
+	let stopFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let chatError = '';
+	let stoppedNotice = false;
 	let lastFailedPrompt: string | null = null;
 	let previewDiaryDate: string | null = null;
 
@@ -90,8 +95,22 @@
 		}
 	}
 
+	function clearStopFallbackTimer() {
+		if (stopFallbackTimer !== null) {
+			clearTimeout(stopFallbackTimer);
+			stopFallbackTimer = null;
+		}
+	}
+
 	function cancelActiveStream() {
 		activeStreamToken++;
+		clearStopFallbackTimer();
+		const convToStop = activeStreamConvId;
+		activeStreamConvId = null;
+		isStopping = false;
+		if (convToStop) {
+			void stopConversationStream(convToStop).catch(() => {});
+		}
 		if (activeAbort) {
 			activeAbort.abort();
 			activeAbort = null;
@@ -109,6 +128,7 @@
 	async function loadMessages(convId: string) {
 		messagesLoading = true;
 		chatError = '';
+		stoppedNotice = false;
 		lastFailedPrompt = null;
 		try {
 			const detail = await getConversation(convId);
@@ -144,6 +164,7 @@
 		activeConversationId = null;
 		messages = [];
 		chatError = '';
+		stoppedNotice = false;
 		lastFailedPrompt = null;
 		closeSidebarOnMobile();
 		if ($page.url.pathname !== '/assistant') {
@@ -200,9 +221,12 @@
 		const token = activeStreamToken;
 		const controller = new AbortController();
 		activeAbort = controller;
+		activeStreamConvId = convId;
 
 		isStreaming = true;
+		isStopping = false;
 		chatError = '';
+		stoppedNotice = false;
 		lastFailedPrompt = null;
 		autoStickToBottom = true;
 
@@ -228,6 +252,8 @@
 		await scrollToBottom(true);
 
 		let completedCleanly = false;
+		let wasStopped = false;
+		let receivedUserMessageId = false;
 		let finalAssistantId = `temp-assistant-${Date.now()}`;
 
 		try {
@@ -311,12 +337,27 @@
 					scrollToBottom();
 				}
 
+				if (chunk.type === 'stopped' || chunk.stopped) {
+					wasStopped = true;
+					if (chunk.message_id) finalAssistantId = chunk.message_id;
+					if (chunk.referenced_diaries) referencedIds = chunk.referenced_diaries;
+					if (chunk.references) references = chunk.references;
+					if (chunk.user_message_id && opts.tempUserMsgId) {
+						receivedUserMessageId = true;
+						messages = messages.map((m) =>
+							m.id === opts.tempUserMsgId ? { ...m, id: chunk.user_message_id! } : m
+						);
+					}
+					break;
+				}
+
 				if (chunk.done) {
 					completedCleanly = true;
 					if (chunk.message_id) finalAssistantId = chunk.message_id;
 					if (chunk.referenced_diaries) referencedIds = chunk.referenced_diaries;
 					if (chunk.references) references = chunk.references;
 					if (chunk.user_message_id && opts.tempUserMsgId) {
+						receivedUserMessageId = true;
 						messages = messages.map((m) =>
 							m.id === opts.tempUserMsgId ? { ...m, id: chunk.user_message_id! } : m
 						);
@@ -325,8 +366,13 @@
 			}
 		} catch (e) {
 			if (token !== activeStreamToken) return;
-			const isAbort = e instanceof DOMException && e.name === 'AbortError';
-			if (!isAbort) {
+			const isAbort =
+				controller.signal.aborted ||
+				(e instanceof DOMException && e.name === 'AbortError') ||
+				(e instanceof Error && e.name === 'AbortError');
+			if (isAbort) {
+				wasStopped = true;
+			} else {
 				console.error('Failed to stream chat:', e);
 				chatError = e instanceof Error ? e.message : 'Failed to send message';
 				lastFailedPrompt = content;
@@ -334,6 +380,8 @@
 		}
 
 		if (token !== activeStreamToken) return;
+
+		clearStopFallbackTimer();
 
 		if (thinkingStartedAt !== null && !thinkingEnded) {
 			thinkingDurationSec = Math.max(1, Math.round((Date.now() - thinkingStartedAt) / 1000));
@@ -349,14 +397,19 @@
 				tools: tools.length > 0 ? tools : undefined,
 				referenced_diaries: referencedIds.length > 0 ? referencedIds : undefined,
 				references: references.length > 0 ? references : undefined,
+				stopped: wasStopped || undefined,
 				created: new Date().toISOString()
 			};
 			messages = [...messages, finalized];
+		} else if (wasStopped) {
+			stoppedNotice = true;
 		}
 
 		streamMessage = null;
 		isStreaming = false;
+		isStopping = false;
 		activeAbort = null;
+		activeStreamConvId = null;
 
 		// Refresh conversation ordering and real IDs if stopped mid-stream
 		await loadConversations();
@@ -370,12 +423,28 @@
 					);
 				}
 			});
-		} else if (!completedCleanly && activeConversationId === convId && contentText) {
+		} else if (
+			!completedCleanly &&
+			activeConversationId === convId &&
+			(wasStopped || contentText) &&
+			(!receivedUserMessageId || (contentText && finalAssistantId.startsWith('temp-')))
+		) {
 			// Sync server-assigned IDs after a manual Stop so follow-up edit/regenerate work
 			try {
 				const detail = await getConversation(convId);
 				if (activeConversationId === convId && detail.messages.length >= messages.length) {
-					messages = detail.messages;
+					const synced = detail.messages;
+					if (wasStopped && contentText && synced.length > 0 && synced[synced.length - 1].role === 'assistant') {
+						synced[synced.length - 1] = {
+							...synced[synced.length - 1],
+							thinking: thinkingText || undefined,
+							thinkingDurationSec,
+							tools: tools.length > 0 ? tools : undefined,
+							references: references.length > 0 ? references : undefined,
+							stopped: true
+						};
+					}
+					messages = synced;
 				}
 			} catch {
 				// Ignore sync failure
@@ -386,6 +455,7 @@
 	async function handleSendMessage(content: string) {
 		if (isStreaming) return;
 		chatError = '';
+		stoppedNotice = false;
 
 		let convId = activeConversationId;
 		const isFirstTurn = !convId || messages.length === 0;
@@ -417,10 +487,30 @@
 		await runStream(convId, content, { isFirstTurn, tempUserMsgId: tempUserId });
 	}
 
-	function handleStopStreaming() {
-		if (!isStreaming) return;
-		if (activeAbort) {
-			activeAbort.abort();
+	async function handleStopStreaming() {
+		if (!isStreaming || isStopping) return;
+		isStopping = true;
+
+		const convId = activeStreamConvId || activeConversationId;
+		const controller = activeAbort;
+
+		clearStopFallbackTimer();
+		stopFallbackTimer = setTimeout(() => {
+			controller?.abort();
+		}, 1000);
+
+		if (!convId) {
+			controller?.abort();
+			return;
+		}
+
+		try {
+			const res = await stopConversationStream(convId);
+			if (!res.stopped) {
+				controller?.abort();
+			}
+		} catch {
+			controller?.abort();
 		}
 	}
 
@@ -761,12 +851,37 @@
 									</svg>
 								</button>
 							</div>
+						{:else if stoppedNotice && !isStreaming}
+							<div class="mb-2.5 px-3.5 py-2 rounded-xl bg-muted/65 border border-border/70 text-muted-foreground text-xs flex items-center gap-2.5">
+								<span class="w-2 h-2 rounded-[2px] bg-current flex-shrink-0"></span>
+								<span class="flex-1">{$t('assistant.stopped')}</span>
+								{#if messages.length > 0 && messages[messages.length - 1].role === 'user'}
+									<button
+										type="button"
+										on:click={handleRetry}
+										class="px-2.5 py-1 rounded-lg bg-background/80 hover:bg-background text-foreground border border-border/60 font-medium transition-colors flex-shrink-0"
+									>
+										{$t('assistant.retry')}
+									</button>
+								{/if}
+								<button
+									type="button"
+									on:click={() => (stoppedNotice = false)}
+									class="p-0.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground"
+									aria-label={$t('assistant.dismiss')}
+								>
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
+							</div>
 						{/if}
 
 						<ChatInput
 							bind:this={chatInputRef}
 							disabled={isStreaming}
 							streaming={isStreaming}
+							stopping={isStopping}
 							{scope}
 							on:send={(e) => handleSendMessage(e.detail)}
 							on:stop={handleStopStreaming}

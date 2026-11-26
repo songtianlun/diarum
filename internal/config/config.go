@@ -4,6 +4,9 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/songtianlun/diarum/internal/logger"
 	"github.com/songtianlun/diarum/internal/store"
@@ -81,6 +84,67 @@ func (s *ConfigService) GetBool(userId, key string) (bool, error) {
 		return v == "true", nil
 	}
 	return false, nil
+}
+
+// GetInt retrieves an integer configuration value
+func (s *ConfigService) GetInt(userId, key string) (int, error) {
+	value, err := s.Get(userId, key)
+	if err != nil {
+		return 0, err
+	}
+	if value == nil {
+		return 0, nil
+	}
+
+	switch v := value.(type) {
+	case int:
+		return v, nil
+	case int32:
+		return int(v), nil
+	case int64:
+		return int(v), nil
+	case float64:
+		return int(v), nil
+	case json.Number:
+		if parsed, parseErr := v.Int64(); parseErr == nil {
+			return int(parsed), nil
+		}
+	case string:
+		if parsed, parseErr := strconv.Atoi(v); parseErr == nil {
+			return parsed, nil
+		}
+	}
+	return 0, nil
+}
+
+// NormalizeAIRequestTimeoutSeconds validates an AI request timeout in seconds.
+func NormalizeAIRequestTimeoutSeconds(seconds int) (int, error) {
+	if seconds < MinAIRequestTimeoutSeconds || seconds > MaxAIRequestTimeoutSeconds {
+		return 0, fmt.Errorf("AI wait time must be between %d and %d seconds", MinAIRequestTimeoutSeconds, MaxAIRequestTimeoutSeconds)
+	}
+	return seconds, nil
+}
+
+// GetAIRequestTimeoutSeconds returns the user's configured AI request timeout in seconds,
+// falling back to DefaultAIRequestTimeoutSeconds if unset or out of range.
+func (s *ConfigService) GetAIRequestTimeoutSeconds(userId string) int {
+	if s == nil {
+		return DefaultAIRequestTimeoutSeconds
+	}
+	seconds, err := s.GetInt(userId, "ai.request_timeout_seconds")
+	if err != nil {
+		return DefaultAIRequestTimeoutSeconds
+	}
+	normalized, err := NormalizeAIRequestTimeoutSeconds(seconds)
+	if err != nil {
+		return DefaultAIRequestTimeoutSeconds
+	}
+	return normalized
+}
+
+// GetAIRequestTimeout returns the user's configured AI request timeout duration.
+func (s *ConfigService) GetAIRequestTimeout(userId string) time.Duration {
+	return time.Duration(s.GetAIRequestTimeoutSeconds(userId)) * time.Second
 }
 
 // Set stores a configuration value for a user

@@ -357,6 +357,18 @@ export const en = {
 			cnHolidaysOnDesc: 'Always show holidays and lieu days',
 			cnHolidaysOff: 'Off',
 			cnHolidaysOffDesc: 'Hide all holiday and lieu-day badges'
+		},
+		ai: {
+			requestTimeout: 'AI Response Wait Time',
+			requestTimeoutUnit: 'seconds',
+			requestTimeoutRange: 'Default: {default}s. Range: {min}–{max} seconds.',
+			requestTimeoutDesc: 'Maximum time to wait for AI replies before timing out. Increase this when using slower local models such as Ollama.',
+			requestTimeoutInvalid: 'AI wait time must be a whole number between {min} and {max} seconds.',
+			preset1m: '1 min',
+			preset5m: '5 min',
+			preset15m: '15 min',
+			preset30m: '30 min',
+			preset60m: '60 min'
 		}
 	},
 	win95: {

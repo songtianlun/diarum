@@ -31,7 +31,21 @@
 		initHolidaySettings,
 		setCNHolidayPreference
 	} from '$lib/stores/holidays';
-	import { getAISettings, saveAISettings, fetchModels, buildVectors, buildVectorsIncremental, getVectorStats, type AISettings, type ModelInfo, type BuildVectorsResult, type VectorStats } from '$lib/api/ai';
+	import {
+		getAISettings,
+		saveAISettings,
+		fetchModels,
+		buildVectors,
+		buildVectorsIncremental,
+		getVectorStats,
+		DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
+		MIN_AI_REQUEST_TIMEOUT_SECONDS,
+		MAX_AI_REQUEST_TIMEOUT_SECONDS,
+		type AISettings,
+		type ModelInfo,
+		type BuildVectorsResult,
+		type VectorStats
+	} from '$lib/api/ai';
 	import { exportDiaries, importDiaries, type ExportStats, type ImportStats, type ExportOptions } from '$lib/api/exportImport';
 	import { defaultImageUploadSettings, getImageUploadSettings, saveImageUploadSettings, testCheveretoConnection, type ImageUploadProvider, type ImageUploadSettings } from '$lib/api/imageUpload';
 	import { loadImageUploadSettings } from '$lib/stores/imageUpload';
@@ -185,6 +199,7 @@
 		base_url: '',
 		chat_model: '',
 		embedding_model: '',
+		request_timeout_seconds: DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
 		enabled: false
 	};
 	let originalAISettings: AISettings = { ...aiSettings };
@@ -753,6 +768,20 @@
 		aiError = '';
 		aiSuccess = '';
 
+		const timeoutSeconds = Number(aiSettings.request_timeout_seconds);
+		if (
+			!Number.isInteger(timeoutSeconds) ||
+			timeoutSeconds < MIN_AI_REQUEST_TIMEOUT_SECONDS ||
+			timeoutSeconds > MAX_AI_REQUEST_TIMEOUT_SECONDS
+		) {
+			aiError = $t('settings.ai.requestTimeoutInvalid', {
+				min: MIN_AI_REQUEST_TIMEOUT_SECONDS,
+				max: MAX_AI_REQUEST_TIMEOUT_SECONDS
+			});
+			return;
+		}
+		aiSettings.request_timeout_seconds = timeoutSeconds;
+
 		// Validate: if enabling, all fields must be filled
 		if (aiSettings.enabled) {
 			if (!aiSettings.api_key || !aiSettings.base_url || !aiSettings.chat_model || !aiSettings.embedding_model) {
@@ -838,6 +867,7 @@
 		aiSettings.base_url !== originalAISettings.base_url ||
 		aiSettings.chat_model !== originalAISettings.chat_model ||
 		aiSettings.embedding_model !== originalAISettings.embedding_model ||
+		Number(aiSettings.request_timeout_seconds) !== originalAISettings.request_timeout_seconds ||
 		aiSettings.enabled !== originalAISettings.enabled;
 
 	// Embedding model keywords for sorting
@@ -2177,6 +2207,55 @@ curl "{getBaseUrl()}/api/v1/diaries?token={tokenStatus.token}&date={new Date().t
 							</button>
 						</div>
 						<p class="text-xs text-muted-foreground mt-1">Model for text vectorization, e.g. text-embedding-3-small</p>
+					</div>
+
+					<!-- AI Response Wait Time -->
+					<div class="py-4 border-b border-border/50">
+						<label for="ai-request-timeout" class="block font-medium text-foreground mb-2">
+							{$t('settings.ai.requestTimeout')}
+						</label>
+						<div class="flex flex-wrap items-center gap-2">
+							<div class="flex items-center gap-2">
+								<input
+									id="ai-request-timeout"
+									type="number"
+									bind:value={aiSettings.request_timeout_seconds}
+									min={MIN_AI_REQUEST_TIMEOUT_SECONDS}
+									max={MAX_AI_REQUEST_TIMEOUT_SECONDS}
+									step="10"
+									placeholder={String(DEFAULT_AI_REQUEST_TIMEOUT_SECONDS)}
+									class="w-32 px-3 py-2 bg-muted rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+								/>
+								<span class="text-sm text-muted-foreground">{$t('settings.ai.requestTimeoutUnit')}</span>
+							</div>
+							<div class="flex flex-wrap items-center gap-1.5">
+								{#each [
+									{ seconds: 60, labelKey: 'settings.ai.preset1m' },
+									{ seconds: 300, labelKey: 'settings.ai.preset5m' },
+									{ seconds: 900, labelKey: 'settings.ai.preset15m' },
+									{ seconds: 1800, labelKey: 'settings.ai.preset30m' },
+									{ seconds: 3600, labelKey: 'settings.ai.preset60m' }
+								] as preset}
+									<button
+										type="button"
+										on:click={() => (aiSettings = { ...aiSettings, request_timeout_seconds: preset.seconds })}
+										class="px-2.5 py-1 rounded-lg text-xs border transition-colors {Number(aiSettings.request_timeout_seconds) === preset.seconds ? 'border-primary bg-primary/10 text-primary font-medium' : 'border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/60'}"
+									>
+										{$t(preset.labelKey)}
+									</button>
+								{/each}
+							</div>
+						</div>
+						<p class="text-xs text-muted-foreground mt-2">
+							{$t('settings.ai.requestTimeoutRange', {
+								default: DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
+								min: MIN_AI_REQUEST_TIMEOUT_SECONDS,
+								max: MAX_AI_REQUEST_TIMEOUT_SECONDS
+							})}
+						</p>
+						<p class="text-xs text-muted-foreground mt-1">
+							{$t('settings.ai.requestTimeoutDesc')}
+						</p>
 					</div>
 
 					<!-- Enable AI Toggle -->

@@ -37,6 +37,7 @@ export interface Message {
 	tools?: ToolActivity[];
 	referenced_diaries?: string[];
 	references?: DiaryReference[];
+	stopped?: boolean;
 	created: string;
 }
 
@@ -55,12 +56,13 @@ export interface StreamToolPayload {
 }
 
 export interface StreamChunk {
-	type?: 'thinking' | 'tool_start' | 'tool_end' | 'content' | 'references' | 'title' | 'done' | 'error';
+	type?: 'thinking' | 'tool_start' | 'tool_end' | 'content' | 'references' | 'title' | 'done' | 'stopped' | 'error';
 	content?: string;
 	thinking?: string;
 	tool?: StreamToolPayload;
 	references?: DiaryReference[];
 	done?: boolean;
+	stopped?: boolean;
 	message_id?: string;
 	user_message_id?: string;
 	referenced_diaries?: string[];
@@ -173,6 +175,17 @@ export async function deleteMessagesFrom(conversationId: string, messageId: stri
 	}
 }
 
+export async function stopConversationStream(conversationId: string): Promise<{ stopped: boolean }> {
+	const response = await fetch(`/api/v1/ai/conversations/${encodeURIComponent(conversationId)}/stop`, {
+		method: 'POST',
+		headers: authHeaders()
+	});
+	if (!response.ok) {
+		throw new Error('Failed to stop conversation stream');
+	}
+	return await response.json();
+}
+
 export async function* streamChat(
 	conversationId: string,
 	content: string,
@@ -208,6 +221,16 @@ export async function* streamChat(
 	const reader = response.body.getReader();
 	const decoder = new TextDecoder();
 	let buffer = '';
+	const onAbort = () => {
+		void reader.cancel().catch(() => {});
+	};
+	if (options.signal) {
+		if (options.signal.aborted) {
+			onAbort();
+		} else {
+			options.signal.addEventListener('abort', onAbort, { once: true });
+		}
+	}
 
 	try {
 		while (true) {
@@ -232,6 +255,9 @@ export async function* streamChat(
 			}
 		}
 	} finally {
+		if (options.signal) {
+			options.signal.removeEventListener('abort', onAbort);
+		}
 		reader.releaseLock();
 	}
 }

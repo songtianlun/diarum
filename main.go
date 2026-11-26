@@ -203,7 +203,11 @@ func run(args []string, stdout io.Writer) error {
 			return
 		}
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			timeout := 5 * time.Minute
+			if userTimeout := configService.GetAIRequestTimeout(userID); userTimeout > timeout {
+				timeout = userTimeout
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			logger.Info("[AutoVectorBuild] triggered for user: %s", userID)
 			result, err := embeddingService.BuildIncrementalVectors(ctx, userID)

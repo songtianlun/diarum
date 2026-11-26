@@ -347,6 +347,18 @@ export const zh = {
 			cnHolidaysOnDesc: '始终显示节假日与调休',
 			cnHolidaysOff: '关闭',
 			cnHolidaysOffDesc: '隐藏所有节假日与调休标记'
+		},
+		ai: {
+			requestTimeout: 'AI 回复等待时间',
+			requestTimeoutUnit: '秒',
+			requestTimeoutRange: '默认 {default} 秒，范围 {min}–{max} 秒。',
+			requestTimeoutDesc: '等待 AI 回复的最大时长，超时后将中止请求。使用 Ollama 等本地较慢模型时可适当调大。',
+			requestTimeoutInvalid: 'AI 回复等待时间必须为 {min} 至 {max} 秒之间的整数。',
+			preset1m: '1 分钟',
+			preset5m: '5 分钟',
+			preset15m: '15 分钟',
+			preset30m: '30 分钟',
+			preset60m: '60 分钟'
 		}
 	},
 	win95: {
