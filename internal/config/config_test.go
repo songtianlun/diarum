@@ -2,8 +2,10 @@ package config
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/songtianlun/diarum/internal/store"
 )
@@ -480,5 +482,73 @@ func TestConfigServiceRejectsOutOfRangeSnapshotLimit(t *testing.T) {
 	}
 	if got := s.DiarySnapshotLimit(user.ID); got != 3 {
 		t.Fatalf("DiarySnapshotLimit = %d, want 3", got)
+	}
+}
+
+func TestGetIntAndAIRequestTimeout(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewConfigService(s)
+
+	if got := service.GetAIRequestTimeoutSeconds(user.ID); got != DefaultAIRequestTimeoutSeconds {
+		t.Fatalf("default GetAIRequestTimeoutSeconds = %d, want %d", got, DefaultAIRequestTimeoutSeconds)
+	}
+	if got := service.GetAIRequestTimeout(user.ID); got != time.Duration(DefaultAIRequestTimeoutSeconds)*time.Second {
+		t.Fatalf("default GetAIRequestTimeout = %v", got)
+	}
+	var nilSvc *ConfigService
+	if got := nilSvc.GetAIRequestTimeoutSeconds(user.ID); got != DefaultAIRequestTimeoutSeconds {
+		t.Fatalf("nil service GetAIRequestTimeoutSeconds = %d, want %d", got, DefaultAIRequestTimeoutSeconds)
+	}
+
+	for _, valid := range []int{MinAIRequestTimeoutSeconds, 300, 900, MaxAIRequestTimeoutSeconds} {
+		got, err := NormalizeAIRequestTimeoutSeconds(valid)
+		if err != nil || got != valid {
+			t.Fatalf("NormalizeAIRequestTimeoutSeconds(%d) = %d, %v", valid, got, err)
+		}
+	}
+	for _, invalid := range []int{-10, 0, MinAIRequestTimeoutSeconds - 1, MaxAIRequestTimeoutSeconds + 1} {
+		if _, err := NormalizeAIRequestTimeoutSeconds(invalid); err == nil {
+			t.Fatalf("NormalizeAIRequestTimeoutSeconds(%d) should error", invalid)
+		}
+	}
+
+	if err := service.Set(user.ID, "ai.request_timeout_seconds", 20); !errors.Is(err, ErrInvalidValue) {
+		t.Fatalf("Set out-of-range timeout = %v, want ErrInvalidValue", err)
+	}
+	if err := service.Set(user.ID, "ai.request_timeout_seconds", 900); err != nil {
+		t.Fatalf("Set valid timeout: %v", err)
+	}
+	if got, err := service.GetInt(user.ID, "ai.request_timeout_seconds"); err != nil || got != 900 {
+		t.Fatalf("GetInt(ai.request_timeout_seconds) = %d, %v, want 900", got, err)
+	}
+	if got := service.GetAIRequestTimeout(user.ID); got != 900*time.Second {
+		t.Fatalf("GetAIRequestTimeout = %v, want 900s", got)
+	}
+
+	// Cover GetInt type conversions and fallback on corrupted out-of-range value.
+	if err := s.SetSetting(user.ID, "int.string", "42", false); err != nil {
+		t.Fatalf("SetSetting int.string: %v", err)
+	}
+	if got, err := service.GetInt(user.ID, "int.string"); err != nil || got != 42 {
+		t.Fatalf("GetInt(int.string) = %d, %v, want 42", got, err)
+	}
+	if err := s.SetSetting(user.ID, "int.number", json.Number("120"), false); err != nil {
+		t.Fatalf("SetSetting int.number: %v", err)
+	}
+	if got, err := service.GetInt(user.ID, "int.number"); err != nil || got != 120 {
+		t.Fatalf("GetInt(int.number) = %d, %v, want 120", got, err)
+	}
+	if err := s.SetSetting(user.ID, "int.invalid", "abc", false); err != nil {
+		t.Fatalf("SetSetting int.invalid: %v", err)
+	}
+	if got, err := service.GetInt(user.ID, "int.invalid"); err != nil || got != 0 {
+		t.Fatalf("GetInt(int.invalid) = %d, %v, want 0", got, err)
+	}
+	if err := s.SetSetting(user.ID, "ai.request_timeout_seconds", 5, false); err != nil {
+		t.Fatalf("SetSetting corrupted timeout: %v", err)
+	}
+	if got := service.GetAIRequestTimeoutSeconds(user.ID); got != DefaultAIRequestTimeoutSeconds {
+		t.Fatalf("corrupted timeout fallback = %d, want %d", got, DefaultAIRequestTimeoutSeconds)
 	}
 }

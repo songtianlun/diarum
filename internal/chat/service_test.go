@@ -1014,3 +1014,65 @@ func TestPrefetchGroundedContextAndToolsFallback(t *testing.T) {
 	}
 	_ = today
 }
+
+func TestChatRequestTimeoutAndCancellation(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	service := NewChatService(s, nil)
+	configureAISettings(t, s, user.ID)
+
+	if got := (&ChatService{}).getRequestTimeout(user.ID); got != defaultAIRequestTimeout {
+		t.Fatalf("nil configService timeout = %v, want %v", got, defaultAIRequestTimeout)
+	}
+	if got := service.getRequestTimeout(user.ID); got != 300*time.Second {
+		t.Fatalf("default timeout = %v, want 300s", got)
+	}
+	if err := s.SetSetting(user.ID, "ai.request_timeout_seconds", 900, false); err != nil {
+		t.Fatalf("SetSetting timeout: %v", err)
+	}
+	if got := service.getRequestTimeout(user.ID); got != 900*time.Second {
+		t.Fatalf("custom timeout = %v, want 900s", got)
+	}
+
+	conv, err := s.CreateConversation(user.ID, "Timeout test")
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	var seenStreamRemaining, seenTitleRemaining time.Duration
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		deadline, ok := req.Context().Deadline()
+		if !ok {
+			t.Fatal("expected deadline on outgoing AI request context")
+		}
+		var payload map[string]any
+		_ = json.NewDecoder(req.Body).Decode(&payload)
+		if stream, _ := payload["stream"].(bool); stream {
+			seenStreamRemaining = time.Until(deadline)
+			return response(http.StatusOK, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\ndata: [DONE]\n"), nil
+		}
+		seenTitleRemaining = time.Until(deadline)
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"Custom Title"}}]}`), nil
+	})
+
+	if _, _, err := service.StreamChatWithOptions(context.Background(), user.ID, conv.ID, "hello", &mockStreamWriter{}, ChatOptions{Scope: "none"}); err != nil {
+		t.Fatalf("StreamChatWithOptions: %v", err)
+	}
+	if seenStreamRemaining < 850*time.Second || seenStreamRemaining > 910*time.Second {
+		t.Fatalf("StreamChatWithOptions deadline remaining = %v, want ~900s", seenStreamRemaining)
+	}
+
+	if _, err := service.GenerateTitle(context.Background(), user.ID, "hello", "ok"); err != nil {
+		t.Fatalf("GenerateTitle: %v", err)
+	}
+	if seenTitleRemaining < 850*time.Second || seenTitleRemaining > 910*time.Second {
+		t.Fatalf("GenerateTitle deadline remaining = %v, want ~900s", seenTitleRemaining)
+	}
+
+	// Pre-canceled context exits immediately with context.Canceled.
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := service.StreamChatWithOptions(canceledCtx, user.ID, conv.ID, "hello", &mockStreamWriter{}, ChatOptions{Scope: "none"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled StreamChatWithOptions err = %v, want context.Canceled", err)
+	}
+}

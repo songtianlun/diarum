@@ -3,9 +3,11 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -531,4 +533,205 @@ func mustDate(t *testing.T, value string) time.Time {
 		t.Fatalf("time.Parse(%q): %v", value, err)
 	}
 	return result
+}
+
+func TestAISettingsTimeoutValidationAndPersistence(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	RegisterAIRoutes(e, s, authMiddlewareFor(user), nil)
+
+	// Default value is returned before any custom value is saved.
+	rec := performRequest(t, e, http.MethodGet, "/api/v1/ai/settings", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /ai/settings status = %d", rec.Code)
+	}
+	payload := decodeJSONBody(t, rec)
+	if payload["request_timeout_seconds"] != float64(config.DefaultAIRequestTimeoutSeconds) {
+		t.Fatalf("default request_timeout_seconds = %#v, want %d", payload["request_timeout_seconds"], config.DefaultAIRequestTimeoutSeconds)
+	}
+
+	// Reject out-of-range timeout values.
+	for _, body := range []string{
+		`{"api_key":"k","base_url":"https://mock.local","chat_model":"m","embedding_model":"e","request_timeout_seconds":0,"enabled":false}`,
+		`{"api_key":"k","base_url":"https://mock.local","chat_model":"m","embedding_model":"e","request_timeout_seconds":29,"enabled":false}`,
+		`{"api_key":"k","base_url":"https://mock.local","chat_model":"m","embedding_model":"e","request_timeout_seconds":3601,"enabled":false}`,
+	} {
+		rec = performRequest(t, e, http.MethodPut, "/api/v1/ai/settings", strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("PUT invalid timeout %s status = %d, want 400", body, rec.Code)
+		}
+	}
+
+	// Save custom valid timeout.
+	rec = performRequest(t, e, http.MethodPut, "/api/v1/ai/settings", strings.NewReader(`{"api_key":"k","base_url":"https://mock.local","chat_model":"m","embedding_model":"e","request_timeout_seconds":900,"enabled":true}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT valid timeout status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/ai/settings", nil, nil)
+	if got := decodeJSONBody(t, rec)["request_timeout_seconds"]; got != float64(900) {
+		t.Fatalf("saved request_timeout_seconds = %#v, want 900", got)
+	}
+
+	// Omitting request_timeout_seconds preserves existing custom value.
+	rec = performRequest(t, e, http.MethodPut, "/api/v1/ai/settings", strings.NewReader(`{"api_key":"k","base_url":"https://mock.local","chat_model":"m2","embedding_model":"e","enabled":true}`), map[string]string{"Content-Type": "application/json"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT omitted timeout status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = performRequest(t, e, http.MethodGet, "/api/v1/ai/settings", nil, nil)
+	if got := decodeJSONBody(t, rec)["request_timeout_seconds"]; got != float64(900) {
+		t.Fatalf("preserved request_timeout_seconds = %#v, want 900", got)
+	}
+}
+
+type blockingStreamReader struct {
+	ctx      context.Context
+	initial  []byte
+	sentInit bool
+	started  chan struct{}
+}
+
+func (r *blockingStreamReader) Read(p []byte) (int, error) {
+	if !r.sentInit {
+		r.sentInit = true
+		if r.started != nil {
+			close(r.started)
+		}
+		if len(r.initial) > 0 {
+			n := copy(p, r.initial)
+			return n, nil
+		}
+	}
+	<-r.ctx.Done()
+	return 0, r.ctx.Err()
+}
+
+func (r *blockingStreamReader) Close() error { return nil }
+
+func TestAIChatStopEndpointAndTimeout(t *testing.T) {
+	s := newTestStore(t)
+	user := newTestUser(t, s)
+	e := echo.New()
+	RegisterAIRoutes(e, s, authMiddlewareFor(user), nil)
+	configureAIRouteSettings(t, s, user.ID)
+
+	// Stopping non-existent conversation returns 404.
+	rec := performRequest(t, e, http.MethodPost, "/api/v1/ai/conversations/missing/stop", nil, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("POST stop missing status = %d, want 404", rec.Code)
+	}
+
+	conv, err := s.CreateConversation(user.ID, "Stop Test")
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	// Stopping idle conversation returns stopped: false.
+	rec = performRequest(t, e, http.MethodPost, "/api/v1/ai/conversations/"+conv.ID+"/stop", nil, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST stop idle status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if stopped := decodeJSONBody(t, rec)["stopped"]; stopped != false {
+		t.Fatalf("idle stop = %#v, want false", stopped)
+	}
+
+	// 1. Stop mid-stream after partial content arrives -> persists partial reply and emits stopped SSE event.
+	started := make(chan struct{})
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body: &blockingStreamReader{
+				ctx:     req.Context(),
+				initial: []byte("data: {\"choices\":[{\"delta\":{\"content\":\"Partial answer\"}}]}\n"),
+				started: started,
+			},
+		}, nil
+	})
+
+	chatDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		chatRec := performRequest(t, e, http.MethodPost, "/api/v1/ai/chat", strings.NewReader(`{"conversation_id":"`+conv.ID+`","content":"Tell me a story","scope":"none"}`), map[string]string{"Content-Type": "application/json"})
+		chatDone <- chatRec
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for chat stream to start")
+	}
+
+	stopRec := performRequest(t, e, http.MethodPost, "/api/v1/ai/conversations/"+conv.ID+"/stop", nil, nil)
+	if stopRec.Code != http.StatusOK {
+		t.Fatalf("POST stop active status = %d body=%s", stopRec.Code, stopRec.Body.String())
+	}
+	if stopped := decodeJSONBody(t, stopRec)["stopped"]; stopped != true {
+		t.Fatalf("active stop = %#v, want true", stopped)
+	}
+
+	var chatRec *httptest.ResponseRecorder
+	select {
+	case chatRec = <-chatDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for chat handler to exit after stop")
+	}
+	if chatRec.Code != http.StatusOK {
+		t.Fatalf("chat status = %d body=%s", chatRec.Code, chatRec.Body.String())
+	}
+	body := chatRec.Body.String()
+	if !strings.Contains(body, `"type":"stopped"`) || !strings.Contains(body, `"stopped":true`) {
+		t.Fatalf("expected stopped SSE event in body: %s", body)
+	}
+	msgs, err := s.ListMessages(conv.ID, 10)
+	if err != nil || len(msgs) != 2 || msgs[1].Role != "assistant" || msgs[1].Content != "Partial answer" {
+		t.Fatalf("persisted messages after mid-stream stop = %#v err=%v", msgs, err)
+	}
+
+	// 2. Stop before any token arrives -> emits stopped SSE event with user_message_id and does NOT save empty assistant message.
+	conv2, err := s.CreateConversation(user.ID, "Stop Early")
+	if err != nil {
+		t.Fatalf("CreateConversation 2: %v", err)
+	}
+	started2 := make(chan struct{})
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body: &blockingStreamReader{
+				ctx:     req.Context(),
+				started: started2,
+			},
+		}, nil
+	})
+	chatDone2 := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		chatRec := performRequest(t, e, http.MethodPost, "/api/v1/ai/chat", strings.NewReader(`{"conversation_id":"`+conv2.ID+`","content":"Slow local model","scope":"none"}`), map[string]string{"Content-Type": "application/json"})
+		chatDone2 <- chatRec
+	}()
+	select {
+	case <-started2:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second chat stream to start")
+	}
+	stopRec2 := performRequest(t, e, http.MethodPost, "/api/v1/ai/conversations/"+conv2.ID+"/stop", nil, nil)
+	if stopped := decodeJSONBody(t, stopRec2)["stopped"]; stopped != true {
+		t.Fatalf("second active stop = %#v, want true", stopped)
+	}
+	chatRec2 := <-chatDone2
+	if !strings.Contains(chatRec2.Body.String(), `"type":"stopped"`) || !strings.Contains(chatRec2.Body.String(), `"user_message_id":"`) {
+		t.Fatalf("expected stopped SSE event with user_message_id: %s", chatRec2.Body.String())
+	}
+	msgs2, err := s.ListMessages(conv2.ID, 10)
+	if err != nil || len(msgs2) != 1 || msgs2[0].Role != "user" {
+		t.Fatalf("messages after early stop = %#v err=%v, want only user message", msgs2, err)
+	}
+
+	// 3. Timeout produces clear timeout error message referencing configured wait time.
+	withMockTransport(t, func(req *http.Request) (*http.Response, error) {
+		return nil, context.DeadlineExceeded
+	})
+	timeoutRec := performRequest(t, e, http.MethodPost, "/api/v1/ai/chat", strings.NewReader(`{"conversation_id":"`+conv2.ID+`","regenerate":true,"scope":"none"}`), map[string]string{"Content-Type": "application/json"})
+	if timeoutRec.Code != http.StatusOK || !strings.Contains(timeoutRec.Body.String(), "timed out after 300 seconds") {
+		t.Fatalf("timeout chat response = status %d body=%s", timeoutRec.Code, timeoutRec.Body.String())
+	}
 }

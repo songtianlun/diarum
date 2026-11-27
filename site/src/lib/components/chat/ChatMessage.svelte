@@ -445,28 +445,36 @@
 			{/if}
 
 			<!-- Assistant action bar -->
-			{#if !isStreaming && message.content}
-				<div class="flex items-center gap-1 pt-0.5 opacity-80 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-					<button
-						type="button"
-						on:click={handleCopyMessage}
-						class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground
-							hover:text-foreground hover:bg-muted/70 transition-colors"
-						title={copied ? $t('assistant.copied') : $t('assistant.copy')}
-					>
-						{#if copied}
-							<svg class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-							</svg>
-							<span class="text-emerald-600 dark:text-emerald-400">{$t('assistant.copied')}</span>
-						{:else}
-							<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-									d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-							</svg>
-							<span>{$t('assistant.copy')}</span>
-						{/if}
-					</button>
+			{#if !isStreaming && (message.content || message.stopped)}
+				<div class="flex flex-wrap items-center gap-1 pt-0.5 {message.stopped ? 'opacity-100' : 'opacity-80 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100'} transition-opacity">
+					{#if message.stopped}
+						<span class="inline-flex items-center gap-1 px-2 py-0.5 mr-1 rounded-md text-[11px] font-medium bg-muted/70 text-muted-foreground border border-border/50">
+							<span class="w-1.5 h-1.5 rounded-[1px] bg-current"></span>
+							{$t('assistant.stopped')}
+						</span>
+					{/if}
+					{#if message.content}
+						<button
+							type="button"
+							on:click={handleCopyMessage}
+							class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-muted-foreground
+								hover:text-foreground hover:bg-muted/70 transition-colors"
+							title={copied ? $t('assistant.copied') : $t('assistant.copy')}
+						>
+							{#if copied}
+								<svg class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+								</svg>
+								<span class="text-emerald-600 dark:text-emerald-400">{$t('assistant.copied')}</span>
+							{:else}
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+										d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+								</svg>
+								<span>{$t('assistant.copy')}</span>
+							{/if}
+						</button>
+					{/if}
 
 					{#if canRegenerate && !message.id.startsWith('temp-')}
 						<button

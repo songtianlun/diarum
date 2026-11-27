@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -32,9 +34,68 @@ type ModelsResponse struct {
 	Data   []ModelInfo `json:"data"`
 }
 
+type activeChatStream struct {
+	id     uint64
+	userID string
+	cancel context.CancelFunc
+}
+
+type chatStreamManager struct {
+	mu      sync.Mutex
+	nextID  uint64
+	streams map[string]activeChatStream
+}
+
+func newChatStreamManager() *chatStreamManager {
+	return &chatStreamManager{
+		streams: make(map[string]activeChatStream),
+	}
+}
+
+func (m *chatStreamManager) register(userID, conversationID string, cancel context.CancelFunc) uint64 {
+	m.mu.Lock()
+	prev, hadPrev := m.streams[conversationID]
+	m.nextID++
+	id := m.nextID
+	m.streams[conversationID] = activeChatStream{
+		id:     id,
+		userID: userID,
+		cancel: cancel,
+	}
+	m.mu.Unlock()
+	if hadPrev && prev.cancel != nil {
+		prev.cancel()
+	}
+	return id
+}
+
+func (m *chatStreamManager) unregister(conversationID string, streamID uint64) {
+	m.mu.Lock()
+	if cur, ok := m.streams[conversationID]; ok && cur.id == streamID {
+		delete(m.streams, conversationID)
+	}
+	m.mu.Unlock()
+}
+
+func (m *chatStreamManager) stop(userID, conversationID string) bool {
+	m.mu.Lock()
+	cur, ok := m.streams[conversationID]
+	if !ok || cur.userID != userID {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.streams, conversationID)
+	m.mu.Unlock()
+	if cur.cancel != nil {
+		cur.cancel()
+	}
+	return true
+}
+
 func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.MiddlewareFunc, embeddingService *embedding.EmbeddingService) {
 	configService := config.NewConfigService(s)
 	chatService := chat.NewChatService(s, embeddingService)
+	streamManager := newChatStreamManager()
 	group := e.Group("/api/v1/ai", authMiddleware)
 
 	group.GET("/settings", func(c echo.Context) error {
@@ -43,26 +104,50 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		baseUrl, _ := configService.GetString(userId, "ai.base_url")
 		chatModel, _ := configService.GetString(userId, "ai.chat_model")
 		embeddingModel, _ := configService.GetString(userId, "ai.embedding_model")
+		requestTimeoutSeconds := configService.GetAIRequestTimeoutSeconds(userId)
 		enabled, _ := configService.GetBool(userId, "ai.enabled")
-		return c.JSON(http.StatusOK, map[string]any{"api_key": apiKey, "base_url": baseUrl, "chat_model": chatModel, "embedding_model": embeddingModel, "enabled": enabled})
+		return c.JSON(http.StatusOK, map[string]any{
+			"api_key":                 apiKey,
+			"base_url":                baseUrl,
+			"chat_model":              chatModel,
+			"embedding_model":         embeddingModel,
+			"request_timeout_seconds": requestTimeoutSeconds,
+			"enabled":                 enabled,
+		})
 	})
 
 	group.PUT("/settings", func(c echo.Context) error {
 		userId := auth.CurrentUser(c).ID
 		var body struct {
-			APIKey         string `json:"api_key"`
-			BaseURL        string `json:"base_url"`
-			ChatModel      string `json:"chat_model"`
-			EmbeddingModel string `json:"embedding_model"`
-			Enabled        bool   `json:"enabled"`
+			APIKey                string `json:"api_key"`
+			BaseURL               string `json:"base_url"`
+			ChatModel             string `json:"chat_model"`
+			EmbeddingModel        string `json:"embedding_model"`
+			RequestTimeoutSeconds *int   `json:"request_timeout_seconds"`
+			Enabled               bool   `json:"enabled"`
 		}
 		if err := c.Bind(&body); err != nil {
 			return badRequest("Invalid request body", err)
 		}
+		requestTimeoutSeconds := configService.GetAIRequestTimeoutSeconds(userId)
+		if body.RequestTimeoutSeconds != nil {
+			normalized, err := config.NormalizeAIRequestTimeoutSeconds(*body.RequestTimeoutSeconds)
+			if err != nil {
+				return badRequest(err.Error(), nil)
+			}
+			requestTimeoutSeconds = normalized
+		}
 		if body.Enabled && (body.APIKey == "" || body.BaseURL == "" || body.ChatModel == "" || body.EmbeddingModel == "") {
 			return badRequest("All AI settings must be configured before enabling AI features", nil)
 		}
-		settings := map[string]any{"ai.api_key": body.APIKey, "ai.base_url": body.BaseURL, "ai.chat_model": body.ChatModel, "ai.embedding_model": body.EmbeddingModel, "ai.enabled": body.Enabled}
+		settings := map[string]any{
+			"ai.api_key":                 body.APIKey,
+			"ai.base_url":                body.BaseURL,
+			"ai.chat_model":              body.ChatModel,
+			"ai.embedding_model":         body.EmbeddingModel,
+			"ai.request_timeout_seconds": requestTimeoutSeconds,
+			"ai.enabled":                 body.Enabled,
+		}
 		if err := configService.SetBatch(userId, settings); err != nil {
 			return badRequest("Failed to save AI settings", err)
 		}
@@ -71,6 +156,7 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 	})
 
 	group.POST("/models", func(c echo.Context) error {
+		userId := auth.CurrentUser(c).ID
 		var body struct {
 			APIKey  string `json:"api_key"`
 			BaseURL string `json:"base_url"`
@@ -81,7 +167,9 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		if body.APIKey == "" || body.BaseURL == "" {
 			return badRequest("API key and base URL are required", nil)
 		}
-		models, err := fetchModels(body.BaseURL, body.APIKey)
+		ctx, cancel := context.WithTimeout(c.Request().Context(), configService.GetAIRequestTimeout(userId))
+		defer cancel()
+		models, err := fetchModelsWithContext(ctx, body.BaseURL, body.APIKey)
 		if err != nil {
 			logger.Error("[POST /api/v1/ai/models] error fetching models: %v", err)
 			return badRequest("Failed to fetch models: "+err.Error(), nil)
@@ -94,7 +182,11 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		if embeddingService == nil {
 			return badRequest("Embedding service not initialized", nil)
 		}
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Minute)
+		timeout := 10 * time.Minute
+		if userTimeout := configService.GetAIRequestTimeout(userId); userTimeout > timeout {
+			timeout = userTimeout
+		}
+		ctx, cancel := context.WithTimeout(c.Request().Context(), timeout)
 		defer cancel()
 		result, err := embeddingService.BuildAllVectors(ctx, userId)
 		if err != nil {
@@ -108,7 +200,11 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		if embeddingService == nil {
 			return badRequest("Embedding service not initialized", nil)
 		}
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Minute)
+		timeout := 10 * time.Minute
+		if userTimeout := configService.GetAIRequestTimeout(userId); userTimeout > timeout {
+			timeout = userTimeout
+		}
+		ctx, cancel := context.WithTimeout(c.Request().Context(), timeout)
 		defer cancel()
 		result, err := embeddingService.BuildIncrementalVectors(ctx, userId)
 		if err != nil {
@@ -218,7 +314,7 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		if firstUser == "" {
 			return badRequest("No user message found for title generation", nil)
 		}
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(c.Request().Context(), configService.GetAIRequestTimeout(userId))
 		defer cancel()
 		title, err := chatService.GenerateTitle(ctx, userId, firstUser, firstAssistant)
 		if err != nil || strings.TrimSpace(title) == "" {
@@ -229,6 +325,16 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 			return badRequest("Failed to save generated title", err)
 		}
 		return c.JSON(http.StatusOK, map[string]any{"id": updated.ID, "title": updated.Title, "updated": updated.Updated})
+	})
+
+	group.POST("/conversations/:id/stop", func(c echo.Context) error {
+		userId := auth.CurrentUser(c).ID
+		convID := c.PathParam("id")
+		if _, err := s.GetConversation(convID, userId); err != nil {
+			return notFound("Conversation not found")
+		}
+		stopped := streamManager.stop(userId, convID)
+		return c.JSON(http.StatusOK, map[string]any{"stopped": stopped})
 	})
 
 	group.DELETE("/conversations/:id/messages/:messageId", func(c echo.Context) error {
@@ -302,7 +408,13 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 		c.Response().Header().Set("X-Accel-Buffering", "no")
 		c.Response().WriteHeader(http.StatusOK)
 		writer := &sseWriter{w: c.Response()}
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
+		requestTimeout := configService.GetAIRequestTimeout(userId)
+		streamCtx, stopStream := context.WithCancel(c.Request().Context())
+		defer stopStream()
+		streamID := streamManager.register(userId, body.ConversationID, stopStream)
+		defer streamManager.unregister(body.ConversationID, streamID)
+
+		ctx, cancel := context.WithTimeout(streamCtx, requestTimeout)
 		defer cancel()
 
 		var newTitle string
@@ -325,10 +437,37 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 			ReferencesOut:    &references,
 		})
 		if err != nil {
-			// If the client cancelled mid-stream after partial text arrived, persist it.
-			if ctx.Err() == context.Canceled && strings.TrimSpace(fullResponse) != "" {
-				if _, saveErr := chatService.SaveMessage(userId, body.ConversationID, "assistant", fullResponse, referencedDiaries); saveErr != nil {
-					logger.Error("[POST /api/v1/ai/chat] failed to save partial assistant message: %v", saveErr)
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+				timeoutMsg := fmt.Sprintf("AI request timed out after %d seconds. You can adjust the AI wait time in Settings.", int(requestTimeout.Seconds()))
+				logger.Error("[POST /api/v1/ai/chat] stream chat timed out after %s: %v", requestTimeout, err)
+				errData, _ := json.Marshal(map[string]any{"type": "error", "error": timeoutMsg})
+				_, _ = writer.Write([]byte("data: " + string(errData) + "\n\n"))
+				writer.Flush()
+				return nil
+			}
+			// If stopped via /stop or client disconnect, persist any partial assistant reply.
+			if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
+				var assistantMessageID string
+				if strings.TrimSpace(fullResponse) != "" {
+					if msg, saveErr := chatService.SaveMessage(userId, body.ConversationID, "assistant", fullResponse, referencedDiaries); saveErr != nil {
+						logger.Error("[POST /api/v1/ai/chat] failed to save partial assistant message: %v", saveErr)
+					} else {
+						assistantMessageID = msg.ID
+					}
+				}
+				if c.Request().Context().Err() == nil {
+					stoppedData, _ := json.Marshal(map[string]any{
+						"type":               "stopped",
+						"stopped":            true,
+						"done":               true,
+						"message_id":         assistantMessageID,
+						"user_message_id":    userMessageID,
+						"referenced_diaries": referencedDiaries,
+						"references":         references,
+						"title":              newTitle,
+					})
+					_, _ = writer.Write([]byte("data: " + string(stoppedData) + "\n\n"))
+					writer.Flush()
 				}
 				return nil
 			}
@@ -363,15 +502,23 @@ func RegisterAIRoutes(e *echo.Echo, s *store.Store, authMiddleware echo.Middlewa
 }
 
 func fetchModels(baseURL, apiKey string) ([]ModelInfo, error) {
+	return fetchModelsWithContext(context.Background(), baseURL, apiKey)
+}
+
+func fetchModelsWithContext(ctx context.Context, baseURL, apiKey string) ([]ModelInfo, error) {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 	url := baseURL + "/v1/models"
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{}).Do(req)
+	client := &http.Client{}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		client.Timeout = time.Duration(config.DefaultAIRequestTimeoutSeconds) * time.Second
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

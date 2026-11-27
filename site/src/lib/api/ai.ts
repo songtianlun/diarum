@@ -1,10 +1,15 @@
 import { pb } from './client';
 
+export const DEFAULT_AI_REQUEST_TIMEOUT_SECONDS = 300;
+export const MIN_AI_REQUEST_TIMEOUT_SECONDS = 30;
+export const MAX_AI_REQUEST_TIMEOUT_SECONDS = 3600;
+
 export interface AISettings {
 	api_key: string;
 	base_url: string;
 	chat_model: string;
 	embedding_model: string;
+	request_timeout_seconds: number;
 	enabled: boolean;
 }
 
@@ -45,7 +50,18 @@ export async function getAISettings(): Promise<AISettings> {
 			throw new Error('Failed to get AI settings');
 		}
 
-		return await response.json();
+		const data = await response.json();
+		return {
+			api_key: data.api_key ?? '',
+			base_url: data.base_url ?? '',
+			chat_model: data.chat_model ?? '',
+			embedding_model: data.embedding_model ?? '',
+			request_timeout_seconds:
+				typeof data.request_timeout_seconds === 'number' && data.request_timeout_seconds > 0
+					? data.request_timeout_seconds
+					: DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
+			enabled: Boolean(data.enabled)
+		};
 	} catch (error) {
 		console.error('Error fetching AI settings:', error);
 		return {
@@ -53,6 +69,7 @@ export async function getAISettings(): Promise<AISettings> {
 			base_url: '',
 			chat_model: '',
 			embedding_model: '',
+			request_timeout_seconds: DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
 			enabled: false
 		};
 	}

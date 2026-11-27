@@ -22,6 +22,7 @@ const (
 	maxToolRounds          = 4
 	maxContextBudgetRunes  = 24000
 	sseScannerMaxTokenSize = 2 * 1024 * 1024
+	defaultAIRequestTimeout = time.Duration(config.DefaultAIRequestTimeoutSeconds) * time.Second
 )
 
 // ChatService handles AI chat operations with RAG and diary tools.
@@ -527,9 +528,23 @@ func containsAny(s string, patterns ...string) bool {
 // prefetchGroundedContext automatically fetches real diaries/days for explicit
 // scopes and time/memory intents before calling the LLM, preventing models that
 // ignore or lack tool calling from hallucinating fictional diary entries.
+func (s *ChatService) getRequestTimeout(userID string) time.Duration {
+	if s == nil || s.configService == nil {
+		return defaultAIRequestTimeout
+	}
+	return s.configService.GetAIRequestTimeout(userID)
+}
+
+func (s *ChatService) httpClientForContext(ctx context.Context) *http.Client {
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return &http.Client{}
+	}
+	return &http.Client{Timeout: defaultAIRequestTimeout}
+}
+
 func (s *ChatService) prefetchGroundedContext(ctx context.Context, userID, message, scope string, writer StreamWriter) prefetchResult {
 	var res prefetchResult
-	if scope == "none" || s.store == nil {
+	if scope == "none" || s.store == nil || ctx.Err() != nil {
 		return res
 	}
 
@@ -770,6 +785,12 @@ func (s *ChatService) StreamChatWithOptions(ctx context.Context, userID, convers
 		return "", nil, fmt.Errorf("chat model not configured")
 	}
 
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.getRequestTimeout(userID))
+		defer cancel()
+	}
+
 	var (
 		fullResponse       strings.Builder
 		referencedDiaryIDs []string
@@ -823,6 +844,13 @@ func (s *ChatService) StreamChatWithOptions(ctx context.Context, userID, convers
 	}
 
 	for round := 0; round <= maxToolRounds; round++ {
+		if err := ctx.Err(); err != nil {
+			if opts.ReferencesOut != nil {
+				*opts.ReferencesOut = references
+			}
+			return fullResponse.String(), referencedDiaryIDs, err
+		}
+
 		roundTools := tools
 		if round == maxToolRounds {
 			roundTools = nil
@@ -861,6 +889,12 @@ func (s *ChatService) StreamChatWithOptions(ctx context.Context, userID, convers
 		})
 
 		for _, tc := range toolCalls {
+			if err := ctx.Err(); err != nil {
+				if opts.ReferencesOut != nil {
+					*opts.ReferencesOut = references
+				}
+				return fullResponse.String(), referencedDiaryIDs, err
+			}
 			resultText, diaries, toolErr := s.executeToolCall(ctx, userID, tc, writer)
 			for _, d := range diaries {
 				addRef(d)
@@ -1109,7 +1143,7 @@ func (s *ChatService) callStreamingAPI(ctx context.Context, baseURL, apiKey, mod
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := s.httpClientForContext(ctx)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -1155,7 +1189,7 @@ func (s *ChatService) callAPIWithTools(ctx context.Context, baseURL, apiKey, mod
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := s.httpClientForContext(ctx)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to send request: %w", err)
@@ -1528,6 +1562,12 @@ func (s *ChatService) GenerateTitle(ctx context.Context, userID, userMessage, as
 		return "", fmt.Errorf("chat model not configured")
 	}
 
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.getRequestTimeout(userID))
+		defer cancel()
+	}
+
 	messages := []ChatMessage{
 		{
 			Role: "system",
@@ -1564,7 +1604,7 @@ Use the same language as the user's message.`,
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := s.httpClientForContext(ctx)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)

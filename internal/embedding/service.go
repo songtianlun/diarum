@@ -97,8 +97,12 @@ func (s *EmbeddingService) createEmbeddingFunc(userID string) (chromem.Embedding
 	}
 	logger.Debug("[EmbeddingService] config: baseURL=%s, model=%s, apiKey=%s", baseURL, embeddingModel, maskedKey)
 
+	requestTimeout := s.configService.GetAIRequestTimeout(userID)
+
 	return func(ctx context.Context, text string) ([]float32, error) {
-		return s.generateEmbedding(ctx, baseURL, apiKey, embeddingModel, text)
+		callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		defer cancel()
+		return s.generateEmbedding(callCtx, baseURL, apiKey, embeddingModel, text)
 	}, nil
 }
 
@@ -180,7 +184,10 @@ func (s *EmbeddingService) requestEmbedding(ctx context.Context, baseURL, apiKey
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		client.Timeout = time.Duration(config.DefaultAIRequestTimeoutSeconds) * time.Second
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
